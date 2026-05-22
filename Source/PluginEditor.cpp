@@ -17,7 +17,7 @@ void VaneEditor::paint(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(12.0f)));
     g.setColour(juce::Colour(0xff606878));
-    g.drawText("MPE  \xc2\xb7  MTS-ESP  \xc2\xb7  CC modulation",
+    g.drawText(juce::String::fromUTF8("MPE  \xc2\xb7  MTS-ESP  \xc2\xb7  CC modulation"),
                getLocalBounds().removeFromBottom(40),
                juce::Justification::centred);
 }
