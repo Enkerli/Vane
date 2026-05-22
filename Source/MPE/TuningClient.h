@@ -1,7 +1,7 @@
 #pragma once
 
 #if VANE_HAS_MTS
-  #include "libMTS.h"
+  #include "libMTSClient.h"
 #endif
 
 // Wraps the ODDSound MTS-ESP client API.

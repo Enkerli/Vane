@@ -7,9 +7,16 @@ VaneProcessor::VaneProcessor()
       apvts(*this, nullptr, "Vane", createParameterLayout())
 {
     // 15 voices: one per MPE member channel in the lower zone
-    // MPESynthesiser has no "sound" concept — voices handle everything
+    // MPESynthesiser has no "sound" concept — voices handle everything.
+    // Parameter raw pointers are safe to read on the audio thread.
+    auto* pWave       = apvts.getRawParameterValue("oscWave");
+    auto* pDetune     = apvts.getRawParameterValue("oscDetune");
+    auto* pCutoff     = apvts.getRawParameterValue("filterCutoff");
+    auto* pRes        = apvts.getRawParameterValue("filterRes");
+    auto* pFilterMode = apvts.getRawParameterValue("filterMode");
     for (int i = 0; i < 15; ++i)
-        synth.addVoice(new SynthVoice(modMatrix, tuning));
+        synth.addVoice(new SynthVoice(modMatrix, tuning,
+                                      pWave, pDetune, pCutoff, pRes, pFilterMode));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;

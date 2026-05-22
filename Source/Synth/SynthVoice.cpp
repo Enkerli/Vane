@@ -1,12 +1,19 @@
 #include "SynthVoice.h"
 #include <cmath>
 
-SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t)
-    : modMatrix(matrix), tuning(t) {}
+SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
+                        std::atomic<float>* wave,   std::atomic<float>* detune,
+                        std::atomic<float>* cutoff, std::atomic<float>* res,
+                        std::atomic<float>* filterMode)
+    : modMatrix(matrix), tuning(t)
+    , paramWave(wave), paramDetune(detune)
+    , paramCutoff(cutoff), paramRes(res), paramFilterMode(filterMode) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
     sampleRate = sr;
+    osc.prepare(sr);
+    filter.prepare(sr);
 }
 
 void SynthVoice::noteStarted()
@@ -18,7 +25,8 @@ void SynthVoice::noteStarted()
     pitchbend = note.pitchbend.asSignedFloat();
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
 
-    phase        = 0.0f;
+    osc.reset();
+    filter.reset();
     tailLevel    = 1.0f;
     isTailingOff = false;
     active       = true;
@@ -43,7 +51,6 @@ void SynthVoice::notePressureChanged()
 void SynthVoice::notePitchbendChanged()
 {
     pitchbend = currentlyPlayingNote.pitchbend.asSignedFloat();
-    // Re-resolve MTS base in case MTS accounts for pitch-bend range too
     baseHz = tuning.noteToHz(currentlyPlayingNote.initialNote,
                               currentlyPlayingNote.midiChannel);
 }
@@ -60,26 +67,41 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 {
     if (!active) return;
 
+    // Read waveform and detune from APVTS (atomic, safe on audio thread)
+    auto waveIndex = static_cast<int>(paramWave   ? paramWave->load()   : 2.0f); // default: Saw
+    auto detuneCents =                paramDetune ? paramDetune->load() : 0.0f;
+
+    osc.setWaveform(static_cast<Oscillator::Waveform>(
+        juce::jlimit(0, 4, waveIndex)));
+
+    // Evaluate modulation for this voice
     const std::array<float, ModSourceID::NumVoiceSources> voiceVals {
         pressure, slide, pitchbend, velocity
     };
     auto mods = modMatrix.evaluate(voiceVals);
 
-    // VCA: open proportionally to pressure (+ any CC mod, e.g. breath on CC2)
-    // mods[ModDestID::VCALevel] is an additive offset in -1..1
-    float vcaBase  = pressure;                                // breath/pressure drives amplitude
-    float vcaLevel = std::clamp(vcaBase + mods[ModDestID::VCALevel], 0.0f, 1.0f);
+    // VCA: pressure is the primary amplitude source (breath/touch → volume)
+    float vcaLevel = std::clamp(pressure + mods[ModDestID::VCALevel], 0.0f, 1.0f);
 
-    // Pitch: MTS base + MPE pitch bend (±48 semitones default MPE range)
-    // mods[ModDestID::OscPitchFine] is in semitones, additive
-    constexpr float kPitchBendRangeSemitones = 48.0f;
-    float totalSemitones = pitchbend * kPitchBendRangeSemitones
-                         + mods[ModDestID::OscPitchFine];
+    // Pitch: MTS base + MPE pitch bend (±48 st) + mod matrix fine tune + APVTS detune
+    constexpr float kBendRangeSemitones = 48.0f;
+    float totalSemitones = pitchbend * kBendRangeSemitones
+                         + mods[ModDestID::OscPitchFine]
+                         + detuneCents / 100.0f;
     float hz = baseHz * std::pow(2.0f, totalSemitones / 12.0f);
+    osc.setFrequency(hz);
 
-    // ── Oscillator placeholder (sine) ────────────────────────────────────────
-    // Replace with PolyBLEP saw/square and then wavetable when ready.
-    const float phaseInc = static_cast<float>(hz / sampleRate);
+    // Filter: base cutoff from APVTS, offset by mod matrix (additive, in normalised 0..1)
+    // Map normalised mod offset to Hz: ±1 spans ±4 octaves of the base cutoff
+    float baseCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
+    float baseRes    = paramRes    ? paramRes->load()    : 0.3f;
+    float cutoffMod  = mods[ModDestID::FilterCutoff];  // -1..1
+    float cutoffHz   = baseCutoff * std::pow(2.0f, cutoffMod * 4.0f);  // ±4 octaves
+    float resonance  = std::clamp(baseRes + mods[ModDestID::FilterRes], 0.0f, 1.0f);
+    int   modeIndex  = paramFilterMode ? static_cast<int>(paramFilterMode->load()) : 0;
+    auto  filterMode = static_cast<SVFilter::Mode>(juce::jlimit(0, 2, modeIndex));
+    filter.setParameters(cutoffHz, resonance);
+
     auto* left  = buffer.getWritePointer(0, startSample);
     auto* right = buffer.getNumChannels() > 1
                   ? buffer.getWritePointer(1, startSample) : nullptr;
@@ -95,18 +117,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             }
         }
 
-        float sample = std::sin(phase * juce::MathConstants<float>::twoPi)
-                       * vcaLevel * tailLevel;
-
+        float sample = filter.process(osc.next(), filterMode) * vcaLevel * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
-
-        phase += phaseInc;
-        if (phase >= 1.0f) phase -= 1.0f;
     }
-}
-
-float SynthVoice::baseFrequencyHz() const
-{
-    return baseHz;
 }

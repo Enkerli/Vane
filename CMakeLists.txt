@@ -45,9 +45,9 @@ endif()
 # Clone libMTS into Libs/MTS-ESP:
 #   cd Libs/MTS-ESP && git clone https://github.com/ODDSound/MTS-ESP .
 # ─────────────────────────────────────────────────────────────────────────────
-if(EXISTS "${CMAKE_SOURCE_DIR}/Libs/MTS-ESP/libMTS.h")
+if(EXISTS "${CMAKE_SOURCE_DIR}/Libs/MTS-ESP/libMTSClient.h")
     set(VANE_HAS_MTS TRUE)
-    add_library(VaneMTS STATIC Libs/MTS-ESP/libMTS.cpp)
+    add_library(VaneMTS STATIC Libs/MTS-ESP/libMTSClient.cpp)
     target_include_directories(VaneMTS PUBLIC Libs/MTS-ESP)
     message(STATUS "MTS-ESP found — microtuning enabled")
 else()

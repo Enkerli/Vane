@@ -2,14 +2,16 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
+#include "Synth/Oscillator.h"
+#include "Synth/SVFilter.h"
 
-// One MPE voice. Tracks all five MPE dimensions live and feeds them
-// into the ModMatrix each block to drive filter, VCA, and pitch.
-//
-// Currently renders silence — oscillator and filter are the next step.
 class SynthVoice : public juce::MPESynthesiserVoice {
 public:
-    SynthVoice(ModMatrix& matrix, TuningClient& tuning);
+    // Raw APVTS parameter pointers — safe to read on the audio thread
+    SynthVoice(ModMatrix& matrix, TuningClient& tuning,
+               std::atomic<float>* paramWave,   std::atomic<float>* paramDetune,
+               std::atomic<float>* paramCutoff, std::atomic<float>* paramRes,
+               std::atomic<float>* paramFilterMode);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -24,23 +26,28 @@ public:
                          int startSample, int numSamples)           override;
 
 private:
-    float baseFrequencyHz() const;  // MTS-resolved note pitch (no bend yet)
-
-    ModMatrix&   modMatrix;
+    ModMatrix&    modMatrix;
     TuningClient& tuning;
 
-    double sampleRate   = 44100.0;
+    std::atomic<float>* paramWave      = nullptr;
+    std::atomic<float>* paramDetune    = nullptr;
+    std::atomic<float>* paramCutoff    = nullptr;
+    std::atomic<float>* paramRes       = nullptr;
+    std::atomic<float>* paramFilterMode = nullptr;
+
+    Oscillator osc;
+    SVFilter   filter;
+    double sampleRate = 44100.0;
 
     // Live MPE state — updated via noteXxxChanged() callbacks
-    float pressure      = 0.0f;   // 0..1
-    float slide         = 0.0f;   // 0..1 (CC74)
-    float pitchbend     = 0.0f;   // -1..1
-    float velocity      = 0.0f;   // 0..1
+    float pressure  = 0.0f;   // 0..1
+    float slide     = 0.0f;   // 0..1 (CC74)
+    float pitchbend = 0.0f;   // -1..1
+    float velocity  = 0.0f;   // 0..1
 
     // Render state
-    float baseHz        = 440.0f;
-    float phase         = 0.0f;
-    bool  active        = false;
-    bool  isTailingOff  = false;
-    float tailLevel     = 0.0f;
+    float baseHz       = 440.0f;
+    bool  active       = false;
+    bool  isTailingOff = false;
+    float tailLevel    = 0.0f;
 };
