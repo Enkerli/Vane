@@ -23,8 +23,9 @@ public:
     void setParameters(float cutoffHz, float resonance) {
         cutoffHz = juce::jlimit(20.0f, sr * 0.499f, cutoffHz);
         g = std::tan(juce::MathConstants<float>::pi * cutoffHz / sr);
-        // Map resonance 0..1 → Q 0.5..20 (mild → near-oscillation)
-        float q = 0.5f + resonance * 19.5f;
+        // Map resonance 0..1 → Q 0.5..8 (mild → pronounced but not self-oscillating)
+        // The original 0.5..20 range made even res=0.3 sound very piercing.
+        float q = 0.5f + resonance * 7.5f;
         k = 1.0f / q;
     }
 

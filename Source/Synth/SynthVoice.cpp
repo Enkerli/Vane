@@ -80,8 +80,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     };
     auto mods = modMatrix.evaluate(voiceVals);
 
-    // VCA: pressure is the primary amplitude source (breath/touch → volume)
-    float vcaLevel = std::clamp(pressure + mods[ModDestID::VCALevel], 0.0f, 1.0f);
+    // VCA base = velocity, so keyboard notes always play without any CC or pressure.
+    // The mod matrix routes (CC2, MPE pressure) ADD to this:
+    //   wind controller at full breath  → mods[VCA] = 1.0 → clamped to 1.0
+    //   wind controller at zero breath  → mods[VCA] = 0.0 → VCA = velocity (quiet but audible)
+    // To get "totally silent at zero breath", route breath with amount = -velocity and
+    // combine in the patch — that's a later concern once the mod matrix has an editor.
+    float vcaLevel = std::clamp(velocity + mods[ModDestID::VCALevel], 0.0f, 1.0f);
 
     // Pitch: MTS base + MPE pitch bend (±48 st) + mod matrix fine tune + APVTS detune
     constexpr float kBendRangeSemitones = 48.0f;

@@ -35,7 +35,7 @@ VaneProcessor::~VaneProcessor() = default;
 void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     synth.setCurrentPlaybackSampleRate(sampleRate);
-    modMatrix.prepare(sampleRate);
+    modMatrix.prepare(sampleRate, samplesPerBlock);
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* v = dynamic_cast<SynthVoice*>(synth.getVoice(i)))
@@ -84,7 +84,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filterCutoff", 1}, "Filter Cutoff",
-        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.0f, 0.25f), 4000.0f));
+        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.0f, 0.25f), 8000.0f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filterRes", 1}, "Filter Resonance",

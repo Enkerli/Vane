@@ -20,7 +20,9 @@ struct ModRoute {
 //               or behind a lock. This is intentionally simple for now.
 class ModMatrix {
 public:
-    void prepare(double sampleRate);
+    // blockSize: samples per audio block — needed so Slewer coefficients
+    // are correct for the actual call rate of evaluate().
+    void prepare(double sampleRate, int blockSize);
 
     // Called from audio thread for each CC message
     void  setCCValue(int ccNumber, float zeroToOne);
@@ -44,4 +46,5 @@ private:
     std::array<float, 128> ccValues {};   // CC 0..127, normalised 0..1
     std::vector<ModRoute>  routes;
     double sampleRate = 44100.0;
+    int    blockSize  = 512;              // updated in prepare(); used by addRoute()
 };

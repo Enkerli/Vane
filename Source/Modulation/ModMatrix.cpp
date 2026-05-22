@@ -1,11 +1,12 @@
 #include "ModMatrix.h"
 #include <algorithm>
 
-void ModMatrix::prepare(double sr)
+void ModMatrix::prepare(double sr, int bs)
 {
     sampleRate = sr;
+    blockSize  = bs;
     for (auto& r : routes)
-        r.slewer.prepare(sr);
+        r.slewer.prepare(sr, bs);
 }
 
 void ModMatrix::setCCValue(int ccNumber, float value)
@@ -40,8 +41,8 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
     std::array<float, ModDestID::NumDests> result {};
 
     for (auto& route : routes) {
-        float raw    = getSourceValue(route.source, voiceVals);
-        float slewed = route.slewer.process(raw);
+        float raw          = getSourceValue(route.source, voiceVals);
+        float slewed       = route.slewer.process(raw);
         float contribution = slewed * route.amount;
         result[route.dest] = std::clamp(
             result[route.dest] + contribution, -1.0f, 1.0f);
@@ -57,7 +58,7 @@ void ModMatrix::addRoute(int source, int dest, float amount,
     r.source = source;
     r.dest   = dest;
     r.amount = amount;
-    r.slewer.prepare(sampleRate);
+    r.slewer.prepare(sampleRate, blockSize);
     r.slewer.setRates(attackMs, releaseMs);
     routes.push_back(std::move(r));
 }
