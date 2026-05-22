@@ -1,0 +1,47 @@
+#pragma once
+#include <array>
+#include <vector>
+#include "ModSource.h"
+#include "Slewer.h"
+
+struct ModRoute {
+    int   source = 0;
+    int   dest   = 0;
+    float amount = 0.0f;  // -1.0 to 1.0; positive = add, negative = subtract
+    Slewer slewer;
+};
+
+// Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
+// CC values are written per MIDI message; per-voice MPE values are passed
+// at evaluate() time so each voice gets its own mod result.
+//
+// Thread model: setCCValue is called from the audio thread (processBlock).
+//               addRoute / clearRoutes should only be called while audio is stopped
+//               or behind a lock. This is intentionally simple for now.
+class ModMatrix {
+public:
+    void prepare(double sampleRate);
+
+    // Called from audio thread for each CC message
+    void  setCCValue(int ccNumber, float zeroToOne);
+    float getCCValue(int ccNumber) const;
+
+    // Evaluate all routes for one voice.
+    // voiceVals: [MPE_Pressure, MPE_Slide, MPE_Pitchbend, Velocity]
+    // Returns summed, clamped modulation per destination.
+    std::array<float, ModDestID::NumDests>
+    evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals);
+
+    void addRoute(int source, int dest, float amount,
+                  float attackMs = 5.0f, float releaseMs = 30.0f);
+    void clearRoutes();
+    int  routeCount() const { return static_cast<int>(routes.size()); }
+
+private:
+    float getSourceValue(int sourceID,
+                         const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const;
+
+    std::array<float, 128> ccValues {};   // CC 0..127, normalised 0..1
+    std::vector<ModRoute>  routes;
+    double sampleRate = 44100.0;
+};
