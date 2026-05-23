@@ -89,4 +89,4 @@ Slide is converted to bipolar (±1) before routing so the filter sweeps symmetri
 
 ## Licence
 
-[CC0 1.0 Universal](LICENSE) — public domain dedication.
+[The Unlicense](LICENSE) — public domain.

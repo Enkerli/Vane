@@ -63,7 +63,7 @@ set(PLUGIN_BASE_PROPS
     PLUGIN_MANUFACTURER_CODE    Enke
     PLUGIN_CODE                 VAne
     PRODUCT_NAME                "Vane"
-    DESCRIPTION                 "MPE synthesizer — responds to input, shapes sound"
+    DESCRIPTION                 "MPE synthesizer - responds to input, shapes sound"
     IS_SYNTH                    TRUE
     NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
