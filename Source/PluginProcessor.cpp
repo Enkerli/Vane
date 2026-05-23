@@ -134,7 +134,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     //   1.0 = Keyboard mode: velocity is the amplitude base; CC/pressure add on top.
     //   0.x = Hybrid: partial velocity accent on top of breath control.
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"velocityMix", 1}, "Velocity → VCA",
+        juce::ParameterID{"velocityMix", 1}, "Velocity to VCA",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // Mono mode: single-voice legato with oscillator phase continuity across note
