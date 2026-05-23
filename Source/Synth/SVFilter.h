@@ -19,6 +19,12 @@ public:
 
     void reset() { s1 = s2 = 0.0f; }
 
+    // State transfer for seamless legato voice handoff.
+    // The caller must prime coefficients (setResonance + setCutoff) BEFORE setState
+    // so that the restored s1/s2 are interpreted under the correct g/k.
+    void getState(float& s1Out, float& s2Out) const { s1Out = s1; s2Out = s2; }
+    void setState(float s1In,   float s2In)         { s1 = s1In; s2 = s2In; }
+
     // cutoffHz: 20..20000, resonance: 0..1 (0 = no resonance, 1 = self-oscillation)
     // Convenience: sets both at once. Fine for one-shot calls; not for the sample loop.
     void setParameters(float cutoffHz, float resonance) {

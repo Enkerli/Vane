@@ -21,7 +21,8 @@ VaneProcessor::VaneProcessor()
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
                                       pGlide, &lastNoteHz, &lastVCALevel,
-                                      &legatoGeneration, &lastOscPhase, pMono));
+                                      &legatoGeneration, &lastOscPhase, pMono,
+                                      &lastFilterS1, &lastFilterS2, &lastCutoffHz));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;

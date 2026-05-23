@@ -63,6 +63,15 @@ private:
     // without a phase discontinuity (audible as a click at the note boundary).
     std::atomic<float> lastOscPhase { 0.0f };
 
+    // Filter state for legato handoff.  Even with perfect oscillator phase sync,
+    // switching to a new voice with different SVF integrator states (s1, s2) causes
+    // a step-response transient (filter ringing) audible as a multi-sample click.
+    // Publishing s1/s2 + the exact cutoff Hz lets the new voice prime its filter
+    // coefficients and restore the state before its first process() call.
+    std::atomic<float> lastFilterS1   { 0.0f };
+    std::atomic<float> lastFilterS2   { 0.0f };
+    std::atomic<float> lastCutoffHz   { 4000.0f };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneProcessor)

@@ -18,7 +18,10 @@ public:
                std::atomic<float>*    lastVCALevel,
                std::atomic<uint32_t>* legatoGeneration,
                std::atomic<float>*    lastOscPhase,
-               std::atomic<float>*    paramMono);
+               std::atomic<float>*    paramMono,
+               std::atomic<float>*    lastFilterS1,
+               std::atomic<float>*    lastFilterS2,
+               std::atomic<float>*    lastCutoffHz);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -48,6 +51,9 @@ private:
     std::atomic<uint32_t>* sharedLegatoGen    = nullptr;  // kill-old-voice counter
     std::atomic<float>*    sharedOscPhase     = nullptr;  // oscillator phase handoff
     std::atomic<float>*    paramMono          = nullptr;  // 0 = poly, 1 = mono
+    std::atomic<float>*    sharedFilterS1     = nullptr;  // SVF integrator state handoff
+    std::atomic<float>*    sharedFilterS2     = nullptr;
+    std::atomic<float>*    sharedCutoffHz     = nullptr;  // smoothed cutoff at handoff
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 

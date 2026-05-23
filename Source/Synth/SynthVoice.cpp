@@ -8,7 +8,9 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    glide,     std::atomic<float>*    lastNoteHz,
                         std::atomic<float>*    lastVCALevel,
                         std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase,
-                        std::atomic<float>*    mono)
+                        std::atomic<float>*    mono,
+                        std::atomic<float>*    filterS1,  std::atomic<float>*    filterS2,
+                        std::atomic<float>*    cutoffHz)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -16,7 +18,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
     , sharedLastVCALevel(lastVCALevel)
     , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase)
-    , paramMono(mono) {}
+    , paramMono(mono)
+    , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
@@ -68,7 +71,9 @@ void SynthVoice::noteStarted()
     // to 0 when the oscillator is not at phase=0 would cause a brief step-response
     // transient — the "attack bloop" on legato transitions.
 
-    // Snap the cutoff smoother; target is recalculated on the first renderNextBlock.
+    // Cutoff smoother: default to the base parameter value; overridden below for
+    // mono legato so the new voice's filter starts at the exact Hz the old voice
+    // was using, avoiding a coefficient mismatch that would corrupt the state transfer.
     float initCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
     smoothedCutoff.setCurrentAndTargetValue(initCutoff);
 
@@ -107,16 +112,38 @@ void SynthVoice::noteStarted()
     else if (!isMono && sharedLegatoGen)
         myLegatoGen = sharedLegatoGen->load();   // adopt current gen, no kill
 
-    // Phase sync: mono legato notes only.  Non-legato notes start at near-zero VCA
-    // (breath was off), so the oscillator's frozen phase is inaudible and there
-    // is nothing meaningful to continue from.  In poly mode, each voice starts
-    // independently — no shared phase state.
+    // Phase + filter state sync: mono legato notes only.
     //
-    // sharedOscPhase is written by osc.getPhase() after the old voice's last
-    // next() call.  Because next() increments phase before returning, getPhase()
+    // Non-legato notes start at near-zero VCA (breath was off), so the oscillator's
+    // frozen phase is inaudible and there is nothing meaningful to continue from.
+    // In poly mode, each voice starts independently — no shared state.
+    //
+    // Oscillator: sharedOscPhase was written by osc.getPhase() after the old voice's
+    // last next() call.  Because next() increments phase before returning, getPhase()
     // already holds the phase for *this* voice's first sample — no extra phaseInc.
-    if (isMono && isLegato && sharedOscPhase)
-        osc.reset(sharedOscPhase->load());
+    //
+    // Filter: even with identical oscillator phase, a new SVF with different integrator
+    // states (s1, s2) produces a different output → multi-sample step-response transient
+    // audible as a click.  Fix: prime the new filter with the same coefficients the old
+    // voice was using (setResonance then setCutoff), then restore s1/s2.  The coefficient
+    // prime MUST come before setState so the states are interpreted correctly.
+    if (isMono && isLegato) {
+        if (sharedOscPhase)
+            osc.reset(sharedOscPhase->load());
+
+        if (sharedCutoffHz && sharedFilterS1 && sharedFilterS2) {
+            float c = sharedCutoffHz->load();
+            float r = paramRes ? paramRes->load() : 0.3f;
+            // Prime coefficients to match the old voice's last filter state.
+            filter.setResonance(r);
+            filter.setCutoff(c);
+            // Restore integrator states — now valid under these coefficients.
+            filter.setState(sharedFilterS1->load(), sharedFilterS2->load());
+            // Snap the cutoff smoother to the inherited Hz so the first block's
+            // per-sample setCutoff() calls start from the right place.
+            smoothedCutoff.setCurrentAndTargetValue(c);
+        }
+    }
 
     tailLevel    = 1.0f;
     isTailingOff = false;
@@ -245,10 +272,21 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // Phase: osc.next() increments phase before returning, so getPhase() already
     //   holds the phase for the *next* sample.  noteStarted() passes this directly
     //   to osc.reset() — no extra advance needed — giving a sample-exact handoff.
+    // Filter: s1/s2 are the SVF integrator states after the last process() call.
+    //   Transferring them to the new voice (along with the exact cutoff Hz used)
+    //   eliminates the step-response transient that caused multi-sample clicks on
+    //   every mono legato transition.
     // In mono mode, only the voice that passed the gen check above reaches here,
-    // so sharedOscPhase is always written by exactly the current voice.
+    // so these atomics are always written by exactly the current voice.
     // In poly mode, all voices publish — the last one to render "wins", which is
-    // fine since phase sync is only used when returning to mono.
+    // fine since state sync is only used when returning to mono.
     if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
+    if (sharedFilterS1 && sharedFilterS2) {
+        float s1, s2;
+        filter.getState(s1, s2);
+        sharedFilterS1->store(s1);
+        sharedFilterS2->store(s2);
+    }
+    if (sharedCutoffHz) sharedCutoffHz->store(smoothedCutoff.getCurrentValue());
 }
