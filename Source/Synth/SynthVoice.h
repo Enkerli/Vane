@@ -9,9 +9,9 @@ class SynthVoice : public juce::MPESynthesiserVoice {
 public:
     // Raw APVTS parameter pointers — safe to read on the audio thread
     SynthVoice(ModMatrix& matrix, TuningClient& tuning,
-               std::atomic<float>* paramWave,   std::atomic<float>* paramDetune,
-               std::atomic<float>* paramCutoff, std::atomic<float>* paramRes,
-               std::atomic<float>* paramFilterMode);
+               std::atomic<float>* paramWave,        std::atomic<float>* paramDetune,
+               std::atomic<float>* paramCutoff,      std::atomic<float>* paramRes,
+               std::atomic<float>* paramFilterMode,  std::atomic<float>* paramVelocityMix);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -29,11 +29,12 @@ private:
     ModMatrix&    modMatrix;
     TuningClient& tuning;
 
-    std::atomic<float>* paramWave      = nullptr;
-    std::atomic<float>* paramDetune    = nullptr;
-    std::atomic<float>* paramCutoff    = nullptr;
-    std::atomic<float>* paramRes       = nullptr;
-    std::atomic<float>* paramFilterMode = nullptr;
+    std::atomic<float>* paramWave        = nullptr;
+    std::atomic<float>* paramDetune      = nullptr;
+    std::atomic<float>* paramCutoff      = nullptr;
+    std::atomic<float>* paramRes         = nullptr;
+    std::atomic<float>* paramFilterMode  = nullptr;
+    std::atomic<float>* paramVelocityMix = nullptr;
 
     Oscillator osc;
     SVFilter   filter;
