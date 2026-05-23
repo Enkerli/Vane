@@ -53,6 +53,16 @@ private:
     // at the current breath level rather than snapping in from zero.
     std::atomic<float> lastVCALevel { 0.0f };
 
+    // Legato voice-kill counter. Incremented by each new legato note; old voices
+    // compare their stored generation against this and die immediately at the top
+    // of their next renderNextBlock, eliminating the two-voice phase-beating artifact.
+    std::atomic<uint32_t> legatoGeneration { 0 };
+
+    // Phase of the most recently active oscillator, published at end of every block.
+    // New legato voices read this + advance one phaseInc to continue the waveform
+    // without a phase discontinuity (audible as a click at the note boundary).
+    std::atomic<float> lastOscPhase { 0.0f };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneProcessor)

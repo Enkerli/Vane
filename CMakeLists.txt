@@ -108,6 +108,21 @@ endif()
 
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-finput-charset=UTF-8>)
 
+# ── Build timestamp ───────────────────────────────────────────────────────────
+# Regenerates BuildStamp.h on every build so __DATE__/__TIME__ don't freeze
+# when PluginEditor.cpp stops changing.  Uses an ALL custom target so Ninja
+# always re-runs the cmake script before compiling the plugin.
+set(VANE_STAMP_H "${CMAKE_CURRENT_BINARY_DIR}/BuildStamp.h")
+add_custom_target(Vane_GenBuildStamp ALL
+    COMMAND "${CMAKE_COMMAND}"
+            "-DOUTPUT=${VANE_STAMP_H}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenBuildStamp.cmake"
+    BYPRODUCTS "${VANE_STAMP_H}"
+    COMMENT "Generating build timestamp → BuildStamp.h"
+    VERBATIM)
+add_dependencies(Vane Vane_GenBuildStamp)
+target_include_directories(Vane PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
 # ── Sources ───────────────────────────────────────────────────────────────────
 target_sources(Vane PRIVATE
     Source/PluginProcessor.cpp

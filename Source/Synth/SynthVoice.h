@@ -11,11 +11,13 @@ public:
     // lastNoteHz: shared across all voices; read in noteStarted() to glide
     //             from the previous pitch when glideTime > 0.
     SynthVoice(ModMatrix& matrix, TuningClient& tuning,
-               std::atomic<float>* paramWave,        std::atomic<float>* paramDetune,
-               std::atomic<float>* paramCutoff,      std::atomic<float>* paramRes,
-               std::atomic<float>* paramFilterMode,  std::atomic<float>* paramVelocityMix,
-               std::atomic<float>* paramGlide,       std::atomic<float>* lastNoteHz,
-               std::atomic<float>* lastVCALevel);
+               std::atomic<float>*    paramWave,      std::atomic<float>*    paramDetune,
+               std::atomic<float>*    paramCutoff,    std::atomic<float>*    paramRes,
+               std::atomic<float>*    paramFilterMode,std::atomic<float>*    paramVelocityMix,
+               std::atomic<float>*    paramGlide,     std::atomic<float>*    lastNoteHz,
+               std::atomic<float>*    lastVCALevel,
+               std::atomic<uint32_t>* legatoGeneration,
+               std::atomic<float>*    lastOscPhase);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -39,9 +41,13 @@ private:
     std::atomic<float>* paramRes         = nullptr;
     std::atomic<float>* paramFilterMode  = nullptr;
     std::atomic<float>* paramVelocityMix = nullptr;
-    std::atomic<float>* paramGlide        = nullptr;
-    std::atomic<float>* sharedLastNoteHz  = nullptr;  // shared with all voices
-    std::atomic<float>* sharedLastVCALevel = nullptr; // shared with all voices
+    std::atomic<float>*    paramGlide         = nullptr;
+    std::atomic<float>*    sharedLastNoteHz   = nullptr;
+    std::atomic<float>*    sharedLastVCALevel = nullptr;
+    std::atomic<uint32_t>* sharedLegatoGen    = nullptr;  // kill-old-voice counter
+    std::atomic<float>*    sharedOscPhase     = nullptr;  // oscillator phase handoff
+
+    uint32_t myLegatoGen = 0;  // generation this voice was born into
 
     Oscillator osc;
     SVFilter   filter;

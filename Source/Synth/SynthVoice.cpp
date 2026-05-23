@@ -2,17 +2,19 @@
 #include <cmath>
 
 SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
-                        std::atomic<float>* wave,        std::atomic<float>* detune,
-                        std::atomic<float>* cutoff,      std::atomic<float>* res,
-                        std::atomic<float>* filterMode,  std::atomic<float>* velocityMix,
-                        std::atomic<float>* glide,       std::atomic<float>* lastNoteHz,
-                        std::atomic<float>* lastVCALevel)
+                        std::atomic<float>*    wave,      std::atomic<float>*    detune,
+                        std::atomic<float>*    cutoff,    std::atomic<float>*    res,
+                        std::atomic<float>*    filterMode,std::atomic<float>*    velocityMix,
+                        std::atomic<float>*    glide,     std::atomic<float>*    lastNoteHz,
+                        std::atomic<float>*    lastVCALevel,
+                        std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
     , paramFilterMode(filterMode), paramVelocityMix(velocityMix)
     , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
-    , sharedLastVCALevel(lastVCALevel) {}
+    , sharedLastVCALevel(lastVCALevel)
+    , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
@@ -69,8 +71,7 @@ void SynthVoice::noteStarted()
     smoothedCutoff.setCurrentAndTargetValue(initCutoff);
 
     // VCA: initialise from the shared last-active level so that a new voice on a
-    // legato note starts at the current breath amplitude, not at zero.  This
-    // eliminates the "bloop" caused by a sudden amplitude step from 0 → breath.
+    // legato note starts at the current breath amplitude, not at zero.
     float initVCA = sharedLastVCALevel ? sharedLastVCALevel->load() : 0.0f;
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
@@ -79,12 +80,40 @@ void SynthVoice::noteStarted()
     float prevHz  = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
     smoothedHz.reset(sampleRate, static_cast<double>(glideMs) * 0.001);
     if (glideMs > 0.0f && prevHz > 0.0f) {
-        smoothedHz.setCurrentAndTargetValue(prevHz);   // start from last note
-        smoothedHz.setTargetValue(baseHz);             // ramp to this note
+        smoothedHz.setCurrentAndTargetValue(prevHz);
+        smoothedHz.setTargetValue(baseHz);
     } else {
-        smoothedHz.setCurrentAndTargetValue(baseHz);   // hard snap (no glide / first note)
+        smoothedHz.setCurrentAndTargetValue(baseHz);
     }
     if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
+
+    // Legato phase continuity + voice kill.
+    // When breath is flowing (isLegato), this note must be the only voice sounding.
+    // We:
+    //   a) increment legatoGeneration so any currently tailing voice sees a new
+    //      generation at the top of its next renderNextBlock and dies immediately
+    //      — eliminating the two-voice phase-beating that causes the audible bloop.
+    //   b) sync the oscillator phase from sharedOscPhase (published each block by
+    //      the previous voice) so the waveform is continuous at the handoff point.
+    bool isLegato = (initVCA > 0.02f);
+    if (isLegato && sharedLegatoGen) {
+        myLegatoGen = ++(*sharedLegatoGen);   // atomically bump + read new value
+        // Phase sync: start one sample ahead of where the old voice left off.
+        // sharedOscPhase holds the phase at the last sample of the old voice's
+        // most recent block; advancing by phaseInc gives sample 0 of this block.
+        if (sharedOscPhase) {
+            float storedPhase = sharedOscPhase->load();
+            float startHz     = (prevHz > 0.0f) ? prevHz : baseHz;
+            float phaseInc    = startHz / static_cast<float>(sampleRate);
+            float newPhase    = storedPhase + phaseInc;
+            if (newPhase >= 1.0f) newPhase -= 1.0f;
+            osc.reset(newPhase);
+        }
+    } else {
+        // Non-legato (first note from silence): just adopt the current generation
+        // without killing anything, and leave the oscillator at its frozen phase.
+        myLegatoGen = sharedLegatoGen ? sharedLegatoGen->load() : 0;
+    }
 
     tailLevel    = 1.0f;
     isTailingOff = false;
@@ -125,6 +154,16 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                   int startSample, int numSamples)
 {
     if (!active) return;
+
+    // Legato voice-kill: if a newer note has started while we were tailing off,
+    // die immediately rather than ghost alongside the new voice and cause the
+    // phase-beating bloop.  Checked at the top of every sub-block so mid-block
+    // MIDI events (JUCE splits blocks at note positions) are handled correctly.
+    if (sharedLegatoGen && sharedLegatoGen->load() != myLegatoGen) {
+        active = false; isTailingOff = false;
+        clearCurrentNote();
+        return;
+    }
 
     auto waveIndex   = static_cast<int>(paramWave   ? paramWave->load()   : 2.0f);
     auto detuneCents =                  paramDetune ? paramDetune->load() : 0.0f;
@@ -196,7 +235,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         if (right) right[i] += sample;
     }
 
-    // Publish the actual VCA level at end of block so the next noteStarted()
-    // can initialise seamlessly from here (avoids the 0→breath amplitude snap).
+    // Publish state for the next voice to inherit.
+    // VCA: next noteStarted() reads this to initialise smoothedVCA seamlessly.
+    // Phase: next noteStarted() advances this by one phaseInc to get sample 0's phase,
+    //   giving a perfectly continuous waveform at legato note boundaries.
     if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
+    if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
 }

@@ -64,6 +64,11 @@ public:
         return out;
     }
 
+    // Returns the current phase (0..1). Used by SynthVoice to publish the phase
+    // at end-of-block so the next voice can start at exactly the right position,
+    // producing a seamless waveform with no click at legato note transitions.
+    float getPhase() const { return phase; }
+
     void reset(float startPhase = 0.0f) { phase = startPhase; }
 
 private:
