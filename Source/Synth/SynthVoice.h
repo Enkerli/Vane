@@ -7,11 +7,14 @@
 
 class SynthVoice : public juce::MPESynthesiserVoice {
 public:
-    // Raw APVTS parameter pointers — safe to read on the audio thread
+    // Raw APVTS parameter pointers — safe to read on the audio thread.
+    // lastNoteHz: shared across all voices; read in noteStarted() to glide
+    //             from the previous pitch when glideTime > 0.
     SynthVoice(ModMatrix& matrix, TuningClient& tuning,
                std::atomic<float>* paramWave,        std::atomic<float>* paramDetune,
                std::atomic<float>* paramCutoff,      std::atomic<float>* paramRes,
-               std::atomic<float>* paramFilterMode,  std::atomic<float>* paramVelocityMix);
+               std::atomic<float>* paramFilterMode,  std::atomic<float>* paramVelocityMix,
+               std::atomic<float>* paramGlide,       std::atomic<float>* lastNoteHz);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -35,10 +38,21 @@ private:
     std::atomic<float>* paramRes         = nullptr;
     std::atomic<float>* paramFilterMode  = nullptr;
     std::atomic<float>* paramVelocityMix = nullptr;
+    std::atomic<float>* paramGlide       = nullptr;
+    std::atomic<float>* sharedLastNoteHz = nullptr;  // shared with all voices
 
     Oscillator osc;
     SVFilter   filter;
     double sampleRate = 44100.0;
+
+    // Per-sample cutoff interpolation — eliminates block-boundary coefficient steps
+    // that cause audible crunchiness under breath/mod-driven filter sweeps.
+    // Multiplicative (geometric) ramping matches logarithmic frequency perception.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedCutoff;
+
+    // Portamento — glides the oscillator pitch between notes when glideTime > 0.
+    // Also Multiplicative so semitone spacing stays perceptually even over the ramp.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedHz;
 
     // Live MPE state — updated via noteXxxChanged() callbacks
     float pressure  = 0.0f;   // 0..1

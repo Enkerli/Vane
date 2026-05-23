@@ -15,9 +15,11 @@ VaneProcessor::VaneProcessor()
     auto* pRes        = apvts.getRawParameterValue("filterRes");
     auto* pFilterMode = apvts.getRawParameterValue("filterMode");
     auto* pVeloMix    = apvts.getRawParameterValue("velocityMix");
+    auto* pGlide      = apvts.getRawParameterValue("glideTime");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
-                                      pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix));
+                                      pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
+                                      pGlide, &lastNoteHz));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;

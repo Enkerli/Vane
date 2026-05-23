@@ -42,6 +42,12 @@ public:
 private:
     juce::MPESynthesiser synth;
 
+    // Shared across all voices: the Hz of the most recently started note.
+    // New voices read this in noteStarted() to glide from the previous pitch
+    // when glideTime > 0. Monophonic controllers only — MPE poly is unaffected
+    // because players set glideTime = 0 for poly use.
+    std::atomic<float> lastNoteHz { 0.0f };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneProcessor)

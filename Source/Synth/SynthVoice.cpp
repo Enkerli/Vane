@@ -4,17 +4,29 @@
 SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>* wave,        std::atomic<float>* detune,
                         std::atomic<float>* cutoff,      std::atomic<float>* res,
-                        std::atomic<float>* filterMode,  std::atomic<float>* velocityMix)
+                        std::atomic<float>* filterMode,  std::atomic<float>* velocityMix,
+                        std::atomic<float>* glide,       std::atomic<float>* lastNoteHz)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
-    , paramFilterMode(filterMode), paramVelocityMix(velocityMix) {}
+    , paramFilterMode(filterMode), paramVelocityMix(velocityMix)
+    , paramGlide(glide), sharedLastNoteHz(lastNoteHz) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
     sampleRate = sr;
     osc.prepare(sr);
     filter.prepare(sr);
+
+    // 3 ms ramp: long enough to bridge any block boundary without audible lag.
+    // Geometric interpolation keeps filter sweeps perceptually linear in pitch.
+    float initCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
+    smoothedCutoff.reset(sr, 0.003);
+    smoothedCutoff.setCurrentAndTargetValue(initCutoff);
+
+    // Pitch smoother: time is set per-note from glideTime; snap to 440 for now.
+    smoothedHz.reset(sr, 0.0);
+    smoothedHz.setCurrentAndTargetValue(440.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -38,6 +50,27 @@ void SynthVoice::noteStarted()
 
     osc.reset();
     filter.reset();
+    // Snap the cutoff smoother so the new note doesn't inherit a mid-ramp cutoff
+    // position from the previous note.  Target is recalculated in renderNextBlock.
+    float initCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
+    smoothedCutoff.setCurrentAndTargetValue(initCutoff);
+
+    // Portamento: glide from the previous note's pitch if glideTime > 0.
+    // sharedLastNoteHz carries the most recent target across all voices so
+    // monophonic controllers (Sylphyo, WX-11) get smooth legato regardless
+    // of which JUCE voice object the MPE engine assigns.
+    float glideMs = paramGlide ? paramGlide->load() : 0.0f;
+    float prevHz  = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
+    smoothedHz.reset(sampleRate, static_cast<double>(glideMs) * 0.001);
+    if (glideMs > 0.0f && prevHz > 0.0f) {
+        smoothedHz.setCurrentAndTargetValue(prevHz);   // start from last note
+        smoothedHz.setTargetValue(baseHz);             // ramp to this note
+    } else {
+        smoothedHz.setCurrentAndTargetValue(baseHz);   // hard snap (no glide / first note)
+    }
+    // Record this note's target so the next noteStarted() can glide from here.
+    if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
+
     tailLevel    = 1.0f;
     isTailingOff = false;
     active       = true;
@@ -101,23 +134,29 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float vcaLevel = std::clamp(veloMix * std::sqrt(velocity)
                                 + mods[ModDestID::VCALevel], 0.0f, 1.0f);
 
-    // Pitch: MTS base + MPE pitchbend (±48 st) + mod matrix fine tune + detune
+    // Pitch: pitchbend (±48 st) + mod matrix fine tune + detune, as a per-block
+    // multiplier applied on top of the per-sample smoothed base frequency.
+    // Keeping std::pow() out of the sample loop avoids per-sample exp() cost.
     constexpr float kBendRangeSemitones = 48.0f;
     float totalSemitones = pitchbend * kBendRangeSemitones
                          + mods[ModDestID::OscPitchFine]
                          + detuneCents / 100.0f;
-    float hz = baseHz * std::pow(2.0f, totalSemitones / 12.0f);
-    if (!std::isfinite(hz) || hz <= 0.0f) hz = 440.0f;  // guard against bad MTS + pitchbend
-    osc.setFrequency(hz);
+    float pitchMult = std::pow(2.0f, totalSemitones / 12.0f);
+    if (!std::isfinite(pitchMult) || pitchMult <= 0.0f) pitchMult = 1.0f;
 
-    // Filter: base cutoff from APVTS; mod matrix offset is ±4 octaves at ±1.
-    float baseCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
-    float baseRes    = paramRes    ? paramRes->load()    : 0.3f;
-    float cutoffHz   = baseCutoff * std::pow(2.0f, mods[ModDestID::FilterCutoff] * 4.0f);
-    float resonance  = std::clamp(baseRes + mods[ModDestID::FilterRes], 0.0f, 1.0f);
-    int   modeIndex  = paramFilterMode ? static_cast<int>(paramFilterMode->load()) : 0;
-    auto  filterMode = static_cast<SVFilter::Mode>(juce::jlimit(0, 2, modeIndex));
-    filter.setParameters(cutoffHz, resonance);
+    // Filter: resonance and mode are block-rate parameters — set once per block.
+    // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
+    // step changes at block boundaries that cause crunchiness during breath sweeps.
+    float baseCutoff   = paramCutoff ? paramCutoff->load() : 4000.0f;
+    float baseRes      = paramRes    ? paramRes->load()    : 0.3f;
+    float targetCutoff = baseCutoff * std::pow(2.0f, mods[ModDestID::FilterCutoff] * 4.0f);
+    float resonance    = std::clamp(baseRes + mods[ModDestID::FilterRes], 0.0f, 1.0f);
+    int   modeIndex    = paramFilterMode ? static_cast<int>(paramFilterMode->load()) : 0;
+    auto  filterMode   = static_cast<SVFilter::Mode>(juce::jlimit(0, 2, modeIndex));
+
+    // Resonance sets k; cutoff (g, a1-a3) updates happen per-sample below.
+    filter.setResonance(resonance);
+    smoothedCutoff.setTargetValue(juce::jlimit(20.0f, 20000.0f, targetCutoff));
 
     auto* left  = buffer.getWritePointer(0, startSample);
     auto* right = buffer.getNumChannels() > 1
@@ -132,6 +171,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 break;
             }
         }
+        // Advance smoothers one sample each: cutoff bridges block boundaries;
+        // smoothedHz provides glide/portamento between notes.
+        filter.setCutoff(smoothedCutoff.getNextValue());
+        osc.setFrequency(smoothedHz.getNextValue() * pitchMult);
         float sample = filter.process(osc.next(), filterMode) * vcaLevel * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;

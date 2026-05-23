@@ -20,13 +20,26 @@ public:
     void reset() { s1 = s2 = 0.0f; }
 
     // cutoffHz: 20..20000, resonance: 0..1 (0 = no resonance, 1 = self-oscillation)
+    // Convenience: sets both at once. Fine for one-shot calls; not for the sample loop.
     void setParameters(float cutoffHz, float resonance) {
-        cutoffHz = juce::jlimit(20.0f, sr * 0.499f, cutoffHz);
-        g = std::tan(juce::MathConstants<float>::pi * cutoffHz / sr);
-        // Map resonance 0..1 → Q 0.5..8
+        setResonance(resonance);   // updates k first
+        setCutoff(cutoffHz);       // uses the fresh k
+    }
+
+    // Update only resonance (g unchanged). Call once per block.
+    void setResonance(float resonance) {
         float q = 0.5f + resonance * 7.5f;
         k  = 1.0f / q;
-        // Precompute coefficients (updated every block — cheap, avoids div in process())
+        a1 = 1.0f / (1.0f + g * (g + k));
+        a2 = g * a1;
+        a3 = g * a2;
+    }
+
+    // Update only cutoff (k unchanged). Call per-sample inside the render loop
+    // for smooth, zipper-free filter sweeps driven by breath/mod/LFO.
+    void setCutoff(float cutoffHz) {
+        cutoffHz = juce::jlimit(20.0f, sr * 0.499f, cutoffHz);
+        g  = std::tan(juce::MathConstants<float>::pi * cutoffHz / sr);
         a1 = 1.0f / (1.0f + g * (g + k));
         a2 = g * a1;
         a3 = g * a2;
