@@ -36,6 +36,9 @@ public:
     ModMatrix    modMatrix;
     TuningClient tuning;
 
+    void reconnectMTS()      { tuning.reconnect(); }
+    bool mtsConnected() const { return tuning.hasMaster(); }
+
 private:
     juce::MPESynthesiser synth;
 
