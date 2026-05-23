@@ -79,14 +79,23 @@ void SynthVoice::noteStarted()
 
     // VCA: initialise from the shared last-active level so that a new voice on a
     // legato note starts at the current breath amplitude, not at zero.
-    float initVCA = sharedLastVCALevel ? sharedLastVCALevel->load() : 0.0f;
+    // Published as smoothedVCA × tailLevel (see renderNextBlock publish comment),
+    // so this correctly reads near-zero for a tailing-off voice.
+    float initVCA  = sharedLastVCALevel ? sharedLastVCALevel->load() : 0.0f;
+    // isLegato is derived early — it gates portamento, phase sync, and filter sync.
+    // Threshold 0.02: breath clearly off → non-legato attack; clearly on → legato.
+    bool  isLegato = (initVCA > 0.02f);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
-    // Portamento: glide from the previous note's pitch if glideTime > 0.
+    // Portamento: glide from the previous note's pitch if glideTime > 0 AND the
+    // transition is legato (breath was continuously on).  Non-legato attacks snap
+    // to pitch immediately regardless of glideTime — otherwise a note played after
+    // a long silence glides in from the previous pitch (audibly wrong), and a
+    // false-legato from a tailing-off voice would also produce the wrong initial pitch.
     float glideMs = paramGlide ? paramGlide->load() : 0.0f;
     float prevHz  = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
     smoothedHz.reset(sampleRate, static_cast<double>(glideMs) * 0.001);
-    if (glideMs > 0.0f && prevHz > 0.0f) {
+    if (isLegato && glideMs > 0.0f && prevHz > 0.0f) {
         smoothedHz.setCurrentAndTargetValue(prevHz);
         smoothedHz.setTargetValue(baseHz);
     } else {
@@ -104,8 +113,7 @@ void SynthVoice::noteStarted()
     // with its arbitrary frozen phase, poisoning the next legato note's phase sync.
     //
     // In poly mode the kill mechanism is disabled entirely so voices can coexist.
-    bool isLegato = (initVCA > 0.02f);
-    bool isMono   = paramMono && (paramMono->load() > 0.5f);
+    bool isMono = paramMono && (paramMono->load() > 0.5f);
 
     if (isMono && sharedLegatoGen)
         myLegatoGen = ++(*sharedLegatoGen);
@@ -268,19 +276,30 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // Publish state for the next voice to inherit.
-    // VCA: next noteStarted() reads this to initialise smoothedVCA seamlessly.
+    //
+    // VCA: published as smoothedVCA × tailLevel — the actual output amplitude, not the
+    //   raw smoothed level.  This is critical: a tailing-off voice may have
+    //   smoothedVCA=0.87 (breath was recently high) but tailLevel=0.04 (signal is
+    //   barely audible).  Publishing 0.87 without the tailLevel factor causes the next
+    //   voice to start with initVCA=0.87, triggering a false-legato (isLegato=true)
+    //   and a 22× amplitude jump at every attack-from-tail-off note.
+    //   Publishing the product (≈ 0.035) correctly identifies the note as non-legato
+    //   (< 0.02 threshold) and lets the new voice ramp up cleanly from near-silence.
+    //
     // Phase: osc.next() increments phase before returning, so getPhase() already
     //   holds the phase for the *next* sample.  noteStarted() passes this directly
     //   to osc.reset() — no extra advance needed — giving a sample-exact handoff.
+    //
     // Filter: s1/s2 are the SVF integrator states after the last process() call.
     //   Transferring them to the new voice (along with the exact cutoff Hz used)
     //   eliminates the step-response transient that caused multi-sample clicks on
     //   every mono legato transition.
+    //
     // In mono mode, only the voice that passed the gen check above reaches here,
     // so these atomics are always written by exactly the current voice.
     // In poly mode, all voices publish — the last one to render "wins", which is
     // fine since state sync is only used when returning to mono.
-    if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
+    if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue() * tailLevel);
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
     if (sharedFilterS1 && sharedFilterS2) {
         float s1, s2;
