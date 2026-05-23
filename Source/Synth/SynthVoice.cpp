@@ -102,12 +102,12 @@ void SynthVoice::noteStarted()
         // sharedOscPhase holds the phase at the last sample of the old voice's
         // most recent block; advancing by phaseInc gives sample 0 of this block.
         if (sharedOscPhase) {
-            float storedPhase = sharedOscPhase->load();
-            float startHz     = (prevHz > 0.0f) ? prevHz : baseHz;
-            float phaseInc    = startHz / static_cast<float>(sampleRate);
-            float newPhase    = storedPhase + phaseInc;
-            if (newPhase >= 1.0f) newPhase -= 1.0f;
-            osc.reset(newPhase);
+            // sharedOscPhase is written by osc.getPhase() after the old voice's
+            // final next() call.  Because next() advances phase *before* returning,
+            // getPhase() already holds the phase for the first sample of this block —
+            // exactly where the new voice should start.  Adding an extra phaseInc
+            // would overshoot by one sample and create a ~6 % amplitude step click.
+            osc.reset(sharedOscPhase->load());
         }
     } else {
         // Non-legato (first note from silence): just adopt the current generation
@@ -237,8 +237,9 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
     // Publish state for the next voice to inherit.
     // VCA: next noteStarted() reads this to initialise smoothedVCA seamlessly.
-    // Phase: next noteStarted() advances this by one phaseInc to get sample 0's phase,
-    //   giving a perfectly continuous waveform at legato note boundaries.
+    // Phase: osc.next() increments phase before returning, so getPhase() already
+    //   holds the phase for the *next* sample.  noteStarted() passes this directly
+    //   to osc.reset() — no extra advance needed — giving a sample-exact handoff.
     if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
 }
