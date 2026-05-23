@@ -14,7 +14,8 @@ public:
                std::atomic<float>* paramWave,        std::atomic<float>* paramDetune,
                std::atomic<float>* paramCutoff,      std::atomic<float>* paramRes,
                std::atomic<float>* paramFilterMode,  std::atomic<float>* paramVelocityMix,
-               std::atomic<float>* paramGlide,       std::atomic<float>* lastNoteHz);
+               std::atomic<float>* paramGlide,       std::atomic<float>* lastNoteHz,
+               std::atomic<float>* lastVCALevel);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -38,8 +39,9 @@ private:
     std::atomic<float>* paramRes         = nullptr;
     std::atomic<float>* paramFilterMode  = nullptr;
     std::atomic<float>* paramVelocityMix = nullptr;
-    std::atomic<float>* paramGlide       = nullptr;
-    std::atomic<float>* sharedLastNoteHz = nullptr;  // shared with all voices
+    std::atomic<float>* paramGlide        = nullptr;
+    std::atomic<float>* sharedLastNoteHz  = nullptr;  // shared with all voices
+    std::atomic<float>* sharedLastVCALevel = nullptr; // shared with all voices
 
     Oscillator osc;
     SVFilter   filter;
@@ -53,6 +55,12 @@ private:
     // Portamento — glides the oscillator pitch between notes when glideTime > 0.
     // Also Multiplicative so semitone spacing stays perceptually even over the ramp.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedHz;
+
+    // Per-sample VCA interpolation — eliminates block-boundary amplitude steps that
+    // cause audible "crunchiness" (AM sidebands at 689 Hz+) during breath/CC sweeps.
+    // Linear ramp is correct for amplitude (no multiplicative-from-zero issue).
+    // New notes initialise this from lastVCALevel so legato transitions are seamless.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedVCA;
 
     // Live MPE state — updated via noteXxxChanged() callbacks
     float pressure  = 0.0f;   // 0..1

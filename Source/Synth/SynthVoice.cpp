@@ -5,12 +5,14 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>* wave,        std::atomic<float>* detune,
                         std::atomic<float>* cutoff,      std::atomic<float>* res,
                         std::atomic<float>* filterMode,  std::atomic<float>* velocityMix,
-                        std::atomic<float>* glide,       std::atomic<float>* lastNoteHz)
+                        std::atomic<float>* glide,       std::atomic<float>* lastNoteHz,
+                        std::atomic<float>* lastVCALevel)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
     , paramFilterMode(filterMode), paramVelocityMix(velocityMix)
-    , paramGlide(glide), sharedLastNoteHz(lastNoteHz) {}
+    , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
+    , sharedLastVCALevel(lastVCALevel) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
@@ -27,6 +29,11 @@ void SynthVoice::prepare(double sr, int /*blockSize*/)
     // Pitch smoother: time is set per-note from glideTime; snap to 440 for now.
     smoothedHz.reset(sr, 0.0);
     smoothedHz.setCurrentAndTargetValue(440.0f);
+
+    // VCA smoother: 3 ms ramp eliminates amplitude staircase at block boundaries.
+    // Linear (not Multiplicative) because amplitude can start from zero.
+    smoothedVCA.reset(sr, 0.003);
+    smoothedVCA.setCurrentAndTargetValue(0.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -48,17 +55,26 @@ void SynthVoice::noteStarted()
         return;
     }
 
-    osc.reset();
-    filter.reset();
-    // Snap the cutoff smoother so the new note doesn't inherit a mid-ramp cutoff
-    // position from the previous note.  Target is recalculated in renderNextBlock.
+    // Do NOT reset the oscillator phase: starting from an arbitrary frozen phase
+    // causes no discontinuity (the waveform is continuous), whereas osc.reset()
+    // would snap to phase=0 mid-signal — the audible click on every legato note.
+    //
+    // Do NOT reset the filter state: after tail-off, s1/s2 have decayed toward
+    // zero alongside the signal, so the state is already clean.  Resetting them
+    // to 0 when the oscillator is not at phase=0 would cause a brief step-response
+    // transient — the "attack bloop" on legato transitions.
+
+    // Snap the cutoff smoother; target is recalculated on the first renderNextBlock.
     float initCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
     smoothedCutoff.setCurrentAndTargetValue(initCutoff);
 
+    // VCA: initialise from the shared last-active level so that a new voice on a
+    // legato note starts at the current breath amplitude, not at zero.  This
+    // eliminates the "bloop" caused by a sudden amplitude step from 0 → breath.
+    float initVCA = sharedLastVCALevel ? sharedLastVCALevel->load() : 0.0f;
+    smoothedVCA.setCurrentAndTargetValue(initVCA);
+
     // Portamento: glide from the previous note's pitch if glideTime > 0.
-    // sharedLastNoteHz carries the most recent target across all voices so
-    // monophonic controllers (Sylphyo, WX-11) get smooth legato regardless
-    // of which JUCE voice object the MPE engine assigns.
     float glideMs = paramGlide ? paramGlide->load() : 0.0f;
     float prevHz  = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
     smoothedHz.reset(sampleRate, static_cast<double>(glideMs) * 0.001);
@@ -68,7 +84,6 @@ void SynthVoice::noteStarted()
     } else {
         smoothedHz.setCurrentAndTargetValue(baseHz);   // hard snap (no glide / first note)
     }
-    // Record this note's target so the next noteStarted() can glide from here.
     if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
 
     tailLevel    = 1.0f;
@@ -127,12 +142,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     };
     auto mods = modMatrix.evaluate(voiceVals);
 
-    // VCA: velocityMix blends between pure-breath (0) and keyboard (1) behaviour.
-    //   Wind mode (0): VCA = mod matrix only → silence at zero CC2/pressure.
-    //   Keyboard (1):  VCA = sqrt(velocity) + mod matrix.
+    // VCA target for this block — computed once, then interpolated per-sample via
+    // smoothedVCA to eliminate the block-boundary amplitude steps (AM sidebands at
+    // ~689 Hz) that cause audible crunchiness during breath/aftertouch sweeps.
     float veloMix  = paramVelocityMix ? paramVelocityMix->load() : 0.0f;
     float vcaLevel = std::clamp(veloMix * std::sqrt(velocity)
                                 + mods[ModDestID::VCALevel], 0.0f, 1.0f);
+    smoothedVCA.setTargetValue(vcaLevel);
 
     // Pitch: pitchbend (±48 st) + mod matrix fine tune + detune, as a per-block
     // multiplier applied on top of the per-sample smoothed base frequency.
@@ -171,12 +187,16 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 break;
             }
         }
-        // Advance smoothers one sample each: cutoff bridges block boundaries;
-        // smoothedHz provides glide/portamento between notes.
-        filter.setCutoff(smoothedCutoff.getNextValue());
-        osc.setFrequency(smoothedHz.getNextValue() * pitchMult);
-        float sample = filter.process(osc.next(), filterMode) * vcaLevel * tailLevel;
+        // Advance all three smoothers one sample each.
+        filter.setCutoff(smoothedCutoff.getNextValue());  // smooth filter cutoff
+        osc.setFrequency(smoothedHz.getNextValue() * pitchMult);  // portamento
+        float gain = smoothedVCA.getNextValue();          // smooth VCA amplitude
+        float sample = filter.process(osc.next(), filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
     }
+
+    // Publish the actual VCA level at end of block so the next noteStarted()
+    // can initialise seamlessly from here (avoids the 0→breath amplitude snap).
+    if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
 }

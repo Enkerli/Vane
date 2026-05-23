@@ -48,6 +48,11 @@ private:
     // because players set glideTime = 0 for poly use.
     std::atomic<float> lastNoteHz { 0.0f };
 
+    // Shared VCA level: the smoothed VCA amplitude of the most recently active voice.
+    // New voices initialise their smoothedVCA here so legato note transitions start
+    // at the current breath level rather than snapping in from zero.
+    std::atomic<float> lastVCALevel { 0.0f };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneProcessor)
