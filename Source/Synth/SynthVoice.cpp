@@ -87,33 +87,28 @@ void SynthVoice::noteStarted()
     }
     if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
 
-    // Legato phase continuity + voice kill.
-    // When breath is flowing (isLegato), this note must be the only voice sounding.
-    // We:
-    //   a) increment legatoGeneration so any currently tailing voice sees a new
-    //      generation at the top of its next renderNextBlock and dies immediately
-    //      — eliminating the two-voice phase-beating that causes the audible bloop.
-    //   b) sync the oscillator phase from sharedOscPhase (published each block by
-    //      the previous voice) so the waveform is continuous at the handoff point.
+    // Generation bump + phase sync.
+    //
+    // We ALWAYS increment legatoGeneration, regardless of whether this note is
+    // legato or not.  This is the key invariant: at any point only ONE voice holds
+    // myLegatoGen == *sharedLegatoGen, so only that voice reaches the sharedOscPhase
+    // publish at the end of renderNextBlock.  If non-legato notes adopt the current
+    // gen without incrementing, any surviving same-gen tail-off voice also passes the
+    // check and overwrites sharedOscPhase with its own (unrelated) phase — exactly
+    // the wrong value the next legato note then reads.
     bool isLegato = (initVCA > 0.02f);
-    if (isLegato && sharedLegatoGen) {
-        myLegatoGen = ++(*sharedLegatoGen);   // atomically bump + read new value
-        // Phase sync: start one sample ahead of where the old voice left off.
-        // sharedOscPhase holds the phase at the last sample of the old voice's
-        // most recent block; advancing by phaseInc gives sample 0 of this block.
-        if (sharedOscPhase) {
-            // sharedOscPhase is written by osc.getPhase() after the old voice's
-            // final next() call.  Because next() advances phase *before* returning,
-            // getPhase() already holds the phase for the first sample of this block —
-            // exactly where the new voice should start.  Adding an extra phaseInc
-            // would overshoot by one sample and create a ~6 % amplitude step click.
-            osc.reset(sharedOscPhase->load());
-        }
-    } else {
-        // Non-legato (first note from silence): just adopt the current generation
-        // without killing anything, and leave the oscillator at its frozen phase.
-        myLegatoGen = sharedLegatoGen ? sharedLegatoGen->load() : 0;
-    }
+    if (sharedLegatoGen)
+        myLegatoGen = ++(*sharedLegatoGen);
+
+    // Phase sync: legato notes only.  Non-legato notes start at near-zero VCA
+    // (breath was off), so the oscillator's frozen phase is inaudible and there
+    // is nothing meaningful to continue from.
+    //
+    // sharedOscPhase is written by osc.getPhase() after the old voice's last
+    // next() call.  Because next() increments phase before returning, getPhase()
+    // already holds the phase for *this* voice's first sample — no extra phaseInc.
+    if (isLegato && sharedOscPhase)
+        osc.reset(sharedOscPhase->load());
 
     tailLevel    = 1.0f;
     isTailingOff = false;
