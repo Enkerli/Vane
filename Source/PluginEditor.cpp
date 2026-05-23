@@ -55,7 +55,7 @@ void VaneEditor::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(12.0f)));
     g.setColour(juce::Colour(0xffa8b4c8));
     g.drawText(juce::String("v") + JucePlugin_VersionString
-                   + "  \xc2\xb7  " VANE_BUILD_STAMP,
+                   + juce::String::fromUTF8("  \xc2\xb7  " VANE_BUILD_STAMP),
                getLocalBounds().removeFromBottom(22),
                juce::Justification::centred);
 }
