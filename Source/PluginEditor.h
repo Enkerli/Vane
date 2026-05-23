@@ -17,5 +17,10 @@ private:
     VaneProcessor&   vaneProcessor;
     juce::TextButton reconnectMtsButton;
 
+    // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
+    juce::TextButton monoButton { "Poly" };
+    juce::AudioProcessorValueTreeState::ButtonAttachment monoAttachment {
+        vaneProcessor.apvts, "monoMode", monoButton };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneEditor)
 };

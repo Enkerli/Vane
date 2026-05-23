@@ -10,7 +10,13 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     reconnectMtsButton.onClick = [this] {
         vaneProcessor.reconnectMTS();
     };
-    startTimerHz(2);   // refresh MTS label twice per second
+
+    // monoButton is a toggle button wired to "monoMode" via ButtonAttachment.
+    // The label is kept up-to-date each timer tick to reflect the current state.
+    addAndMakeVisible(monoButton);
+    monoButton.setClickingTogglesState(true);
+
+    startTimerHz(2);   // refresh MTS label + mono button twice per second
 }
 
 VaneEditor::~VaneEditor() { stopTimer(); }
@@ -21,6 +27,12 @@ void VaneEditor::timerCallback()
     reconnectMtsButton.setButtonText(connected ? "MTS-ESP: connected" : "MTS-ESP: reconnect");
     reconnectMtsButton.setColour(juce::TextButton::buttonColourId,
         connected ? juce::Colour(0xff1a3a1a) : juce::Colour(0xff3a1a1a));
+
+    // Update mono button label and colour to reflect current toggle state.
+    bool isMono = monoButton.getToggleState();
+    monoButton.setButtonText(isMono ? "Mono" : "Poly");
+    monoButton.setColour(juce::TextButton::buttonColourId,
+        isMono ? juce::Colour(0xff1a2a3a) : juce::Colour(0xff252520));
 }
 
 void VaneEditor::paint(juce::Graphics& g)
@@ -50,6 +62,11 @@ void VaneEditor::paint(juce::Graphics& g)
 
 void VaneEditor::resized()
 {
+    // MTS reconnect button: centred, slightly above centre
     reconnectMtsButton.setBounds(
-        getLocalBounds().withSizeKeepingCentre(160, 26).translated(0, 30));
+        getLocalBounds().withSizeKeepingCentre(160, 26).translated(0, 20));
+
+    // Mono/poly toggle: sits directly below the MTS button with a small gap
+    monoButton.setBounds(
+        getLocalBounds().withSizeKeepingCentre(80, 26).translated(0, 55));
 }

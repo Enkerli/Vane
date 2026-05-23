@@ -16,11 +16,12 @@ VaneProcessor::VaneProcessor()
     auto* pFilterMode = apvts.getRawParameterValue("filterMode");
     auto* pVeloMix    = apvts.getRawParameterValue("velocityMix");
     auto* pGlide      = apvts.getRawParameterValue("glideTime");
+    auto* pMono       = apvts.getRawParameterValue("monoMode");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
                                       pGlide, &lastNoteHz, &lastVCALevel,
-                                      &legatoGeneration, &lastOscPhase));
+                                      &legatoGeneration, &lastOscPhase, pMono));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -134,6 +135,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"velocityMix", 1}, "Velocity → VCA",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+
+    // Mono mode: single-voice legato with oscillator phase continuity across note
+    // transitions.  In poly mode the voice-kill mechanism is disabled so chords work
+    // normally.  Default off (poly) so keyboard players get expected polyphony.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"monoMode", 1}, "Mono", false));
 
     return layout;
 }

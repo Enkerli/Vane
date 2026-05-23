@@ -7,14 +7,16 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    filterMode,std::atomic<float>*    velocityMix,
                         std::atomic<float>*    glide,     std::atomic<float>*    lastNoteHz,
                         std::atomic<float>*    lastVCALevel,
-                        std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase)
+                        std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase,
+                        std::atomic<float>*    mono)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
     , paramFilterMode(filterMode), paramVelocityMix(velocityMix)
     , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
     , sharedLastVCALevel(lastVCALevel)
-    , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase) {}
+    , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase)
+    , paramMono(mono) {}
 
 void SynthVoice::prepare(double sr, int /*blockSize*/)
 {
@@ -87,27 +89,33 @@ void SynthVoice::noteStarted()
     }
     if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
 
-    // Generation bump + phase sync.
+    // Mono mode: voice-kill + phase-sync handoff.
     //
-    // We ALWAYS increment legatoGeneration, regardless of whether this note is
-    // legato or not.  This is the key invariant: at any point only ONE voice holds
-    // myLegatoGen == *sharedLegatoGen, so only that voice reaches the sharedOscPhase
-    // publish at the end of renderNextBlock.  If non-legato notes adopt the current
-    // gen without incrementing, any surviving same-gen tail-off voice also passes the
-    // check and overwrites sharedOscPhase with its own (unrelated) phase — exactly
-    // the wrong value the next legato note then reads.
+    // In mono mode we always increment legatoGeneration — legato or not.
+    // This is the key invariant: only ONE voice holds myLegatoGen == *sharedLegatoGen,
+    // so only that voice publishes sharedOscPhase at the end of renderNextBlock.
+    // If non-legato notes adopted the current gen without incrementing, any surviving
+    // tail-off voice with the same gen would also publish — overwriting sharedOscPhase
+    // with its arbitrary frozen phase, poisoning the next legato note's phase sync.
+    //
+    // In poly mode the kill mechanism is disabled entirely so voices can coexist.
     bool isLegato = (initVCA > 0.02f);
-    if (sharedLegatoGen)
-        myLegatoGen = ++(*sharedLegatoGen);
+    bool isMono   = paramMono && (paramMono->load() > 0.5f);
 
-    // Phase sync: legato notes only.  Non-legato notes start at near-zero VCA
+    if (isMono && sharedLegatoGen)
+        myLegatoGen = ++(*sharedLegatoGen);
+    else if (!isMono && sharedLegatoGen)
+        myLegatoGen = sharedLegatoGen->load();   // adopt current gen, no kill
+
+    // Phase sync: mono legato notes only.  Non-legato notes start at near-zero VCA
     // (breath was off), so the oscillator's frozen phase is inaudible and there
-    // is nothing meaningful to continue from.
+    // is nothing meaningful to continue from.  In poly mode, each voice starts
+    // independently — no shared phase state.
     //
     // sharedOscPhase is written by osc.getPhase() after the old voice's last
     // next() call.  Because next() increments phase before returning, getPhase()
     // already holds the phase for *this* voice's first sample — no extra phaseInc.
-    if (isLegato && sharedOscPhase)
+    if (isMono && isLegato && sharedOscPhase)
         osc.reset(sharedOscPhase->load());
 
     tailLevel    = 1.0f;
@@ -150,11 +158,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 {
     if (!active) return;
 
-    // Legato voice-kill: if a newer note has started while we were tailing off,
-    // die immediately rather than ghost alongside the new voice and cause the
-    // phase-beating bloop.  Checked at the top of every sub-block so mid-block
+    // Mono voice-kill: in mono mode, if a newer note has started while we were
+    // tailing off, die immediately rather than ghost alongside the new voice and
+    // cause phase-beating.  Checked at the top of every sub-block so mid-block
     // MIDI events (JUCE splits blocks at note positions) are handled correctly.
-    if (sharedLegatoGen && sharedLegatoGen->load() != myLegatoGen) {
+    // In poly mode this check is skipped so voices can coexist freely.
+    bool monoNow = paramMono && (paramMono->load() > 0.5f);
+    if (monoNow && sharedLegatoGen && sharedLegatoGen->load() != myLegatoGen) {
         active = false; isTailingOff = false;
         clearCurrentNote();
         return;
@@ -235,6 +245,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // Phase: osc.next() increments phase before returning, so getPhase() already
     //   holds the phase for the *next* sample.  noteStarted() passes this directly
     //   to osc.reset() — no extra advance needed — giving a sample-exact handoff.
+    // In mono mode, only the voice that passed the gen check above reaches here,
+    // so sharedOscPhase is always written by exactly the current voice.
+    // In poly mode, all voices publish — the last one to render "wins", which is
+    // fine since phase sync is only used when returning to mono.
     if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue());
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
 }

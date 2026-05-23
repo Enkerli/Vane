@@ -17,7 +17,8 @@ public:
                std::atomic<float>*    paramGlide,     std::atomic<float>*    lastNoteHz,
                std::atomic<float>*    lastVCALevel,
                std::atomic<uint32_t>* legatoGeneration,
-               std::atomic<float>*    lastOscPhase);
+               std::atomic<float>*    lastOscPhase,
+               std::atomic<float>*    paramMono);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -46,6 +47,7 @@ private:
     std::atomic<float>*    sharedLastVCALevel = nullptr;
     std::atomic<uint32_t>* sharedLegatoGen    = nullptr;  // kill-old-voice counter
     std::atomic<float>*    sharedOscPhase     = nullptr;  // oscillator phase handoff
+    std::atomic<float>*    paramMono          = nullptr;  // 0 = poly, 1 = mono
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 
