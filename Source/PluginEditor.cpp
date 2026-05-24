@@ -51,13 +51,11 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     addChildComponent(presetNameEditor);
     presetNameEditor.setMultiLine(false);
     presetNameEditor.setReturnKeyStartsNewLine(false);
-    // onReturnKey fires on desktop; on iOS it may not — onFocusLost catches it.
-    presetNameEditor.onReturnKey  = [this] { doSavePreset(); };
-    // Tapping anywhere outside the editor on iOS dismisses the keyboard and
-    // triggers onFocusLost — treat that as confirmation so the user doesn't
-    // have to hunt for the Save button after typing on a software keyboard.
-    presetNameEditor.onFocusLost  = [this] { if (inNamingMode) doSavePreset(); };
-    presetNameEditor.onEscapeKey  = [this] { exitNamingMode(); };
+    presetNameEditor.onReturnKey = [this] { doSavePreset(); };
+    presetNameEditor.onEscapeKey = [this] { exitNamingMode(); };
+    // onFocusLost intentionally absent: tapping Paste or Cancel causes the
+    // TextEditor to lose focus BEFORE their onClick fires, so an onFocusLost
+    // save would exit naming mode before those buttons could do anything.
 
     addChildComponent(confirmSaveButton);
     confirmSaveButton.onClick = [this] { doSavePreset(); };
@@ -66,12 +64,12 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     pastePresetButton.setTooltip("Paste preset from clipboard (import from another device)");
     pastePresetButton.onClick = [this] {
         // Applies the clipboard XML to APVTS immediately — user hears the
-        // change — then clears the name field so they type a new name.
+        // change — then returns focus so they can type/keep a name and Save.
         // On iOS 14+ the OS shows a one-time "allow paste" permission prompt.
-        if (vaneProcessor.presetManager.importFromClipboard()) {
-            presetNameEditor.setText({}, juce::dontSendNotification);
-            presetNameEditor.grabKeyboardFocus();
-        }
+        // We call unconditionally: if the clipboard has no valid Vane XML the
+        // call is a no-op, and focus is still returned to the editor.
+        vaneProcessor.presetManager.importFromClipboard();
+        presetNameEditor.grabKeyboardFocus();
     };
 
     addChildComponent(cancelNamingButton);
