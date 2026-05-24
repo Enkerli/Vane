@@ -14,11 +14,13 @@ struct ModRoute {
     //              Useful where you want a "committed" feel at the extremes of a sweep.
     enum class CurveShape : uint8_t { Linear = 0, Exponential, SCurve };
 
-    int        source = 0;
-    int        dest   = 0;
-    float      amount = 0.0f;   // -1..1; positive = add, negative = subtract
-    CurveShape curve  = CurveShape::Linear;
-    Slewer     slewer;
+    int        source    = 0;
+    int        dest      = 0;
+    float      amount    = 0.0f;   // -1..1; positive = add, negative = subtract
+    CurveShape curve     = CurveShape::Linear;
+    float      attackMs  = 5.0f;   // stored here so voices can clone matching slewers
+    float      releaseMs = 30.0f;
+    Slewer     slewer;   // used for CC sources; voice-source routes use per-voice slewers
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -39,10 +41,18 @@ public:
     float getCCValue(int ccNumber) const;
 
     // Evaluate all routes for one voice.
-    // voiceVals: [MPE_Pressure, MPE_Slide, MPE_Pitchbend, Velocity]
-    // Returns summed, clamped modulation per destination.
+    // voiceVals:   [MPE_Pressure, MPE_Slide, MPE_Pitchbend, Velocity] — per-voice MPE state.
+    // voiceSlewers: per-route slewers owned by this voice (see initVoiceSlewers).
+    //              Voice-source routes use voiceSlewers to prevent cross-voice contamination;
+    //              CC routes use the shared route slewer (CC values are global).
     std::array<float, ModDestID::NumDests>
-    evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals);
+    evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals,
+             std::vector<Slewer>& voiceSlewers);
+
+    // Populate voiceSlewers with one Slewer per route, configured to match the
+    // route's attack/release rates.  Call from SynthVoice::prepare() so each
+    // voice gets its own independent slewer state for per-voice MPE sources.
+    void initVoiceSlewers(std::vector<Slewer>& out, double sr, int blockSize) const;
 
     void addRoute(int source, int dest, float amount,
                   float attackMs = 5.0f, float releaseMs = 30.0f,

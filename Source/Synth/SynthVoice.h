@@ -57,6 +57,13 @@ private:
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 
+    // Per-voice slewers for voice-source routes — one entry per ModMatrix route,
+    // mirroring each route's attack/release config.  Initialised in prepare() via
+    // modMatrix.initVoiceSlewers().  Passed to modMatrix.evaluate() so that MPE
+    // dimensions (pressure, slide) are tracked independently per voice and never
+    // cross-contaminate simultaneous notes through the shared route slewers.
+    std::vector<Slewer> voiceSlewers;
+
     Oscillator osc;
     SVFilter   filter;
     double sampleRate = 44100.0;

@@ -21,11 +21,16 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramMono(mono)
     , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz) {}
 
-void SynthVoice::prepare(double sr, int /*blockSize*/)
+void SynthVoice::prepare(double sr, int blockSize)
 {
     sampleRate = sr;
     osc.prepare(sr);
     filter.prepare(sr);
+
+    // Build per-voice slewers matching each route's attack/release config.
+    // Routes are finalized in the VaneProcessor constructor before prepare() is
+    // ever called, so this snapshot is stable for the lifetime of the session.
+    modMatrix.initVoiceSlewers(voiceSlewers, sr, blockSize);
 
     // 3 ms ramp: long enough to bridge any block boundary without audible lag.
     // Geometric interpolation keeps filter sweeps perceptually linear in pitch.
@@ -219,7 +224,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     const std::array<float, ModSourceID::NumVoiceSources> voiceVals {
         pressure, slideBipolar, pitchbend, velocity
     };
-    auto mods = modMatrix.evaluate(voiceVals);
+    auto mods = modMatrix.evaluate(voiceVals, voiceSlewers);
 
     // VCA target for this block — computed once, then interpolated per-sample via
     // smoothedVCA to eliminate the block-boundary amplitude steps (AM sidebands at

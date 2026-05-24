@@ -57,13 +57,25 @@ float ModMatrix::getSourceValue(int sourceID,
 }
 
 std::array<float, ModDestID::NumDests>
-ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals)
+ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals,
+                    std::vector<Slewer>& voiceSlewers)
 {
     std::array<float, ModDestID::NumDests> result {};
 
-    for (auto& route : routes) {
-        float raw          = getSourceValue(route.source, voiceVals);
-        float slewed       = route.slewer.process(raw);
+    for (size_t i = 0; i < routes.size(); ++i) {
+        auto& route = routes[i];
+        float raw   = getSourceValue(route.source, voiceVals);
+
+        // Voice sources (MPE pressure/slide/pitchbend, velocity) must be slewed
+        // per-voice so that two simultaneously held notes with different slide
+        // positions don't contaminate each other through the shared route slewer.
+        // CC sources are genuinely global so the shared slewer is correct there.
+        bool isVoiceSource = (route.source >= 0
+                              && route.source < ModSourceID::NumVoiceSources);
+        float slewed = isVoiceSource
+                       ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
+                       : route.slewer.process(raw);
+
         float shaped       = applyCurve(slewed, route.curve);
         float contribution = shaped * route.amount;
         result[route.dest] = std::clamp(
@@ -73,14 +85,25 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
     return result;
 }
 
+void ModMatrix::initVoiceSlewers(std::vector<Slewer>& out, double sr, int blockSize) const
+{
+    out.resize(routes.size());
+    for (size_t i = 0; i < routes.size(); ++i) {
+        out[i].prepare(sr, blockSize);
+        out[i].setRates(routes[i].attackMs, routes[i].releaseMs);
+    }
+}
+
 void ModMatrix::addRoute(int source, int dest, float amount,
                           float attackMs, float releaseMs, ModRoute::CurveShape curve)
 {
     ModRoute r;
-    r.source = source;
-    r.dest   = dest;
-    r.amount = amount;
-    r.curve  = curve;
+    r.source    = source;
+    r.dest      = dest;
+    r.amount    = amount;
+    r.curve     = curve;
+    r.attackMs  = attackMs;
+    r.releaseMs = releaseMs;
     r.slewer.prepare(sampleRate, blockSize);
     r.slewer.setRates(attackMs, releaseMs);
     routes.push_back(std::move(r));
