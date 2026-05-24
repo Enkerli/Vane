@@ -70,7 +70,7 @@ private:
     // coefficients and restore the state before its first process() call.
     std::atomic<float> lastFilterS1   { 0.0f };
     std::atomic<float> lastFilterS2   { 0.0f };
-    std::atomic<float> lastCutoffHz   { 4000.0f };
+    std::atomic<float> lastCutoffHz   { 1200.0f };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

@@ -5,10 +5,20 @@
 #include "Slewer.h"
 
 struct ModRoute {
-    int   source = 0;
-    int   dest   = 0;
-    float amount = 0.0f;  // -1.0 to 1.0; positive = add, negative = subtract
-    Slewer slewer;
+    // Per-route curve shaping applied after slewing and before amount scaling.
+    // Linear   — raw slewed value (default, no change).
+    // Exponential — x*|x|: squares the signal while preserving sign.  Gives more
+    //              resolution at low source values and a steeper response near full.
+    //              Natural for unipolar sources (breath, pressure, velocity).
+    // SCurve   — smoothstep on |x|, sign preserved: slow start, fast middle, slow end.
+    //              Useful where you want a "committed" feel at the extremes of a sweep.
+    enum class CurveShape : uint8_t { Linear = 0, Exponential, SCurve };
+
+    int        source = 0;
+    int        dest   = 0;
+    float      amount = 0.0f;   // -1..1; positive = add, negative = subtract
+    CurveShape curve  = CurveShape::Linear;
+    Slewer     slewer;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -35,7 +45,8 @@ public:
     evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals);
 
     void addRoute(int source, int dest, float amount,
-                  float attackMs = 5.0f, float releaseMs = 30.0f);
+                  float attackMs = 5.0f, float releaseMs = 30.0f,
+                  ModRoute::CurveShape curve = ModRoute::CurveShape::Linear);
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
 

@@ -29,22 +29,49 @@ VaneProcessor::VaneProcessor()
     zone.setLowerZone(15);
     synth.setZoneLayout(zone);
 
-    // Default modulation routes — replaceable once a patch editor exists.
+    // ── Default modulation routes ─────────────────────────────────────────────
     //
-    // Breath: CC2 (Yamaha WX-11, many others) and CC11 (Sylphyo default,
-    // Expression pedals) are both wired to VCA and filter cutoff.
-    // Controllers typically send one or the other; they sum here but since
-    // only one is active at a time the result is always in range.
-    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::VCALevel,     1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::VCALevel,     1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::FilterCutoff, 0.5f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::FilterCutoff, 0.5f,  5.0f, 80.0f);
-    // MPE pressure → VCA (per-note expressive swell on pads / aftertouch)
-    modMatrix.addRoute(ModSourceID::MPE_Pressure, ModDestID::VCALevel, 0.5f, 3.0f, 50.0f);
-    // MPE slide (CC74, per-note) → filter cutoff.
-    // Slide is bipolar in SynthVoice: neutral = 0, full up = +1, full down = -1.
-    // amount 0.5 → ±2 octave sweep around the base cutoff (audible but not extreme).
-    modMatrix.addRoute(ModSourceID::MPE_Slide, ModDestID::FilterCutoff, 0.5f, 2.0f, 20.0f);
+    // Breath: CC2 (WX-11, EWI) and CC11 (Sylphyo, expression pedals).
+    // Controllers typically send one or the other; they sum but since only one
+    // is active at a time the combined result stays in range.
+
+    // VCA: breath and MPE pressure control amplitude.
+    modMatrix.addRoute(ModSourceID::CC + 2,       ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
+    modMatrix.addRoute(ModSourceID::CC + 11,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
+    modMatrix.addRoute(ModSourceID::MPE_Pressure, ModDestID::VCALevel, 0.5f,  3.0f, 50.0f);
+
+    // CC74 (slide) → FilterCutoff: primary timbre sweep, full audible range.
+    // Slide is converted to bipolar in SynthVoice (neutral=0, up=+1, down=-1).
+    // amount 0.9 + 5-octave scale → baseCutoff/32 at bottom, baseCutoff×32 at top.
+    // With default baseCutoff 1200 Hz: ~53 Hz (near-silence) → ~20 kHz (fully open).
+    modMatrix.addRoute(ModSourceID::MPE_Slide, ModDestID::FilterCutoff, 0.9f, 2.0f, 20.0f);
+
+    // Breath → FilterCutoff: secondary brightness accent.
+    // Exponential curve: quiet breath adds little brightness; loud breath opens noticeably.
+    // Amount 0.25 so breath brightens without fighting or dominating the slide position.
+    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::FilterCutoff, 0.25f, 5.0f, 80.0f,
+                       ModRoute::CurveShape::Exponential);
+    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::FilterCutoff, 0.25f, 5.0f, 80.0f,
+                       ModRoute::CurveShape::Exponential);
+
+    // MPE Pressure → FilterCutoff: per-note brightness add-on, independent of slide.
+    // Exponential: gentle press = subtle; hard press = noticeable brightening.
+    modMatrix.addRoute(ModSourceID::MPE_Pressure, ModDestID::FilterCutoff, 0.2f, 2.0f, 30.0f,
+                       ModRoute::CurveShape::Exponential);
+
+    // Breath → FilterRes: classic wind character — more air = more resonant peak.
+    // Exponential curve: barely resonant at low breath; characteristic "squeal" near full.
+    // Resonance adds on top of the base filterRes parameter (default 0.3).
+    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::FilterRes, 0.15f, 5.0f, 80.0f,
+                       ModRoute::CurveShape::Exponential);
+    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::FilterRes, 0.15f, 5.0f, 80.0f,
+                       ModRoute::CurveShape::Exponential);
+
+    // Velocity → FilterCutoff: initial timbre accent — harder attacks are brighter.
+    // 20 ms attack ramps brightness in over the note's onset; velocity is fixed per note
+    // so this stays constant for the note's duration (not a decaying envelope).
+    // Separate from velocityMix (VCA): this affects tone colour, not loudness.
+    modMatrix.addRoute(ModSourceID::Velocity, ModDestID::FilterCutoff, 0.15f, 20.0f, 0.0f);
 }
 
 VaneProcessor::~VaneProcessor() = default;
@@ -99,9 +126,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
+    // Default 1200 Hz: with slide at neutral, breath fully open reaches ~3.5 kHz;
+    // CC74 full-up hits 20 kHz, full-down hits ~53 Hz (near silence).
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filterCutoff", 1}, "Filter Cutoff",
-        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.0f, 0.25f), 8000.0f));
+        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.0f, 0.25f), 1200.0f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filterRes", 1}, "Filter Resonance",

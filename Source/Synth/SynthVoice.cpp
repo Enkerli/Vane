@@ -244,7 +244,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // step changes at block boundaries that cause crunchiness during breath sweeps.
     float baseCutoff   = paramCutoff ? paramCutoff->load() : 4000.0f;
     float baseRes      = paramRes    ? paramRes->load()    : 0.3f;
-    float targetCutoff = baseCutoff * std::pow(2.0f, mods[ModDestID::FilterCutoff] * 4.0f);
+    // 5-octave scale: mods[FilterCutoff] in [-1..+1] sweeps ±5 octaves from base.
+    // With baseCutoff ≈ 1200 Hz: CC74 full-down → ~53 Hz, full-up → ~20 kHz (clamped).
+    // Wider than the old ×4 so slide spans the full audible range.
+    float targetCutoff = baseCutoff * std::pow(2.0f, mods[ModDestID::FilterCutoff] * 5.0f);
     float resonance    = std::clamp(baseRes + mods[ModDestID::FilterRes], 0.0f, 1.0f);
     int   modeIndex    = paramFilterMode ? static_cast<int>(paramFilterMode->load()) : 0;
     auto  filterMode   = static_cast<SVFilter::Mode>(juce::jlimit(0, 2, modeIndex));
