@@ -11,6 +11,65 @@ VaneEditor::VaneEditor(VaneProcessor& p)
         vaneProcessor.reconnectMTS();
     };
 
+    // ── Preset strip ─────────────────────────────────────────────────────────
+    addAndMakeVisible(presetBox);
+    presetBox.setTextWhenNothingSelected("-- init --");
+    refreshPresetBox();
+
+    // Selecting a preset from the combo box loads it immediately.
+    presetBox.onChange = [this] {
+        auto name = presetBox.getText();
+        if (name.isNotEmpty() && name != "-- init --")
+            vaneProcessor.presetManager.loadPreset(name);
+    };
+
+    addAndMakeVisible(savePresetButton);
+    savePresetButton.onClick = [this] {
+        // Show a modal text input so the player can name the preset.
+        // AlertWindow is heap-allocated; deleteWhenDismissed=true cleans it up.
+        auto* win = new juce::AlertWindow("Save Preset", "Name:",
+                                          juce::MessageBoxIconType::NoIcon);
+        win->addTextEditor("name",
+                           vaneProcessor.presetManager.getCurrentPresetName(), {});
+        win->addButton("Save",   1, juce::KeyPress(juce::KeyPress::returnKey));
+        win->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+        win->enterModalState(
+            true,
+            juce::ModalCallbackFunction::create([win, this](int result) {
+                if (result == 1) {
+                    auto name = win->getTextEditorContents("name").trim();
+                    if (name.isNotEmpty()) {
+                        vaneProcessor.presetManager.savePreset(name);
+                        refreshPresetBox();
+                    }
+                }
+            }),
+            true /* deleteWhenDismissed */);
+    };
+
+    addAndMakeVisible(deletePresetButton);
+    deletePresetButton.setTooltip("Delete selected preset");
+    deletePresetButton.onClick = [this] {
+        auto name = presetBox.getText();
+        if (name.isEmpty() || name == "-- init --")
+            return;
+
+        auto options = juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::WarningIcon)
+            .withTitle("Delete Preset")
+            .withMessage("Delete \"" + name + "\"?")
+            .withButton("Delete")
+            .withButton("Cancel");
+
+        juce::AlertWindow::showAsync(options, [name, this](int result) {
+            if (result == 1) {   // "Delete" is the first button → result 1
+                vaneProcessor.presetManager.deletePreset(name);
+                refreshPresetBox();
+            }
+        });
+    };
+
     // monoButton is a toggle button wired to "monoMode" via ButtonAttachment.
     // The label is kept up-to-date each timer tick to reflect the current state.
     addAndMakeVisible(monoButton);
@@ -62,6 +121,21 @@ void VaneEditor::paint(juce::Graphics& g)
 
 void VaneEditor::resized()
 {
+    // ── Preset strip: full width below the subtitle ───────────────────────────
+    // Layout (480 wide, left/right margin 20 px each):
+    //   ComboBox | 8px gap | Save (60px) | 4px gap | Delete (26px) | margin
+    constexpr int margin = 20;
+    constexpr int stripY = 85;
+    constexpr int stripH = 26;
+    constexpr int saveW  = 60;
+    constexpr int delW   = 26;
+    constexpr int gap    = 6;
+    int availW = getWidth() - 2 * margin - saveW - delW - 2 * gap;
+
+    presetBox.setBounds         (margin,                             stripY, availW, stripH);
+    savePresetButton.setBounds  (margin + availW + gap,              stripY, saveW,  stripH);
+    deletePresetButton.setBounds(margin + availW + gap + saveW + gap, stripY, delW,   stripH);
+
     // MTS reconnect button: centred, slightly above centre
     reconnectMtsButton.setBounds(
         getLocalBounds().withSizeKeepingCentre(160, 26).translated(0, 20));
@@ -69,4 +143,22 @@ void VaneEditor::resized()
     // Mono/poly toggle: sits directly below the MTS button with a small gap
     monoButton.setBounds(
         getLocalBounds().withSizeKeepingCentre(80, 26).translated(0, 55));
+}
+
+void VaneEditor::refreshPresetBox()
+{
+    auto names   = vaneProcessor.presetManager.getPresetNames();
+    auto current = vaneProcessor.presetManager.getCurrentPresetName();
+
+    presetBox.clear(juce::dontSendNotification);
+
+    // ID 1 is the "nothing saved/selected" sentinel; preset names start at ID 2.
+    presetBox.addItem("-- init --", 1);
+    for (int i = 0; i < names.size(); ++i)
+        presetBox.addItem(names[i], i + 2);
+
+    if (current.isEmpty())
+        presetBox.setSelectedId(1, juce::dontSendNotification);
+    else
+        presetBox.setText(current, juce::dontSendNotification);
 }

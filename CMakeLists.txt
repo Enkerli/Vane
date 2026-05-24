@@ -130,6 +130,7 @@ target_sources(Vane PRIVATE
     Source/Synth/SynthVoice.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
+    Source/Preset/PresetManager.cpp
     Source/Tests/ModMatrixTests.cpp
 )
 

@@ -13,9 +13,15 @@ public:
 
 private:
     void timerCallback() override;
+    void refreshPresetBox();
 
     VaneProcessor&   vaneProcessor;
     juce::TextButton reconnectMtsButton;
+
+    // ── Preset strip ─────────────────────────────────────────────────────────
+    juce::ComboBox   presetBox;
+    juce::TextButton savePresetButton   { "Save" };
+    juce::TextButton deletePresetButton { "×" };
 
     // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
     juce::TextButton monoButton { "Poly" };

@@ -3,6 +3,7 @@
 #include "Synth/SynthVoice.h"
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
+#include "Preset/PresetManager.h"
 
 class VaneProcessor : public juce::AudioProcessor {
 public:
@@ -33,6 +34,7 @@ public:
     void setStateInformation(const void*, int) override;
 
     juce::AudioProcessorValueTreeState apvts;
+    PresetManager presetManager;
     ModMatrix    modMatrix;
     TuningClient tuning;
 
