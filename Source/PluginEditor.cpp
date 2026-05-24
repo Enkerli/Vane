@@ -49,6 +49,8 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     };
 
     addAndMakeVisible(deletePresetButton);
+    // × is U+00D7, \xc3\x97 in UTF-8 — must use fromUTF8; String("×") asserts.
+    deletePresetButton.setButtonText(juce::String::fromUTF8("\xc3\x97"));
     deletePresetButton.setTooltip("Delete selected preset");
     deletePresetButton.onClick = [this] {
         auto name = presetBox.getText();

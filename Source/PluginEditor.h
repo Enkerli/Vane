@@ -21,7 +21,7 @@ private:
     // ── Preset strip ─────────────────────────────────────────────────────────
     juce::ComboBox   presetBox;
     juce::TextButton savePresetButton   { "Save" };
-    juce::TextButton deletePresetButton { "×" };
+    juce::TextButton deletePresetButton;   // label set via fromUTF8 in constructor
 
     // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
     juce::TextButton monoButton { "Poly" };
