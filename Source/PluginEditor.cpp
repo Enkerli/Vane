@@ -46,23 +46,19 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     deletePresetButton.setButtonText(juce::String::fromUTF8("\xc3\x97"));
     deletePresetButton.setTooltip("Delete selected preset");
     deletePresetButton.onClick = [this] {
-        auto name = presetBox.getText();
-        if (name.isEmpty() || name == "-- init --")
-            return;
+        // Get the name from the selectedId, not getText(), so we're always
+        // acting on what's actually selected rather than any transient text.
+        int id = presetBox.getSelectedId();
+        if (id < 2) return;   // ID 1 = "-- init --", 0 = nothing selected
 
-        auto options = juce::MessageBoxOptions()
-            .withIconType(juce::MessageBoxIconType::WarningIcon)
-            .withTitle("Delete Preset")
-            .withMessage("Delete \"" + name + "\"?")
-            .withButton("Delete")
-            .withButton("Cancel");
+        auto name = presetBox.getItemText(presetBox.indexOfItemId(id));
+        if (name.isEmpty()) return;
 
-        juce::AlertWindow::showAsync(options, [name, this](int result) {
-            if (result == 1) {   // "Delete" is the first button → result 1
-                vaneProcessor.presetManager.deletePreset(name);
-                refreshPresetBox();
-            }
-        });
+        // No confirmation dialog: AlertWindow::showAsync uses UIAlertController
+        // which requires a presenting UIViewController — unreliable in AUv3.
+        // Presets are trivially re-saveable, so delete is safe without a prompt.
+        vaneProcessor.presetManager.deletePreset(name);
+        refreshPresetBox();
     };
 
     // monoButton is a toggle button wired to "monoMode" via ButtonAttachment.
@@ -173,6 +169,12 @@ void VaneEditor::exitNamingMode()
 {
     inNamingMode = false;
 
+    // Explicitly resign keyboard focus before hiding.  On iOS, keyboard
+    // dismissal is asynchronous; if we hide the TextEditor while it still
+    // holds first-responder the keyboard stays up and the next touch event
+    // (e.g. opening the ComboBox popup) gets swallowed by the keyboard layer.
+    presetNameEditor.giveAwayKeyboardFocus();
+
     presetNameEditor.setVisible(false);
     confirmSaveButton.setVisible(false);
     cancelNamingButton.setVisible(false);
@@ -204,8 +206,11 @@ void VaneEditor::refreshPresetBox()
     for (int i = 0; i < names.size(); ++i)
         presetBox.addItem(names[i], i + 2);
 
-    if (current.isEmpty())
-        presetBox.setSelectedId(1, juce::dontSendNotification);
-    else
-        presetBox.setText(current, juce::dontSendNotification);
+    // Always use setSelectedId, never setText.  setText sets the display text
+    // but leaves lastValidId = 0 (nothing selected), which makes the ComboBox
+    // compare against ID 0 for subsequent selections — causing onChange to fire
+    // with stale state on some JUCE/iOS versions, and breaking the keyboard-
+    // focus handoff on others.
+    int idx = names.indexOf(current);
+    presetBox.setSelectedId(idx >= 0 ? idx + 2 : 1, juce::dontSendNotification);
 }
