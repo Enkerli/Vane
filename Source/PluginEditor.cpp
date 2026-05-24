@@ -11,28 +11,46 @@ VaneEditor::VaneEditor(VaneProcessor& p)
         vaneProcessor.reconnectMTS();
     };
 
-    // ── Preset strip ─────────────────────────────────────────────────────────
-    addAndMakeVisible(presetBox);
-    presetBox.setTextWhenNothingSelected("-- init --");
-    refreshPresetBox();
+    // ── Preset strip — navigation mode ───────────────────────────────────────
+    // ◄ and ► navigate the preset list without any popup menu.
+    // PopupMenu / ComboBox dropdowns are broken in AUv3 on iOS: the menu
+    // cannot escape the plugin's sandboxed UIView hierarchy.
+    addAndMakeVisible(prevPresetButton);
+    prevPresetButton.onClick = [this] { navigatePreset(-1); };
 
-    // Selecting a preset from the combo box loads it immediately.
-    presetBox.onChange = [this] {
-        auto name = presetBox.getText();
-        if (name.isNotEmpty() && name != "-- init --")
-            vaneProcessor.presetManager.loadPreset(name);
-    };
+    addAndMakeVisible(presetNameLabel);
+    presetNameLabel.setJustificationType(juce::Justification::centred);
+    presetNameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffb0b8d0));
+
+    addAndMakeVisible(nextPresetButton);
+    nextPresetButton.onClick = [this] { navigatePreset(+1); };
 
     addAndMakeVisible(savePresetButton);
-    // Clicking Save enters naming mode — an inline text field replaces the
-    // combo+save+delete strip.  No modal dialogs: those block the AUv3 host.
     savePresetButton.onClick = [this] { enterNamingMode(); };
 
-    // ── Naming-mode controls (hidden by default) ──────────────────────────────
+    addAndMakeVisible(deletePresetButton);
+    // × is U+00D7 (\xc3\x97 in UTF-8) — must use fromUTF8; String("×") asserts.
+    deletePresetButton.setButtonText(juce::String::fromUTF8("\xc3\x97"));
+    deletePresetButton.setTooltip("Delete selected preset");
+    deletePresetButton.onClick = [this] {
+        auto current = vaneProcessor.presetManager.getCurrentPresetName();
+        if (current.isEmpty()) return;
+        // No confirmation: AlertWindow::showAsync is unreliable in AUv3.
+        // Presets are trivially re-saveable, so a direct delete is safe.
+        vaneProcessor.presetManager.deletePreset(current);
+        refreshPresetDisplay();
+    };
+
+    // ── Preset strip — naming mode ────────────────────────────────────────────
     addChildComponent(presetNameEditor);
     presetNameEditor.setMultiLine(false);
     presetNameEditor.setReturnKeyStartsNewLine(false);
+    // onReturnKey fires on desktop; on iOS it may not — onFocusLost catches it.
     presetNameEditor.onReturnKey  = [this] { doSavePreset(); };
+    // Tapping anywhere outside the editor on iOS dismisses the keyboard and
+    // triggers onFocusLost — treat that as confirmation so the user doesn't
+    // have to hunt for the Save button after typing on a software keyboard.
+    presetNameEditor.onFocusLost  = [this] { if (inNamingMode) doSavePreset(); };
     presetNameEditor.onEscapeKey  = [this] { exitNamingMode(); };
 
     addChildComponent(confirmSaveButton);
@@ -41,31 +59,11 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     addChildComponent(cancelNamingButton);
     cancelNamingButton.onClick = [this] { exitNamingMode(); };
 
-    addAndMakeVisible(deletePresetButton);
-    // × is U+00D7, \xc3\x97 in UTF-8 — must use fromUTF8; String("×") asserts.
-    deletePresetButton.setButtonText(juce::String::fromUTF8("\xc3\x97"));
-    deletePresetButton.setTooltip("Delete selected preset");
-    deletePresetButton.onClick = [this] {
-        // Get the name from the selectedId, not getText(), so we're always
-        // acting on what's actually selected rather than any transient text.
-        int id = presetBox.getSelectedId();
-        if (id < 2) return;   // ID 1 = "-- init --", 0 = nothing selected
-
-        auto name = presetBox.getItemText(presetBox.indexOfItemId(id));
-        if (name.isEmpty()) return;
-
-        // No confirmation dialog: AlertWindow::showAsync uses UIAlertController
-        // which requires a presenting UIViewController — unreliable in AUv3.
-        // Presets are trivially re-saveable, so delete is safe without a prompt.
-        vaneProcessor.presetManager.deletePreset(name);
-        refreshPresetBox();
-    };
-
     // monoButton is a toggle button wired to "monoMode" via ButtonAttachment.
-    // The label is kept up-to-date each timer tick to reflect the current state.
     addAndMakeVisible(monoButton);
     monoButton.setClickingTogglesState(true);
 
+    refreshPresetDisplay();
     startTimerHz(2);   // refresh MTS label + mono button twice per second
 }
 
@@ -78,7 +76,6 @@ void VaneEditor::timerCallback()
     reconnectMtsButton.setColour(juce::TextButton::buttonColourId,
         connected ? juce::Colour(0xff1a3a1a) : juce::Colour(0xff3a1a1a));
 
-    // Update mono button label and colour to reflect current toggle state.
     bool isMono = monoButton.getToggleState();
     monoButton.setButtonText(isMono ? "Mono" : "Poly");
     monoButton.setColour(juce::TextButton::buttonColourId,
@@ -100,8 +97,6 @@ void VaneEditor::paint(juce::Graphics& g)
                getLocalBounds().withTrimmedTop(56).removeFromTop(20),
                juce::Justification::centred);
 
-    // Version + build stamp — VANE_BUILD_STAMP comes from BuildStamp.h,
-    // regenerated by cmake/GenBuildStamp.cmake on every build.
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(12.0f)));
     g.setColour(juce::Colour(0xffa8b4c8));
     g.drawText(juce::String("v") + JucePlugin_VersionString
@@ -113,28 +108,47 @@ void VaneEditor::paint(juce::Graphics& g)
 void VaneEditor::resized()
 {
     // ── Preset strip ──────────────────────────────────────────────────────────
-    // Two modes share the same y-position and height; only one set is visible.
-    //
-    // Select mode:  [ComboBox ................] [Save] [×]
-    // Naming mode:  [TextEditor .............] [Save] [Cancel]
+    // Navigation mode: [◄ 30] [6] [label ...] [6] [► 30] [6] [Save 60] [6] [× 26]
+    // Naming mode:     [TextEditor ..........] [6] [Save 60] [6] [Cancel 52]
+    // Both modes share y=85, h=26.  Only one set is visible at a time.
     constexpr int margin = 20;
     constexpr int stripY = 85;
     constexpr int stripH = 26;
+    constexpr int navW   = 30;   // ◄ and ►
     constexpr int saveW  = 60;
     constexpr int delW   = 26;
+    constexpr int canW   = 52;   // Cancel
     constexpr int gap    = 6;
-    int availW = getWidth() - 2 * margin - saveW - delW - 2 * gap;
-    int nameX  = margin + availW + gap;
 
-    // Select-mode controls
-    presetBox.setBounds         (margin,           stripY, availW, stripH);
-    savePresetButton.setBounds  (nameX,            stripY, saveW,  stripH);
-    deletePresetButton.setBounds(nameX + saveW + gap, stripY, delW, stripH);
+    // Fixed widths consumed on the right: [Save][gap][del/cancel]
+    // Navigation mode:  gap + navW + gap + saveW + gap + delW
+    // Naming mode:      gap + saveW + gap + canW
+    // The label/editor region fills whatever is left of the available 440 px.
 
-    // Naming-mode controls (same geometry; confirm replaces Save, Cancel replaces ×)
-    presetNameEditor.setBounds  (margin,           stripY, availW, stripH);
-    confirmSaveButton.setBounds (nameX,            stripY, saveW,  stripH);
-    cancelNamingButton.setBounds(nameX + saveW + gap, stripY, delW, stripH);
+    int available = getWidth() - 2 * margin;   // 440 px at default width
+
+    // Navigation mode geometry
+    int labelW = available - navW - gap - navW - gap - saveW - gap - delW;
+    int xPrev  = margin;
+    int xLabel = xPrev + navW + gap;
+    int xNext  = xLabel + labelW + gap;
+    int xSaveN = xNext + navW + gap;
+    int xDelN  = xSaveN + saveW + gap;
+
+    prevPresetButton.setBounds (xPrev,  stripY, navW,   stripH);
+    presetNameLabel.setBounds  (xLabel, stripY, labelW, stripH);
+    nextPresetButton.setBounds (xNext,  stripY, navW,   stripH);
+    savePresetButton.setBounds (xSaveN, stripY, saveW,  stripH);
+    deletePresetButton.setBounds(xDelN, stripY, delW,   stripH);
+
+    // Naming mode geometry — editor fills the ◄/label/► region
+    int editorW = labelW + navW + gap + navW;   // same total as the three above
+    int xSaveE  = margin + editorW + gap;
+    int xCancel = xSaveE + saveW + gap;
+
+    presetNameEditor.setBounds (margin,   stripY, editorW, stripH);
+    confirmSaveButton.setBounds(xSaveE,   stripY, saveW,   stripH);
+    cancelNamingButton.setBounds(xCancel, stripY, canW,    stripH);
 
     // MTS reconnect button: centred, slightly above centre
     reconnectMtsButton.setBounds(
@@ -145,6 +159,41 @@ void VaneEditor::resized()
         getLocalBounds().withSizeKeepingCentre(80, 26).translated(0, 55));
 }
 
+// ── Preset navigation ─────────────────────────────────────────────────────────
+
+void VaneEditor::navigatePreset(int delta)
+{
+    auto names   = vaneProcessor.presetManager.getPresetNames();
+    if (names.isEmpty()) return;
+
+    auto current = vaneProcessor.presetManager.getCurrentPresetName();
+    int  idx     = names.indexOf(current);
+
+    if (idx < 0)
+        idx = (delta > 0) ? 0 : names.size() - 1;
+    else
+        idx = (idx + delta + names.size()) % names.size();
+
+    vaneProcessor.presetManager.loadPreset(names[idx]);
+    refreshPresetDisplay();
+}
+
+void VaneEditor::refreshPresetDisplay()
+{
+    auto names   = vaneProcessor.presetManager.getPresetNames();
+    auto current = vaneProcessor.presetManager.getCurrentPresetName();
+
+    presetNameLabel.setText(current.isEmpty() ? "-- init --" : current,
+                            juce::dontSendNotification);
+
+    bool hasPresets = !names.isEmpty();
+    prevPresetButton.setEnabled(hasPresets);
+    nextPresetButton.setEnabled(hasPresets);
+    deletePresetButton.setEnabled(!current.isEmpty());
+}
+
+// ── Inline preset naming ──────────────────────────────────────────────────────
+
 void VaneEditor::enterNamingMode()
 {
     inNamingMode = true;
@@ -153,8 +202,9 @@ void VaneEditor::enterNamingMode()
                              juce::dontSendNotification);
     presetNameEditor.selectAll();
 
-    // Swap visibility
-    presetBox.setVisible(false);
+    prevPresetButton.setVisible(false);
+    presetNameLabel.setVisible(false);
+    nextPresetButton.setVisible(false);
     savePresetButton.setVisible(false);
     deletePresetButton.setVisible(false);
 
@@ -169,48 +219,33 @@ void VaneEditor::exitNamingMode()
 {
     inNamingMode = false;
 
-    // Explicitly resign keyboard focus before hiding.  On iOS, keyboard
-    // dismissal is asynchronous; if we hide the TextEditor while it still
-    // holds first-responder the keyboard stays up and the next touch event
-    // (e.g. opening the ComboBox popup) gets swallowed by the keyboard layer.
+    // Resign keyboard focus before hiding so iOS dismisses the keyboard
+    // synchronously — avoids the async keyboard-dismiss swallowing the
+    // next touch event on the navigation buttons.
     presetNameEditor.giveAwayKeyboardFocus();
 
     presetNameEditor.setVisible(false);
     confirmSaveButton.setVisible(false);
     cancelNamingButton.setVisible(false);
 
-    presetBox.setVisible(true);
+    prevPresetButton.setVisible(true);
+    presetNameLabel.setVisible(true);
+    nextPresetButton.setVisible(true);
     savePresetButton.setVisible(true);
     deletePresetButton.setVisible(true);
 }
 
 void VaneEditor::doSavePreset()
 {
+    // Guard: onFocusLost fires even when cancelNamingButton triggers exitNamingMode,
+    // because focus moves away from the editor.  The inNamingMode flag ensures we
+    // only save once — exitNamingMode() clears it before focus is lost on cancel.
+    if (!inNamingMode) return;
+
     auto name = presetNameEditor.getText().trim();
-    if (name.isNotEmpty()) {
+    if (name.isNotEmpty())
         vaneProcessor.presetManager.savePreset(name);
-        refreshPresetBox();
-    }
+
     exitNamingMode();
-}
-
-void VaneEditor::refreshPresetBox()
-{
-    auto names   = vaneProcessor.presetManager.getPresetNames();
-    auto current = vaneProcessor.presetManager.getCurrentPresetName();
-
-    presetBox.clear(juce::dontSendNotification);
-
-    // ID 1 is the "nothing saved/selected" sentinel; preset names start at ID 2.
-    presetBox.addItem("-- init --", 1);
-    for (int i = 0; i < names.size(); ++i)
-        presetBox.addItem(names[i], i + 2);
-
-    // Always use setSelectedId, never setText.  setText sets the display text
-    // but leaves lastValidId = 0 (nothing selected), which makes the ComboBox
-    // compare against ID 0 for subsequent selections — causing onChange to fire
-    // with stale state on some JUCE/iOS versions, and breaking the keyboard-
-    // focus handoff on others.
-    int idx = names.indexOf(current);
-    presetBox.setSelectedId(idx >= 0 ? idx + 2 : 1, juce::dontSendNotification);
+    refreshPresetDisplay();
 }
