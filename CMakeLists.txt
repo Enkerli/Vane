@@ -100,6 +100,16 @@ elseif(IS_MACOS)
         ${PLUGIN_BASE_PROPS}
         FORMATS                     AU AUv3 VST3 Standalone
         COPY_PLUGIN_AFTER_BUILD     TRUE
+        # JUCE unconditionally writes "network.client" and
+        # "temporary-exception.files.all.read-write" into the AU's
+        # Info.plist resourceUsage block.  Logic Pro (and GarageBand) treat
+        # the broad "files.all" grant as a security violation and silently
+        # refuse to load the AU — it never appears in the plug-in list.
+        # Suppressing the whole block lets Logic load the AU; the resource
+        # grants are meaningless for a plain AU that runs in Logic's own
+        # process anyway.
+        # See JUCE CMake API docs: SUPPRESS_AU_PLIST_RESOURCE_USAGE.
+        SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
     )
 elseif(IS_LINUX)
     juce_add_plugin(Vane
