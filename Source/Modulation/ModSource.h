@@ -43,10 +43,16 @@ struct ModSourceID {
 struct ModDestID {
     static constexpr int FilterCutoff  = 0;   // additive offset to base cutoff
     static constexpr int FilterRes     = 1;   // additive offset to base resonance
-    static constexpr int VCALevel      = 2;   // multiplicative; 0 = silence
-    static constexpr int OscPitchFine  = 3;   // in semitones, additive
-    static constexpr int OscWaveshape  = 4;   // reserved for WT position / shape
-    static constexpr int GlideTime     = 5;   // multiplicative scale on base glide
+    static constexpr int VCALevel      = 2;   // additive, clamped 0..1 in SynthVoice
+    static constexpr int OscPitchFine  = 3;   // semitones, additive to pitchbend total
+
+    // ── Reserved — declared but not yet wired into SynthVoice::renderNextBlock ──
+    // Adding a new destination requires:
+    //   1. Reading mods[OscWaveshape] / mods[GlideTime] in renderNextBlock.
+    //   2. Adding a route in VaneProcessor's constructor.
+    //   3. Adding an APVTS parameter for the amount (optional but expected).
+    static constexpr int OscWaveshape  = 4;   // intended: wavetable position / morph
+    static constexpr int GlideTime     = 5;   // intended: scale on base glide time
 
     static constexpr int NumDests = 6;
 };

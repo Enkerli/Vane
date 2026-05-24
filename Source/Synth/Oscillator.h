@@ -10,6 +10,26 @@
 //
 // Sine and triangle are inherently alias-free at normal audio rates and
 // need no correction. Noise uses a simple LCG — no pitch, no phasing.
+//
+// ── PolyBLEP assumptions and limits ──────────────────────────────────────────
+// PolyBLEP only works correctly when phaseInc < 0.5 (i.e. frequency < Nyquist).
+// Above that, the two correction windows [0, dt] and [1-dt, 1] overlap and
+// produce incorrect — sometimes extreme — values.  setFrequency() clamps
+// phaseInc to 0.9999 to prevent a more severe failure: if phaseInc >= 1.0,
+// the phase-wrap `if (phase >= 1.0) phase -= floor(phase)` subtracts correctly,
+// but the output of the polyBlep evaluation before the wrap uses the raw
+// (un-wrapped) phase, producing values proportional to (phase/phaseInc)² which
+// can reach hundreds — enough to trigger the host's safety mute immediately.
+// This failure mode was observed with MTS-ESP high-mapped notes + 48-st MPE
+// pitchbend: a note near F#7 bent up +48 st → ~44 700 Hz > 44 100 Hz sample rate.
+//
+// ── Future improvements ───────────────────────────────────────────────────────
+// • Above Nyquist the output is aliased but bounded.  A cleaner alternative
+//   would be to silence the output entirely when hz >= sr/2 (just return 0).
+// • Square wave uses a fixed 50% pulse width; the duty cycle is not modulatable.
+// • No anti-aliasing for the Triangle waveform at very high pitches (though in
+//   practice triangle aliases much less severely than saw/square).
+// • Wavetable or MinBLEP would handle high pitches and complex waveforms better.
 class Oscillator {
 public:
     enum class Waveform { Sine, Triangle, Saw, Square, Noise };
@@ -73,9 +93,12 @@ public:
         return out;
     }
 
-    // Returns the current phase (0..1). Used by SynthVoice to publish the phase
-    // at end-of-block so the next voice can start at exactly the right position,
-    // producing a seamless waveform with no click at legato note transitions.
+    // Returns the current phase (0..1) after the last next() call.
+    // Because next() increments phase BEFORE returning, getPhase() already holds
+    // the phase that the NEXT call to next() will use — no additional advance
+    // needed in noteStarted().  SynthVoice uses this for the legato phase handoff:
+    // the dying voice publishes this value; the new voice passes it to reset()
+    // to continue the waveform without a phase discontinuity (audible as a click).
     float getPhase() const { return phase; }
 
     void reset(float startPhase = 0.0f) { phase = startPhase; }
@@ -83,6 +106,9 @@ public:
 private:
     // PolyBLEP residual at a discontinuity. t = current phase, dt = phase increment.
     // Returns a value that, when subtracted from the naive waveform, removes the alias.
+    //
+    // Only valid when dt < 0.5 (frequency < Nyquist/2) and phase is in [0, 1).
+    // Callers must ensure setFrequency() clamps phaseInc before this is reached.
     static float polyBlep(float t, float dt) {
         if (t < dt) {
             t /= dt;

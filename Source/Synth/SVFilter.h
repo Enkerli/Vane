@@ -2,12 +2,31 @@
 #include <cmath>
 #include <juce_core/juce_core.h>
 
-// Cytomic TPT state-variable filter.
-// Stable at all resonances; correct under fast cutoff modulation (breath sweeps,
-// pitch-coupled filtering) without the instability of the Zavalishin formulation.
+// Cytomic TPT (Topology-Preserving Transform) state-variable filter.
+// Chosen over the Zavalishin "Virtual Analog" formulation for two reasons:
+//   1. Stability at resonance → 1 (self-oscillation threshold): the Zavalishin
+//      form can become unstable with fast cutoff changes at high resonance.
+//   2. Correct per-sample coefficient updates: g and k are independent so
+//      setCutoff() can be called every sample without recomputing k, keeping
+//      the breath-driven filter sweep tight and zipper-free.
+//
+// Coefficient ordering is critical and non-obvious:
+//   setResonance() first — computes k, then a1 using the OLD g.
+//   setCutoff()    next  — computes g, then a1/a2/a3 using the fresh k.
+// Reversing the order or calling only setCutoff() leaves a1 stale.  In the
+// render loop, setResonance() runs once per block and setCutoff() once per sample.
 //
 // Reference: Andy Simper, "Solving the continuous SVF equations using trapezoidal
 // integration and equivalent currents" (Cytomic, 2013).
+//
+// ── Future improvements ───────────────────────────────────────────────────────
+// • Notch output is available as (x - k*v1) — currently not exposed as a mode.
+// • Allpass is (x - 2*k*v1) — also not exposed.
+// • No soft-saturation on the feedback path; resonance at 1.0 is clean sine,
+//   not the harmonically rich self-oscillation real analogue filters produce.
+// • setCutoff() clamps at sr * 0.499 (not 0.5) to avoid tan(π/2) → ±∞, but a
+//   small guard margin rather than the exact Nyquist makes coefficient blow-up
+//   impossible even under floating-point rounding.
 class SVFilter {
 public:
     enum class Mode { LP, BP, HP };
@@ -62,8 +81,9 @@ public:
             case Mode::LP: return v2;
             case Mode::BP: return v1;
             case Mode::HP: return x - k * v1 - v2;
+            // Notch = x - k*v1, Allpass = x - 2*k*v1 — not yet exposed as modes.
         }
-        return v2;
+        return v2;  // unreachable — all enum cases handled; compiler requires this
     }
 
 private:

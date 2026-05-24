@@ -111,32 +111,44 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     styleBtn(monoButton);
 
     refreshPresetDisplay();
-    startTimerHz(20);   // 20 Hz: smooth enough for live meters
+
+    // 20 Hz timer drives two things: meter repaints and MTS status + button-label
+    // updates.  20 Hz (50 ms) is imperceptible lag for a visual meter and cheap
+    // compared to 60 Hz.  Meters are NOT pushed from the audio thread — pushing
+    // a repaint from processBlock would cause cross-thread Component calls.
+    // Instead the audio thread writes to relaxed atomics; the timer reads them.
+    startTimerHz(20);
 }
 
 VaneEditor::~VaneEditor() { stopTimer(); }
 
 void VaneEditor::timerCallback()
 {
+    // MTS status — colour-coded so the connection state is visible at a glance.
     bool connected = vaneProcessor.mtsConnected();
     reconnectMtsButton.setButtonText(connected ? "MTS-ESP: connected" : "MTS-ESP: reconnect");
     reconnectMtsButton.setColour(juce::TextButton::buttonColourId,
         connected ? juce::Colour(0xff1a3020) : juce::Colour(0xff301a1a));
 
+    // Mono/Poly toggle — label tracks state.  ButtonAttachment keeps the parameter
+    // in sync automatically; we just need to update the displayed text here.
     bool isMono = monoButton.getToggleState();
     monoButton.setButtonText(isMono ? "Mono" : "Poly");
     monoButton.setColour(juce::TextButton::buttonColourId,
         isMono ? juce::Colour(0xff1a2535) : VaneColors::btnBg);
 
-    repaint();   // redraw meters every tick
+    // Trigger repaint so drawMeters() reads fresh values from the processor atomics.
+    repaint();
 }
 
 // ── Paint helpers ─────────────────────────────────────────────────────────────
 
 void VaneEditor::drawBreathCurves(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Three overlapping sine-drift curves — the Vane breath motif.
-    // Identical algorithm to the wireframe's BreathCurve component.
+    // Purely decorative header accent — three overlapping sine-drift curves in
+    // the modulation source palette colours (breath/slide/pressure).  Matches
+    // the wireframe's BreathCurve component; static (not animated) to keep the
+    // paint() path cheap.
     struct Curve { juce::Colour col; float opacity, baseline, amp, seed; };
     const Curve curves[] = {
         { VaneColors::breath,    0.18f,  0.0f, 11.0f, 0.4f },
@@ -182,7 +194,10 @@ void VaneEditor::drawMeters(juce::Graphics& g, juce::Rectangle<int> area)
     g.drawText("LIVE EXPRESSION", inner.removeFromTop(13), juce::Justification::centredLeft);
     inner.removeFromTop(3);  // gap after eyebrow
 
-    // Meter definitions — value fetched live from processor atomics
+    // Meter definitions — value fetched live from processor atomics (relaxed loads:
+    // being one paint-tick stale is imperceptible for a visual meter).
+    // Pitchbend is signed (-1..1); remap to 0..1 for a unipolar bar, with the
+    // centre-line marker in the bar drawing below showing where neutral (0) falls.
     struct MeterDef { const char* label; const char* cc; juce::Colour colour; float value; };
     const float pb = vaneProcessor.meterPitchbend.load(std::memory_order_relaxed);
     const MeterDef meters[] = {

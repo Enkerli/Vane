@@ -86,17 +86,26 @@ std::array<float, ModDestID::NumDests>
 ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voiceVals,
                     std::vector<Slewer>& voiceSlewers)
 {
+    // Zero-initialised: routes accumulate into each destination additively.
     std::array<float, ModDestID::NumDests> result {};
 
     for (size_t i = 0; i < routes.size(); ++i) {
         auto& route = routes[i];
         float raw   = getSourceValue(route.source, voiceVals);
 
+        // Decide which slewer pool to use for this route.
+        //
         // Voice sources (MPE pressure/slide/pitchbend, velocity) must be slewed
         // per-voice so that two simultaneously held notes with different slide
         // positions don't contaminate each other through the shared route slewer.
-        // CC/Aftertouch sources are global so the shared slewer is correct there.
-        // Macro sources inherit their slewer type from their current backing.
+        // CC/Aftertouch sources are global so the shared route.slewer is correct.
+        //
+        // Macro sources add a wrinkle: their backing can change at runtime.
+        // If MacroBreath is currently wired to MPE_Pressure (voiceBacking >= 0),
+        // two notes with different breath inputs would bleed through the shared
+        // slewer even though MacroBreath is nominally CC-backed.  isMacroVoice
+        // catches this case so the per-voice slewer is used whenever a macro
+        // resolves to a per-voice dimension, regardless of its default backing.
         int  macroIdx     = route.source - ModSourceID::Macro;
         bool isMacroVoice = (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros
                              && macroVoiceBacking[macroIdx] >= 0);
@@ -107,9 +116,14 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
                        ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
                        : route.slewer.process(raw);
 
-        float shaped      = applyCurve(slewed, route.curve);
-        float eff_amount  = route.amountParam ? route.amountParam->load() : route.amount;
+        float shaped       = applyCurve(slewed, route.curve);
+        float eff_amount   = route.amountParam ? route.amountParam->load() : route.amount;
         float contribution = shaped * eff_amount;
+
+        // Clamp after each route so no destination escapes ±1 mid-accumulation.
+        // Multiple routes pushing the same destination are additive but bounded:
+        // two routes each contributing +0.8 → +1.0, not +1.6.
+        // This is intentional — destinations are normalised offsets, not voltages.
         result[route.dest] = std::clamp(
             result[route.dest] + contribution, -1.0f, 1.0f);
     }
@@ -129,6 +143,10 @@ void ModMatrix::initVoiceSlewers(std::vector<Slewer>& out, double sr, int blockS
 void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
                                    const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const
 {
+    // Only reset per-voice source slewers — CC/Aftertouch slewers live on the
+    // shared ModRoute and must NOT be touched here.  Resetting a CC slewer from
+    // noteStarted() would snap the global CC state to the new voice's value,
+    // producing a brief discontinuity audible across all simultaneous notes.
     for (size_t i = 0; i < routes.size() && i < voiceSlewers.size(); ++i) {
         int src = routes[i].source;
 
@@ -139,7 +157,8 @@ void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
         }
 
         // Macro source whose current binding is a per-voice dimension:
-        // e.g. MacroBreath routed to MPE_Pressure rather than CC.
+        // e.g. MacroBreath currently routed to MPE_Pressure rather than CC.
+        // CC-backed macros fall through and leave their slewer untouched.
         int macroIdx = src - ModSourceID::Macro;
         if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros) {
             int backing = macroVoiceBacking[macroIdx];
@@ -153,6 +172,8 @@ void ModMatrix::addRoute(int source, int dest, float amount,
                           float attackMs, float releaseMs, ModRoute::CurveShape curve,
                           std::atomic<float>* amountParam)
 {
+    // Called stopped-only — routes.push_back may reallocate the vector,
+    // which is a data race if any voice is mid-render.  See ModMatrix.h thread model.
     ModRoute r;
     r.source      = source;
     r.dest        = dest;

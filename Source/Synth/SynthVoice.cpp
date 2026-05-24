@@ -40,6 +40,8 @@ void SynthVoice::prepare(double sr, int blockSize)
     // Build per-voice slewers matching each route's attack/release config.
     // Routes are finalized in the VaneProcessor constructor before prepare() is
     // ever called, so this snapshot is stable for the lifetime of the session.
+    // Each voice gets its own set so that two simultaneous MPE notes with different
+    // slide positions don't bleed into each other through shared slewer state.
     modMatrix.initVoiceSlewers(voiceSlewers, sr, blockSize);
 
     // 3 ms ramp: long enough to bridge any block boundary without audible lag.
@@ -52,9 +54,22 @@ void SynthVoice::prepare(double sr, int blockSize)
     smoothedHz.reset(sr, 0.0);
     smoothedHz.setCurrentAndTargetValue(440.0f);
 
-    // Pitchbend multiplier smoother: 3 ms ramp eliminates the block-boundary
-    // step changes that make coarse/square-wave PB (e.g. Sylphyo shake vibrato)
-    // sound like a trill.  Multiplicative: equal steps in semitone space.
+    // Pitchbend multiplier smoother: 3 ms ramp eliminates block-boundary steps.
+    //
+    // Why Multiplicative: the pitchbend is a frequency multiplier (2^(semitones/12)).
+    // Linear interpolation between multipliers compresses the lower semitones
+    // and stretches the upper ones — audible as asymmetric vibrato width.
+    // Multiplicative interpolation (geometric ramp) keeps semitone distance
+    // perceptually even throughout the glide, matching how pitch is heard.
+    //
+    // Why 3 ms: fast enough not to lag live vibrato (Sylphyo shake rate ~5 Hz),
+    // slow enough to bridge the ~11 ms block boundary at 44100 / 512 without
+    // audible stepping.  The same 3 ms is used for smoothedCutoff for consistency.
+    //
+    // What this fixed: without smoothing, each block-rate PB update produced a
+    // step in the oscillator frequency.  At ±2 st range, each step was ~1.2 Hz
+    // at 440 Hz — barely audible.  At ±48 st (Exquis), each step spanned up to
+    // 28 Hz, making vibrato sound like a trill of discrete pitches.
     smoothedPitchMult.reset(sr, 0.003);
     smoothedPitchMult.setCurrentAndTargetValue(1.0f);
 
@@ -131,6 +146,12 @@ void SynthVoice::noteStarted()
     float initVCA  = (isMono && sharedLastVCALevel) ? sharedLastVCALevel->load() : 0.0f;
     // isLegato gates portamento, phase sync, and filter sync.
     // Threshold 0.02: breath clearly off → non-legato attack; clearly on → legato.
+    // Chosen empirically — 0.02 (~−34 dB) is inaudible and safely above the
+    // ~0.0001 floor of a tailing-off voice near silence.  A threshold too low
+    // (e.g. 0.001) would treat any voice that's still releasing as legato, causing
+    // glide from an arbitrary previous note that the player never intended.
+    // TODO: test whether this threshold needs to be different for non-breath-controller
+    // players (keyboards with sustain pedal) where VCA doesn't track air pressure.
     bool  isLegato = (initVCA > 0.02f);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
@@ -271,7 +292,15 @@ void SynthVoice::noteTimbreChanged()
         sharedMeterSlide->store(slide, std::memory_order_relaxed);
 }
 
-void SynthVoice::noteKeyStateChanged() {}
+void SynthVoice::noteKeyStateChanged()
+{
+    // Called when sustain pedal or sostenuto changes while this note is active.
+    // Currently a stub — sustain pedal support would be implemented here:
+    //   if (currentlyPlayingNote.keyState == juce::MPENote::sustained)
+    //       allow the note to continue even after key-up.
+    // For wind controllers this is rarely needed; for keyboard players it would
+    // make legato phrases work without requiring continuous breath.
+}
 
 void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                   int startSample, int numSamples)
@@ -362,6 +391,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
     for (int i = 0; i < numSamples; ++i) {
         if (isTailingOff) {
+            // 0.9995 per sample ≈ −60 dB in 138 ms at 44100 Hz — smooth enough
+            // that the release is inaudible as a step but short enough not to
+            // ghost audibly under a new note in mono mode.
+            // TODO: make the tail coefficient a parameter (or derive it from a
+            // release-time knob) so the fade length matches the player's style.
             tailLevel *= 0.9995f;
             if (tailLevel < 0.0001f) {
                 active = false; isTailingOff = false;
@@ -380,14 +414,18 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
     // Publish state for the next voice to inherit.
     //
-    // VCA: published as smoothedVCA × tailLevel — the actual output amplitude, not the
-    //   raw smoothed level.  This is critical: a tailing-off voice may have
-    //   smoothedVCA=0.87 (breath was recently high) but tailLevel=0.04 (signal is
-    //   barely audible).  Publishing 0.87 without the tailLevel factor causes the next
-    //   voice to start with initVCA=0.87, triggering a false-legato (isLegato=true)
-    //   and a 22× amplitude jump at every attack-from-tail-off note.
-    //   Publishing the product (≈ 0.035) correctly identifies the note as non-legato
-    //   (< 0.02 threshold) and lets the new voice ramp up cleanly from near-silence.
+    // VCA: published as smoothedVCA × tailLevel — the ACTUAL output amplitude.
+    //
+    // This multiplication is non-obvious but critical.  A tailing-off voice may
+    // have smoothedVCA = 0.87 (breath was recently high) while tailLevel = 0.04
+    // (the signal has nearly faded).  Publishing 0.87 would make the next voice
+    // start with initVCA = 0.87, triggering isLegato = true and a sudden 22×
+    // amplitude jump at the note boundary — a loud click on every attack.
+    // Publishing the product (≈ 0.035) correctly marks the state as non-legato
+    // (< 0.02 threshold) and the new voice ramps up from near-silence as intended.
+    //
+    // Testing note: this is hard to catch in normal play because it only fires
+    // when a new note arrives while the tail is still decaying AND breath is on.
     //
     // Phase: osc.next() increments phase before returning, so getPhase() already
     //   holds the phase for the *next* sample.  noteStarted() passes this directly

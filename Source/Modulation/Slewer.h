@@ -3,11 +3,29 @@
 
 // One-pole lag filter used wherever we need to prevent zippering.
 //
-// IMPORTANT — call rate awareness:
-//   process() must be told how many samples pass between calls via prepare().
-//   If called once per sample, samplesPerStep = 1 (default, true sample-rate slewing).
-//   If called once per block (e.g. from ModMatrix::evaluate), samplesPerStep = blockSize.
-//   Getting this wrong makes the slew 256× too slow (the original bug).
+// ── Call-rate awareness (easy to get wrong) ───────────────────────────────────
+// process() is called once per audio block from ModMatrix::evaluate(), NOT once
+// per sample.  The time constant must be calibrated to the actual call rate:
+//
+//   coeff = exp(-samplesPerStep / (sampleRate * timeConstant_s))
+//
+// With samplesPerStep = 1 but a blockSize of 512, the exponent is 512× smaller
+// than it should be — the slew becomes 512× slower than intended.  The attack
+// would take ~8 seconds instead of 5 ms.  This was the original bug before
+// prepare() gained the samplesPerStep parameter.
+//
+// Voice-source routes (MPE pressure, slide) use per-voice Slewers cloned from
+// the route's attack/release config via ModMatrix::initVoiceSlewers().  CC routes
+// use the shared Slewer on the ModRoute struct itself.  Both must be initialised
+// with the same blockSize so the time constants match.
+//
+// ── Limitations / future improvements ────────────────────────────────────────
+// • The slew rate is fixed at note-on; it cannot be modulated in real time.
+// • Asymmetric attack/release is done by choosing the coefficient based on
+//   direction.  No "hold" phase is supported (would need an extra state).
+// • Slew is linear in the abstract "value" space, which is correct for
+//   filter-cutoff offsets (-1..+1) but not for exponential parameters.
+//   In practice this is fine because routes already use bounded ±1 ranges.
 class Slewer {
 public:
     // samplesPerStep: how many samples elapse between successive process() calls.

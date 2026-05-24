@@ -48,11 +48,15 @@ bool PresetManager::importFromClipboard()
     auto text = juce::SystemClipboard::getTextFromClipboard();
     if (text.isEmpty()) return false;
 
+    // Validate the XML root tag — prevents silently importing unrelated clipboard
+    // content (e.g. a URL or stray text) as a preset.
     auto xml = juce::XmlDocument::parse(text);
     if (!xml || !xml->hasTagName(apvts.state.getType())) return false;
 
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
-    currentPresetName.clear();   // live in memory, not yet saved to disk
+    // Clear name: state is live in memory but not persisted to disk yet.
+    // The editor shows "-- init --" until the user saves with a name.
+    currentPresetName.clear();
     return true;
 }
 
@@ -66,11 +70,13 @@ void PresetManager::exportToClipboard()
 juce::StringArray PresetManager::getPresetNames() const
 {
     juce::StringArray names;
+    // Non-recursive: presets live directly in the Presets/ directory, no sub-folders.
     auto files = getPresetsDirectory()
                      .findChildFiles(juce::File::findFiles, false,
                                      juce::String("*") + fileExtension);
     for (const auto& f : files)
         names.add(f.getFileNameWithoutExtension());
+    // Case-insensitive alphabetical order so "Breathy Pad" and "breathy pad" sort together.
     names.sort(false /* caseSensitive */);
     return names;
 }

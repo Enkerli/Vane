@@ -7,9 +7,18 @@ VaneProcessor::VaneProcessor()
       apvts(*this, nullptr, "Vane", createParameterLayout()),
       presetManager(apvts)
 {
-    // 15 voices: one per MPE member channel in the lower zone
-    // MPESynthesiser has no "sound" concept — voices handle everything.
-    // Parameter raw pointers are safe to read on the audio thread.
+    // 15 voices: one per MPE member channel in the lower zone (channels 2–16).
+    // MPESynthesiser has no "sound" concept — voices handle everything directly.
+    //
+    // All APVTS parameter pointers are obtained as LOCAL variables BEFORE the
+    // voice-construction loop.  Do NOT use member variable pointers here.
+    //
+    // Pitfall: member pointers (pOutputLevel, pMacroBreathSrc …) are assigned
+    // AFTER the voice loop below.  If you pass a member pointer into a voice
+    // constructor, the voice receives the pre-assignment value — null — and
+    // silently falls back to hard-coded defaults for pitchbend range, etc.
+    // This was a real bug: all 15 voices played with ±2 st range regardless of
+    // the parameter value because pPBRange was null inside every voice.
     auto* pWave        = apvts.getRawParameterValue("oscWave");
     auto* pDetune      = apvts.getRawParameterValue("oscDetune");
     auto* pCutoff      = apvts.getRawParameterValue("filterCutoff");
@@ -18,7 +27,7 @@ VaneProcessor::VaneProcessor()
     auto* pVeloMix     = apvts.getRawParameterValue("velocityMix");
     auto* pGlide       = apvts.getRawParameterValue("glideTime");
     auto* pMono        = apvts.getRawParameterValue("monoMode");
-    auto* pPBRangeLocal     = apvts.getRawParameterValue("pitchbendRange");
+    auto* pPBRangeLocal       = apvts.getRawParameterValue("pitchbendRange");
     auto* pNonMPEPBRangeLocal = apvts.getRawParameterValue("nonMPEPBRange");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
@@ -158,9 +167,21 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                                   static_cast<float>(msg.getControllerValue()) / 127.0f);
         else if (msg.isChannelPressure())
             modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
-        // Channel-1 (non-MPE) pitchbend is handled directly by SynthVoice via
-        // currentlyPlayingNote.totalPitchbendInSemitones, which JUCE updates at
-        // each PB event inside renderNextBlock.  No pre-capture needed here.
+        // Channel-1 (non-MPE) pitchbend is intentionally NOT captured here.
+        //
+        // Discovery: for master-channel notes, JUCE's MPEInstrument updates
+        // note.totalPitchbendInSemitones at each PB event during renderNextBlock
+        // but never writes note.pitchbend.  Reading note.pitchbend.asSignedFloat()
+        // in notePitchbendChanged() always returns 0 — the note-on value.
+        //
+        // The old approach of capturing pitchbend to a shared atomic here and
+        // reading it in the voice caused "trill" artifacts on the Sylphyo: the
+        // shared value was updated once per block (block-rate), whereas JUCE
+        // calls notePitchbendChanged() mid-block with sub-sample accuracy.
+        //
+        // The correct approach: SynthVoice reads totalPitchbendInSemitones / 2
+        // directly from currentlyPlayingNote in notePitchbendChanged(), which
+        // gives the same per-event accuracy as member-channel MPE pitchbend.
     }
 
     // Resolve macro source bindings once per block, before voices render.
@@ -270,6 +291,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"glideTime", 1}, "Glide Time",
         juce::NormalisableRange<float>(0.0f, 2000.0f, 0.0f, 0.5f), 0.0f));
 
+    // TODO: masterTune is declared and saved in presets but is NOT yet applied
+    // in SynthVoice::renderNextBlock.  To wire it up:
+    //   1. Pass the raw pointer to SynthVoice alongside pDetune.
+    //   2. In renderNextBlock, add it to totalSemitones (in cents / 100).
+    //   3. Consider whether it should also offset baseHz before smoothedHz is set
+    //      in noteStarted() so portamento and MTS are both affected.
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"masterTune", 1}, "Master Tune (cents)",
         juce::NormalisableRange<float>(-100.0f, 100.0f), 0.0f));

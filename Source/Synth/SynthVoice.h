@@ -7,9 +7,17 @@
 
 class SynthVoice : public juce::MPESynthesiserVoice {
 public:
-    // Raw APVTS parameter pointers — safe to read on the audio thread.
-    // lastNoteHz: shared across all voices; read in noteStarted() to glide
-    //             from the previous pitch when glideTime > 0.
+    // The constructor parameter list is long because voices need live access to
+    // APVTS raw-parameter pointers (safe on the audio thread) and shared atomics
+    // for cross-voice state (legato handoff).  A future refactor should pack these
+    // into two structs — VoiceParams (APVTS pointers) and SharedVoiceState
+    // (the cross-voice atomics) — to reduce the constructor arity and make it
+    // harder to accidentally pass parameters in the wrong order.
+    //
+    // IMPORTANT: obtain ALL pointers as local variables in VaneProcessor's
+    // constructor before calling addVoice().  Member pointers (pOutputLevel etc.)
+    // are assigned AFTER the voice loop and will be null if passed directly —
+    // voices silently fall back to hard-coded defaults.  See PluginProcessor.cpp.
     SynthVoice(ModMatrix& matrix, TuningClient& tuning,
                std::atomic<float>*    paramWave,      std::atomic<float>*    paramDetune,
                std::atomic<float>*    paramCutoff,    std::atomic<float>*    paramRes,

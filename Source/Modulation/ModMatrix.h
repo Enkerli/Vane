@@ -34,9 +34,34 @@ struct ModRoute {
 // CC values are written per MIDI message; per-voice MPE values are passed
 // at evaluate() time so each voice gets its own mod result.
 //
-// Thread model: setCCValue is called from the audio thread (processBlock).
-//               addRoute / clearRoutes should only be called while audio is stopped
-//               or behind a lock. This is intentionally simple for now.
+// ── Thread model ──────────────────────────────────────────────────────────────
+// Audio thread (safe): setCCValue, setAftertouch, setMacroSlot, evaluate,
+//                      resetVoiceSlewers.
+// Stopped only:        addRoute, clearRoutes.  These modify `routes` (a vector)
+//                      which could reallocate — calling them during playback is
+//                      a data race.  A future improvement would be a lock-free
+//                      route-swap using a double-buffer or atomic pointer.
+//
+// ── Macro slot design ─────────────────────────────────────────────────────────
+// Macros decouple the route table from concrete MIDI bindings.  A route targets
+// MacroBreath (256) rather than CC2 directly; processBlock resolves which
+// physical signal feeds MacroBreath at runtime via setMacroSlot().  This lets
+// the user switch from CC2 to Aftertouch or MPE Pressure without touching routes.
+//
+// The `voiceBacking` field in macroVoiceBacking[] is the key:
+//   >= 0  — evaluate() reads from voiceVals[voiceBacking] per-voice (MPE dims)
+//   -1    — evaluate() reads from macroValues[macroIdx] (pre-resolved global)
+// CC and Aftertouch macros are resolved to a scalar in processBlock, stored in
+// macroValues[], and read once (globally) during evaluate().  Per-voice macros
+// (pressure, slide, pitchbend) are resolved to voiceVals index so each voice
+// sees its own value.
+//
+// ── Slewer selection ──────────────────────────────────────────────────────────
+// Voice-source routes use per-voice Slewers (voiceSlewers[i]) so two simultaneous
+// notes with different slide values don't bleed into each other through the shared
+// route.slewer.  CC/Aftertouch routes use route.slewer (shared) because those
+// values are global anyway.  isMacroVoice decides which pool to use based on
+// the current backing of each macro.
 class ModMatrix {
 public:
     // blockSize: samples per audio block — needed so Slewer coefficients
