@@ -15,7 +15,6 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    meterSlide,
                         std::atomic<float>*    meterPitchbend,
                         std::atomic<float>*    pbRange,
-                        std::atomic<float>*    globalPitchbend,
                         std::atomic<float>*    nonMPEPBRange)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
@@ -30,7 +29,6 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedMeterSlide(meterSlide)
     , sharedMeterPitchbend(meterPitchbend)
     , paramPBRange(pbRange)
-    , sharedGlobalPB(globalPitchbend)
     , paramNonMPEPBRange(nonMPEPBRange) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
@@ -54,6 +52,12 @@ void SynthVoice::prepare(double sr, int blockSize)
     smoothedHz.reset(sr, 0.0);
     smoothedHz.setCurrentAndTargetValue(440.0f);
 
+    // Pitchbend multiplier smoother: 3 ms ramp eliminates the block-boundary
+    // step changes that make coarse/square-wave PB (e.g. Sylphyo shake vibrato)
+    // sound like a trill.  Multiplicative: equal steps in semitone space.
+    smoothedPitchMult.reset(sr, 0.003);
+    smoothedPitchMult.setCurrentAndTargetValue(1.0f);
+
     // VCA smoother: 3 ms ramp eliminates amplitude staircase at block boundaries.
     // Linear (not Multiplicative) because amplitude can start from zero.
     smoothedVCA.reset(sr, 0.003);
@@ -66,8 +70,29 @@ void SynthVoice::noteStarted()
     velocity  = note.noteOnVelocity.asUnsignedFloat();
     pressure  = note.pressure.asUnsignedFloat();
     slide     = note.timbre.asUnsignedFloat();
-    pitchbend = note.pitchbend.asSignedFloat();
+
+    // Channel-1 (non-MPE master channel): JUCE never writes note.pitchbend for
+    // master-channel PB — only totalPitchbendInSemitones is updated.
+    // For the lower zone with default masterPitchbendRange = 2:
+    //   totalPitchbendInSemitones = normalizedPB × 2
+    // Dividing by 2 recovers normalizedPB in −1..1.
+    // Member channels: use note.pitchbend.asSignedFloat() as usual.
+    pitchbend = (note.midiChannel <= 1)
+                ? note.totalPitchbendInSemitones / 2.0f
+                : note.pitchbend.asSignedFloat();
+
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
+
+    // Snap the pitchbend smoother to the current PB so note-on is click-free
+    // even when PB was already active before the note started.
+    {
+        const float kBend = (note.midiChannel <= 1)
+                            ? (paramNonMPEPBRange ? paramNonMPEPBRange->load() : 2.0f)
+                            : (paramPBRange       ? paramPBRange->load()       : 48.0f);
+        float pm = std::pow(2.0f, pitchbend * kBend / 12.0f);
+        if (!std::isfinite(pm) || pm <= 0.0f) pm = 1.0f;
+        smoothedPitchMult.setCurrentAndTargetValue(pm);
+    }
 
     // MTS_ShouldFilterNote: this pitch is silenced in the current tuning.
     // Mark inactive immediately so renderNextBlock produces nothing and the
@@ -221,9 +246,20 @@ void SynthVoice::notePressureChanged()
 
 void SynthVoice::notePitchbendChanged()
 {
-    pitchbend = currentlyPlayingNote.pitchbend.asSignedFloat();
-    baseHz = tuning.noteToHz(currentlyPlayingNote.initialNote,
-                              currentlyPlayingNote.midiChannel);
+    // Channel-1 (non-MPE): JUCE updates totalPitchbendInSemitones at each PB event
+    // but never touches note.pitchbend, which stays at the note-on value (typically 0).
+    // Divide totalPitchbendInSemitones by the lower zone's masterPitchbendRange (2)
+    // to recover the normalised −1..1 value.
+    // Member channels: note.pitchbend is updated per-event as normal.
+    pitchbend = (currentlyPlayingNote.midiChannel <= 1)
+                ? currentlyPlayingNote.totalPitchbendInSemitones / 2.0f
+                : currentlyPlayingNote.pitchbend.asSignedFloat();
+
+    // baseHz is intentionally NOT re-queried here.  It was set in noteStarted()
+    // and feeds smoothedHz, which is already running toward the correct target.
+    // Re-calling tuning.noteToHz() on every PB event would: (a) make unnecessary
+    // MTS-ESP calls mid-note (MTS is note-on only), and (b) overwrite baseHz with
+    // the same value while leaving smoothedHz's target unchanged — pure dead code.
     if (sharedMeterPitchbend)
         sharedMeterPitchbend->store(pitchbend, std::memory_order_relaxed);
 }
@@ -287,22 +323,21 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     //     `pitchbend` member is up to date.  Range = pitchbendRange (default 48 st,
     //     matching the MPE spec for full-range per-note expression).
     //   Channel-1 notes (non-MPE controllers, Sylphyo in standard mode, keyboards):
-    //     JUCE treats channel 1 as the MPE master channel and only propagates PB to
-    //     member notes, so notePitchbendChanged() is never fired.  Use sharedGlobalPB
-    //     captured from the raw MIDI stream in processBlock.  Range = nonMPEPBRange
-    //     (default 2 st, the MIDI standard and most non-MPE controller default).
+    //     JUCE updates note.totalPitchbendInSemitones at each PB event (sub-block accurate).
+    //     noteStarted()/notePitchbendChanged() extract normalised PB from that field
+    //     (divide by masterPitchbendRange=2) and store it in `pitchbend`, so it is
+    //     always correct here without any extra sharedGlobalPB indirection.
+    //   Range = nonMPEPBRange (default 2 st, the MIDI standard).
     const bool  isMasterChannelNote = (currentlyPlayingNote.midiChannel <= 1);
-    const float effectivePitchbend  = (isMasterChannelNote && sharedGlobalPB)
-                                      ? sharedGlobalPB->load()
-                                      : pitchbend;
     const float kBendRangeSemitones = isMasterChannelNote
                                       ? (paramNonMPEPBRange ? paramNonMPEPBRange->load() : 2.0f)
                                       : (paramPBRange       ? paramPBRange->load()       : 48.0f);
-    float totalSemitones = effectivePitchbend * kBendRangeSemitones
+    float totalSemitones = pitchbend * kBendRangeSemitones
                          + mods[ModDestID::OscPitchFine]
                          + detuneCents / 100.0f;
     float pitchMult = std::pow(2.0f, totalSemitones / 12.0f);
     if (!std::isfinite(pitchMult) || pitchMult <= 0.0f) pitchMult = 1.0f;
+    smoothedPitchMult.setTargetValue(pitchMult);
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
@@ -336,7 +371,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         }
         // Advance all three smoothers one sample each.
         filter.setCutoff(smoothedCutoff.getNextValue());  // smooth filter cutoff
-        osc.setFrequency(smoothedHz.getNextValue() * pitchMult);  // portamento
+        osc.setFrequency(smoothedHz.getNextValue() * smoothedPitchMult.getNextValue());  // portamento + pb
         float gain = smoothedVCA.getNextValue();          // smooth VCA amplitude
         float sample = filter.process(osc.next(), filterMode) * gain * tailLevel;
         left[i] += sample;

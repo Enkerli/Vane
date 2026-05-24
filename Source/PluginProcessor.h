@@ -92,21 +92,6 @@ private:
     // Initialised in the constructor after the APVTS is constructed.
     std::atomic<float>* pOutputLevel      = nullptr;
 
-    // Pitchbend ranges — two separate params because MPE and non-MPE controllers
-    // use entirely different conventions (see createParameterLayout comments).
-    std::atomic<float>* pPBRange          = nullptr;  // MPE member channels (default 48 st)
-    std::atomic<float>* pNonMPEPBRange    = nullptr;  // channel-1 legacy notes (default 2 st)
-
-    // Global (master-channel) pitchbend captured directly from the raw MIDI
-    // stream each processBlock.  JUCE's MPE engine propagates master-channel PB
-    // only to member-channel (2–16) notes via notePitchbendChanged().  Notes
-    // arriving on channel 1 (the master channel) — i.e. any non-MPE controller
-    // like the Sylphyo in standard mode — never receive that callback, so their
-    // per-voice pitchbend member stays at 0 indefinitely.  By capturing PB here
-    // and passing the pointer to every SynthVoice, channel-1 notes can read the
-    // correct value directly from renderNextBlock.
-    std::atomic<float> globalPitchbend    { 0.0f };
-
     // Macro source bindings — resolved each processBlock via setMacroSlot().
     // Breath: 0 = CC (pMacroBreathCC), 1 = Aftertouch, 2 = MPE Pressure.
     std::atomic<float>* pMacroBreathSrc   = nullptr;

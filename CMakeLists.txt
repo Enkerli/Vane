@@ -143,6 +143,7 @@ target_sources(Vane PRIVATE
     Source/Preset/PresetManager.cpp
     Source/Tests/ModMatrixTests.cpp
     Source/Tests/StringSafetyTests.cpp
+    Source/Tests/TuningTests.cpp
 )
 
 target_include_directories(Vane PRIVATE Source)

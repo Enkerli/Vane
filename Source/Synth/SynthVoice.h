@@ -27,15 +27,10 @@ public:
                std::atomic<float>*    meterPressure  = nullptr,
                std::atomic<float>*    meterSlide     = nullptr,
                std::atomic<float>*    meterPitchbend = nullptr,
-               // Pitchbend range in semitones. When null, falls back to 2 st
-               // (MIDI standard default). Stored as an APVTS param so presets carry it.
+               // Pitchbend range for MPE member-channel notes (default 48 st).
+               // Stored as an APVTS param so presets carry it.
                std::atomic<float>*    pitchbendRange  = nullptr,
-               // Master-channel (global) pitchbend captured from the raw MIDI
-               // stream in processBlock.  Used for notes on channel 1 (non-MPE
-               // controllers) which never receive notePitchbendChanged() from JUCE.
-               std::atomic<float>*    globalPitchbend  = nullptr,
-               // Pitchbend range for channel-1 legacy notes (default 2 st).
-               // pitchbendRange above is for MPE member-channel notes (default 48 st).
+               // Pitchbend range for channel-1 legacy (non-MPE) notes (default 2 st).
                std::atomic<float>*    nonMPEPBRange    = nullptr);
 
     void prepare(double sampleRate, int blockSize);
@@ -75,11 +70,9 @@ private:
     std::atomic<float>*    sharedMeterSlide     = nullptr;
     std::atomic<float>*    sharedMeterPitchbend = nullptr;
 
-    // Pitchbend range parameter — read each render block.
+    // Pitchbend range for MPE member-channel notes — read each render block.
     std::atomic<float>*    paramPBRange       = nullptr;
-    // Global pitchbend from master channel — fallback for non-MPE notes.
-    std::atomic<float>*    sharedGlobalPB     = nullptr;
-    // Pitchbend range for channel-1 legacy notes (default 2 st).
+    // Pitchbend range for channel-1 legacy (non-MPE) notes (default 2 st).
     std::atomic<float>*    paramNonMPEPBRange = nullptr;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
@@ -103,6 +96,12 @@ private:
     // Portamento — glides the oscillator pitch between notes when glideTime > 0.
     // Also Multiplicative so semitone spacing stays perceptually even over the ramp.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedHz;
+
+    // Per-sample pitchbend interpolation — turns block-boundary pitchMult steps
+    // (most audible with non-MPE controllers that send coarse or square-wave PB)
+    // into smooth pitch glides.  Multiplicative so semitone distance stays linear.
+    // 3 ms ramp matches smoothedCutoff; fast enough not to lag live vibrato.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smoothedPitchMult;
 
     // Per-sample VCA interpolation — eliminates block-boundary amplitude steps that
     // cause audible "crunchiness" (AM sidebands at 689 Hz+) during breath/CC sweeps.

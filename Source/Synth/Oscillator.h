@@ -22,6 +22,13 @@ public:
 
     void setFrequency(float hz) {
         phaseInc = hz / sr;
+        // Guard against phaseInc >= 1 (frequency at or above the sample rate).
+        // PolyBLEP assumes dt < 0.5 for well-behaved corrections; beyond Nyquist
+        // the two correction windows overlap and can produce extreme values.
+        // More critically, when phaseInc > 1 the single phase -= 1 wrap below
+        // never fully reduces phase, so it grows without bound → NaN/inf → silence.
+        // Clamping here is safe: anything above ~22 kHz is inaudible anyway.
+        if (phaseInc > 0.9999f) phaseInc = 0.9999f;
     }
 
     void setWaveform(Waveform w) { waveform = w; }
@@ -59,7 +66,9 @@ public:
         }
 
         phase += phaseInc;
-        if (phase >= 1.0f) phase -= 1.0f;
+        // Belt-and-suspenders: floor-based wrap handles any residual > 1 that
+        // slips through (e.g. if phaseInc is somehow exactly 1 due to rounding).
+        if (phase >= 1.0f) phase -= std::floor(phase);
 
         return out;
     }

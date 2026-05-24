@@ -10,14 +10,16 @@ VaneProcessor::VaneProcessor()
     // 15 voices: one per MPE member channel in the lower zone
     // MPESynthesiser has no "sound" concept — voices handle everything.
     // Parameter raw pointers are safe to read on the audio thread.
-    auto* pWave       = apvts.getRawParameterValue("oscWave");
-    auto* pDetune     = apvts.getRawParameterValue("oscDetune");
-    auto* pCutoff     = apvts.getRawParameterValue("filterCutoff");
-    auto* pRes        = apvts.getRawParameterValue("filterRes");
-    auto* pFilterMode = apvts.getRawParameterValue("filterMode");
-    auto* pVeloMix    = apvts.getRawParameterValue("velocityMix");
-    auto* pGlide      = apvts.getRawParameterValue("glideTime");
-    auto* pMono       = apvts.getRawParameterValue("monoMode");
+    auto* pWave        = apvts.getRawParameterValue("oscWave");
+    auto* pDetune      = apvts.getRawParameterValue("oscDetune");
+    auto* pCutoff      = apvts.getRawParameterValue("filterCutoff");
+    auto* pRes         = apvts.getRawParameterValue("filterRes");
+    auto* pFilterMode  = apvts.getRawParameterValue("filterMode");
+    auto* pVeloMix     = apvts.getRawParameterValue("velocityMix");
+    auto* pGlide       = apvts.getRawParameterValue("glideTime");
+    auto* pMono        = apvts.getRawParameterValue("monoMode");
+    auto* pPBRangeLocal     = apvts.getRawParameterValue("pitchbendRange");
+    auto* pNonMPEPBRangeLocal = apvts.getRawParameterValue("nonMPEPBRange");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
@@ -25,7 +27,7 @@ VaneProcessor::VaneProcessor()
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
                                       &meterPressure, &meterSlide, &meterPitchbend,
-                                      pPBRange, &globalPitchbend, pNonMPEPBRange));
+                                      pPBRangeLocal, pNonMPEPBRangeLocal));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -43,8 +45,6 @@ VaneProcessor::VaneProcessor()
     auto* pCC74ResAmt   = apvts.getRawParameterValue("cc74ResAmt");
 
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
-    pPBRange        = apvts.getRawParameterValue("pitchbendRange");
-    pNonMPEPBRange  = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
@@ -158,14 +158,9 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                                   static_cast<float>(msg.getControllerValue()) / 127.0f);
         else if (msg.isChannelPressure())
             modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
-        else if (msg.isPitchWheel() && msg.getChannel() == 1) {
-            // Channel 1 is the MPE master channel.  JUCE routes master-channel PB
-            // to member-channel notes only — notes that arrived on channel 1 (all
-            // non-MPE controllers) never get notePitchbendChanged() fired for it.
-            // Capture the raw value here so SynthVoice can use it directly.
-            float pb = static_cast<float>(msg.getPitchWheelValue() - 8192) / 8192.0f;
-            globalPitchbend.store(juce::jlimit(-1.0f, 1.0f, pb), std::memory_order_relaxed);
-        }
+        // Channel-1 (non-MPE) pitchbend is handled directly by SynthVoice via
+        // currentlyPlayingNote.totalPitchbendInSemitones, which JUCE updates at
+        // each PB event inside renderNextBlock.  No pre-capture needed here.
     }
 
     // Resolve macro source bindings once per block, before voices render.
