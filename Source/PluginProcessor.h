@@ -92,9 +92,10 @@ private:
     // Initialised in the constructor after the APVTS is constructed.
     std::atomic<float>* pOutputLevel      = nullptr;
 
-    // Pitchbend range: semitones for full ± bend.  Controllers vary widely —
-    // keyboards typically ±2 st, Sylphyo defaults to ±48 st.
-    std::atomic<float>* pPBRange          = nullptr;
+    // Pitchbend ranges — two separate params because MPE and non-MPE controllers
+    // use entirely different conventions (see createParameterLayout comments).
+    std::atomic<float>* pPBRange          = nullptr;  // MPE member channels (default 48 st)
+    std::atomic<float>* pNonMPEPBRange    = nullptr;  // channel-1 legacy notes (default 2 st)
 
     // Global (master-channel) pitchbend captured directly from the raw MIDI
     // stream each processBlock.  JUCE's MPE engine propagates master-channel PB

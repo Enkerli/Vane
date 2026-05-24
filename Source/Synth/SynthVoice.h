@@ -33,7 +33,10 @@ public:
                // Master-channel (global) pitchbend captured from the raw MIDI
                // stream in processBlock.  Used for notes on channel 1 (non-MPE
                // controllers) which never receive notePitchbendChanged() from JUCE.
-               std::atomic<float>*    globalPitchbend = nullptr);
+               std::atomic<float>*    globalPitchbend  = nullptr,
+               // Pitchbend range for channel-1 legacy notes (default 2 st).
+               // pitchbendRange above is for MPE member-channel notes (default 48 st).
+               std::atomic<float>*    nonMPEPBRange    = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -76,6 +79,8 @@ private:
     std::atomic<float>*    paramPBRange       = nullptr;
     // Global pitchbend from master channel — fallback for non-MPE notes.
     std::atomic<float>*    sharedGlobalPB     = nullptr;
+    // Pitchbend range for channel-1 legacy notes (default 2 st).
+    std::atomic<float>*    paramNonMPEPBRange = nullptr;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 

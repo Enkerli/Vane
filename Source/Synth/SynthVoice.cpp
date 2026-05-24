@@ -15,7 +15,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    meterSlide,
                         std::atomic<float>*    meterPitchbend,
                         std::atomic<float>*    pbRange,
-                        std::atomic<float>*    globalPitchbend)
+                        std::atomic<float>*    globalPitchbend,
+                        std::atomic<float>*    nonMPEPBRange)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -29,7 +30,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedMeterSlide(meterSlide)
     , sharedMeterPitchbend(meterPitchbend)
     , paramPBRange(pbRange)
-    , sharedGlobalPB(globalPitchbend) {}
+    , sharedGlobalPB(globalPitchbend)
+    , paramNonMPEPBRange(nonMPEPBRange) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -282,15 +284,20 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     //
     // Pitchbend source selection:
     //   Member-channel notes (2–16): JUCE calls notePitchbendChanged() → per-voice
-    //     `pitchbend` member is up to date.
-    //   Channel-1 notes (all non-MPE controllers): JUCE treats channel 1 as the MPE
-    //     master channel and only propagates PB to member notes, so notePitchbendChanged()
-    //     is never fired for these voices.  Use sharedGlobalPB captured in processBlock.
+    //     `pitchbend` member is up to date.  Range = pitchbendRange (default 48 st,
+    //     matching the MPE spec for full-range per-note expression).
+    //   Channel-1 notes (non-MPE controllers, Sylphyo in standard mode, keyboards):
+    //     JUCE treats channel 1 as the MPE master channel and only propagates PB to
+    //     member notes, so notePitchbendChanged() is never fired.  Use sharedGlobalPB
+    //     captured from the raw MIDI stream in processBlock.  Range = nonMPEPBRange
+    //     (default 2 st, the MIDI standard and most non-MPE controller default).
     const bool  isMasterChannelNote = (currentlyPlayingNote.midiChannel <= 1);
     const float effectivePitchbend  = (isMasterChannelNote && sharedGlobalPB)
                                       ? sharedGlobalPB->load()
                                       : pitchbend;
-    const float kBendRangeSemitones = paramPBRange ? paramPBRange->load() : 2.0f;
+    const float kBendRangeSemitones = isMasterChannelNote
+                                      ? (paramNonMPEPBRange ? paramNonMPEPBRange->load() : 2.0f)
+                                      : (paramPBRange       ? paramPBRange->load()       : 48.0f);
     float totalSemitones = effectivePitchbend * kBendRangeSemitones
                          + mods[ModDestID::OscPitchFine]
                          + detuneCents / 100.0f;

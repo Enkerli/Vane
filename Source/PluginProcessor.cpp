@@ -25,7 +25,7 @@ VaneProcessor::VaneProcessor()
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
                                       &meterPressure, &meterSlide, &meterPitchbend,
-                                      pPBRange, &globalPitchbend));
+                                      pPBRange, &globalPitchbend, pNonMPEPBRange));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -44,6 +44,7 @@ VaneProcessor::VaneProcessor()
 
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
     pPBRange        = apvts.getRawParameterValue("pitchbendRange");
+    pNonMPEPBRange  = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
@@ -322,13 +323,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"cc74ResAmt", 1}, "CC74 to Resonance",
         juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
 
-    // ── Pitchbend range ───────────────────────────────────────────────────────
-    // Semitones for full ± pitchbend.  Default 2 st matches the MIDI standard
-    // and most non-MPE controllers (keyboards, Sylphyo in standard mode).
-    // Set to 48 st for MPE controllers that use the full ±48 st range per note.
-    // Step size 1 st keeps it integer and preset-safe.
+    // ── Pitchbend ranges ──────────────────────────────────────────────────────
+    // MPE and non-MPE controllers use very different ranges, so each has its
+    // own parameter.  renderNextBlock selects the right one from the note's
+    // midiChannel: channel 1 = master/legacy (non-MPE), 2–16 = MPE members.
+
+    // MPE member-channel notes (Exquis, Seaboard, LinnStrument, …).
+    // MPE spec standard is ±48 st per note so the full chromatic range can be
+    // swept from any starting pitch.
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"pitchbendRange", 1}, "Pitchbend Range (st)",
+        juce::ParameterID{"pitchbendRange", 1}, "MPE Pitchbend Range (st)",
+        juce::NormalisableRange<float>(1.0f, 96.0f, 1.0f), 48.0f));
+
+    // Non-MPE / legacy notes on channel 1 (keyboards, Sylphyo in standard mode,
+    // breath controllers, …).  MIDI standard default is ±2 st.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"nonMPEPBRange", 1}, "Pitchbend Range (st)",
         juce::NormalisableRange<float>(1.0f, 96.0f, 1.0f), 2.0f));
 
     // ── Macro source bindings ─────────────────────────────────────────────────
