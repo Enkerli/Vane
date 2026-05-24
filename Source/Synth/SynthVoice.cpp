@@ -76,21 +76,48 @@ void SynthVoice::noteStarted()
     // to 0 when the oscillator is not at phase=0 would cause a brief step-response
     // transient — the "attack bloop" on legato transitions.
 
+    // Mono/poly must be known before VCA initialisation — it gates several decisions.
+    bool isMono = paramMono && (paramMono->load() > 0.5f);
+
     // Cutoff smoother: default to the base parameter value; overridden below for
     // mono legato so the new voice's filter starts at the exact Hz the old voice
     // was using, avoiding a coefficient mismatch that would corrupt the state transfer.
     float initCutoff = paramCutoff ? paramCutoff->load() : 4000.0f;
     smoothedCutoff.setCurrentAndTargetValue(initCutoff);
 
-    // VCA: initialise from the shared last-active level so that a new voice on a
-    // legato note starts at the current breath amplitude, not at zero.
-    // Published as smoothedVCA × tailLevel (see renderNextBlock publish comment),
-    // so this correctly reads near-zero for a tailing-off voice.
-    float initVCA  = sharedLastVCALevel ? sharedLastVCALevel->load() : 0.0f;
-    // isLegato is derived early — it gates portamento, phase sync, and filter sync.
+    // VCA: in mono mode, inherit the previous voice's amplitude for seamless legato.
+    // In poly mode each note must start from 0 — reading sharedLastVCALevel in poly
+    // would pick up a concurrently-playing voice's amplitude (e.g. 0.08), making
+    // isLegato fire falsely and producing a VCA blip (0.08 → 0 → ramp up) at every
+    // poly attack.  Published as smoothedVCA × tailLevel, so tailing-off voices
+    // correctly read near-zero and don't trigger false legato in mono mode either.
+    float initVCA  = (isMono && sharedLastVCALevel) ? sharedLastVCALevel->load() : 0.0f;
+    // isLegato gates portamento, phase sync, and filter sync.
     // Threshold 0.02: breath clearly off → non-legato attack; clearly on → legato.
     bool  isLegato = (initVCA > 0.02f);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
+
+    // Per-voice slewer reset for non-legato attacks.
+    // Each voice slot retains slewer state from the previous note it played.
+    // Without a reset, the slide slewer might be at an arbitrary stale position
+    // (e.g. the last slide value before this slot was idle), causing a brief
+    // filter-position mismatch at the start of the new note — audible as a click,
+    // especially at low base cutoffs where the mismatch spans more octaves.
+    //
+    // At MPE note-on, slide = neutral (0.5 → bipolar 0), pressure = 0, bend = 0.
+    // Velocity is snapped immediately (no ramp needed; VCA is still at 0 during
+    // the initial 0ms, making any filter transient inaudible anyway).
+    //
+    // For mono legato we leave slewers untouched — the continuous breath means
+    // the slewer was already tracking the physical controls, and the filter-state
+    // transfer via sharedCutoffHz handles the frequency continuity.
+    if (!isLegato) {
+        float slideBp = (slide - 0.5f) * 2.0f;
+        const std::array<float, ModSourceID::NumVoiceSources> noteOnVals {
+            pressure, slideBp, pitchbend, velocity
+        };
+        modMatrix.resetVoiceSlewers(voiceSlewers, noteOnVals);
+    }
 
     // Portamento: glide from the previous note's pitch if glideTime > 0 AND the
     // transition is legato (breath was continuously on).  Non-legato attacks snap
@@ -118,8 +145,7 @@ void SynthVoice::noteStarted()
     // with its arbitrary frozen phase, poisoning the next legato note's phase sync.
     //
     // In poly mode the kill mechanism is disabled entirely so voices can coexist.
-    bool isMono = paramMono && (paramMono->load() > 0.5f);
-
+    // (isMono was computed at the top of this function.)
     if (isMono && sharedLegatoGen)
         myLegatoGen = ++(*sharedLegatoGen);
     else if (!isMono && sharedLegatoGen)

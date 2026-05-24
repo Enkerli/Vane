@@ -54,6 +54,14 @@ public:
     // voice gets its own independent slewer state for per-voice MPE sources.
     void initVoiceSlewers(std::vector<Slewer>& out, double sr, int blockSize) const;
 
+    // Snap each per-voice slewer that handles a voice source to the corresponding
+    // value in voiceVals.  Call at note-on for non-legato attacks to prevent stale
+    // slewer state (from a previous note on the same voice slot) from producing a
+    // brief filter-position mismatch at the start of each new note.
+    // CC-source slewers are left untouched — they live in the shared route.
+    void resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
+                           const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const;
+
     void addRoute(int source, int dest, float amount,
                   float attackMs = 5.0f, float releaseMs = 30.0f,
                   ModRoute::CurveShape curve = ModRoute::CurveShape::Linear);

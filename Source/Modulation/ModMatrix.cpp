@@ -94,6 +94,16 @@ void ModMatrix::initVoiceSlewers(std::vector<Slewer>& out, double sr, int blockS
     }
 }
 
+void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
+                                   const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const
+{
+    for (size_t i = 0; i < routes.size() && i < voiceSlewers.size(); ++i) {
+        int src = routes[i].source;
+        if (src >= 0 && src < ModSourceID::NumVoiceSources)
+            voiceSlewers[i].reset(voiceVals[static_cast<size_t>(src)]);
+    }
+}
+
 void ModMatrix::addRoute(int source, int dest, float amount,
                           float attackMs, float releaseMs, ModRoute::CurveShape curve)
 {
