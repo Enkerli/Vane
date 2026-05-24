@@ -113,6 +113,28 @@ Design north star: a wind-first expressive instrument where intensity has multip
 
 ## Phase 7 — Integration & tooling
 
+### Learnable breath routing
+- The mod matrix currently hardcodes CC2 as "breath", but controllers vary:
+  Zefiro uses Aftertouch for breath, some setups use CC11 exclusively, others
+  use non-standard CC numbers or MIDI channel pressure
+- Add a "learn breath source" mode: Vane watches incoming MIDI, identifies
+  the highest-bandwidth continuous message during a calibration blow, and
+  stores that source ID as the breath route in the preset
+- Routes save/restore the source identity (CC number, Aftertouch, channel
+  pressure) so presets are portable across the original controller; a
+  re-learn step handles a different instrument
+
+### Controller profiles
+- Store per-controller MIDI mappings: which CC/dimension carries breath,
+  expression, pressure, and slide for a named instrument (Sylphyo, Zefiro,
+  EWI, Exquis, Morph, etc.)
+- Profile bundles with the preset: switching preset automatically re-binds
+  the mod routes to the correct sources for that controller
+- Bidirectional where the protocol allows: Exquis (USB-MIDI sysex) exposes
+  scale, pad layout, and LED color — Vane could write a layout that reflects
+  the current scale/preset, or read the active Exquis config to pre-populate
+  tuning and voicing defaults
+
 ### DrawnQurve profile
 - Vane-specific curve set: map DrawnQurve's curve outputs to Vane's ModMatrix routes
 - Target the sweet-spot bookmarks as named curve destinations
