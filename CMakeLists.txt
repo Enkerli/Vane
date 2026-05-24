@@ -69,13 +69,20 @@ set(PLUGIN_BASE_PROPS
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-    COPY_PLUGIN_AFTER_BUILD     TRUE
+    # COPY_PLUGIN_AFTER_BUILD is set per-platform below — it must be FALSE for
+    # iOS cross-compiles (there is no plugin install location on the build host).
 )
+
+# Apple Developer Team ID — used for iOS signing.
+# Override on the command line if needed: -DVANE_IOS_TEAM_ID=XXXXXXXXXX
+set(VANE_IOS_TEAM_ID "P8W7XXJN6C" CACHE STRING "Apple Developer Team ID for iOS signing")
 
 if(IS_IOS)
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
         FORMATS                     AUv3 Standalone
+        COPY_PLUGIN_AFTER_BUILD     FALSE       # cross-compiled — no local install path
+        DEVELOPMENT_TEAM            "${VANE_IOS_TEAM_ID}"
         BACKGROUND_AUDIO_ENABLED    TRUE
         IPHONE_SCREEN_ORIENTATIONS
             UIInterfaceOrientationPortrait
@@ -92,17 +99,20 @@ elseif(IS_MACOS)
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
         FORMATS                     AU AUv3 VST3 Standalone
+        COPY_PLUGIN_AFTER_BUILD     TRUE
     )
 elseif(IS_LINUX)
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
         FORMATS                     LV2 Standalone
         LV2_URI                     "https://enkerli.com/plugins/vane"
+        COPY_PLUGIN_AFTER_BUILD     TRUE
     )
 else()
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
         FORMATS                     Standalone
+        COPY_PLUGIN_AFTER_BUILD     FALSE
     )
 endif()
 

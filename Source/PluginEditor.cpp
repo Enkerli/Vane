@@ -24,29 +24,22 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     };
 
     addAndMakeVisible(savePresetButton);
-    savePresetButton.onClick = [this] {
-        // Show a modal text input so the player can name the preset.
-        // AlertWindow is heap-allocated; deleteWhenDismissed=true cleans it up.
-        auto* win = new juce::AlertWindow("Save Preset", "Name:",
-                                          juce::MessageBoxIconType::NoIcon);
-        win->addTextEditor("name",
-                           vaneProcessor.presetManager.getCurrentPresetName(), {});
-        win->addButton("Save",   1, juce::KeyPress(juce::KeyPress::returnKey));
-        win->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    // Clicking Save enters naming mode — an inline text field replaces the
+    // combo+save+delete strip.  No modal dialogs: those block the AUv3 host.
+    savePresetButton.onClick = [this] { enterNamingMode(); };
 
-        win->enterModalState(
-            true,
-            juce::ModalCallbackFunction::create([win, this](int result) {
-                if (result == 1) {
-                    auto name = win->getTextEditorContents("name").trim();
-                    if (name.isNotEmpty()) {
-                        vaneProcessor.presetManager.savePreset(name);
-                        refreshPresetBox();
-                    }
-                }
-            }),
-            true /* deleteWhenDismissed */);
-    };
+    // ── Naming-mode controls (hidden by default) ──────────────────────────────
+    addChildComponent(presetNameEditor);
+    presetNameEditor.setMultiLine(false);
+    presetNameEditor.setReturnKeyStartsNewLine(false);
+    presetNameEditor.onReturnKey  = [this] { doSavePreset(); };
+    presetNameEditor.onEscapeKey  = [this] { exitNamingMode(); };
+
+    addChildComponent(confirmSaveButton);
+    confirmSaveButton.onClick = [this] { doSavePreset(); };
+
+    addChildComponent(cancelNamingButton);
+    cancelNamingButton.onClick = [this] { exitNamingMode(); };
 
     addAndMakeVisible(deletePresetButton);
     // × is U+00D7, \xc3\x97 in UTF-8 — must use fromUTF8; String("×") asserts.
@@ -123,9 +116,11 @@ void VaneEditor::paint(juce::Graphics& g)
 
 void VaneEditor::resized()
 {
-    // ── Preset strip: full width below the subtitle ───────────────────────────
-    // Layout (480 wide, left/right margin 20 px each):
-    //   ComboBox | 8px gap | Save (60px) | 4px gap | Delete (26px) | margin
+    // ── Preset strip ──────────────────────────────────────────────────────────
+    // Two modes share the same y-position and height; only one set is visible.
+    //
+    // Select mode:  [ComboBox ................] [Save] [×]
+    // Naming mode:  [TextEditor .............] [Save] [Cancel]
     constexpr int margin = 20;
     constexpr int stripY = 85;
     constexpr int stripH = 26;
@@ -133,10 +128,17 @@ void VaneEditor::resized()
     constexpr int delW   = 26;
     constexpr int gap    = 6;
     int availW = getWidth() - 2 * margin - saveW - delW - 2 * gap;
+    int nameX  = margin + availW + gap;
 
-    presetBox.setBounds         (margin,                             stripY, availW, stripH);
-    savePresetButton.setBounds  (margin + availW + gap,              stripY, saveW,  stripH);
-    deletePresetButton.setBounds(margin + availW + gap + saveW + gap, stripY, delW,   stripH);
+    // Select-mode controls
+    presetBox.setBounds         (margin,           stripY, availW, stripH);
+    savePresetButton.setBounds  (nameX,            stripY, saveW,  stripH);
+    deletePresetButton.setBounds(nameX + saveW + gap, stripY, delW, stripH);
+
+    // Naming-mode controls (same geometry; confirm replaces Save, Cancel replaces ×)
+    presetNameEditor.setBounds  (margin,           stripY, availW, stripH);
+    confirmSaveButton.setBounds (nameX,            stripY, saveW,  stripH);
+    cancelNamingButton.setBounds(nameX + saveW + gap, stripY, delW, stripH);
 
     // MTS reconnect button: centred, slightly above centre
     reconnectMtsButton.setBounds(
@@ -145,6 +147,49 @@ void VaneEditor::resized()
     // Mono/poly toggle: sits directly below the MTS button with a small gap
     monoButton.setBounds(
         getLocalBounds().withSizeKeepingCentre(80, 26).translated(0, 55));
+}
+
+void VaneEditor::enterNamingMode()
+{
+    inNamingMode = true;
+
+    presetNameEditor.setText(vaneProcessor.presetManager.getCurrentPresetName(),
+                             juce::dontSendNotification);
+    presetNameEditor.selectAll();
+
+    // Swap visibility
+    presetBox.setVisible(false);
+    savePresetButton.setVisible(false);
+    deletePresetButton.setVisible(false);
+
+    presetNameEditor.setVisible(true);
+    confirmSaveButton.setVisible(true);
+    cancelNamingButton.setVisible(true);
+
+    presetNameEditor.grabKeyboardFocus();
+}
+
+void VaneEditor::exitNamingMode()
+{
+    inNamingMode = false;
+
+    presetNameEditor.setVisible(false);
+    confirmSaveButton.setVisible(false);
+    cancelNamingButton.setVisible(false);
+
+    presetBox.setVisible(true);
+    savePresetButton.setVisible(true);
+    deletePresetButton.setVisible(true);
+}
+
+void VaneEditor::doSavePreset()
+{
+    auto name = presetNameEditor.getText().trim();
+    if (name.isNotEmpty()) {
+        vaneProcessor.presetManager.savePreset(name);
+        refreshPresetBox();
+    }
+    exitNamingMode();
 }
 
 void VaneEditor::refreshPresetBox()
