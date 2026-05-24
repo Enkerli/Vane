@@ -26,15 +26,73 @@ Design north star: a wind-first expressive instrument where intensity has multip
 
 ## Phase 2 — GUI & parameter access
 
-### ModMatrix editor
-- View all active routes: source, destination, amount, attack/release slew
-- Add / remove / reorder routes at runtime
-- Visual feedback of current modulation value per route (VU-style bar or arc)
+### Source macros — abstract MIDI bindings
+The current code hardcodes `CC + 2` as "breath" and `CC + 11` as "expression". This breaks the
+moment a user switches controller (Zefiro uses Aftertouch for breath; an EWI user may have
+remapped to CC11; a keyboard player routes expression pedal differently). The fix is a two-layer
+architecture:
+
+**Layer 1 — MIDI binding (macro definitions):**
+Named abstract sources, each with a concrete MIDI binding stored in the preset:
+```
+Breath     → CC2           (default; editable to: Aftertouch | CCn | MPE Z | …)
+Expression → CC11          (default; editable)
+Pressure   → MPE Z         (channel pressure, per-voice)
+Slide      → CC74 / MPE Y  (editable)
+Pitchbend  → PB, range ±48 st  (range editable: ±2 / ±12 / ±24 / ±48 / custom)
+Velocity   → note-on vel   (fixed; not rebindable)
+```
+The binding table is serialised with the preset, so a preset carries its own source definitions.
+Loading a preset on a different controller = change one binding field, re-save.
+
+**Layer 2 — routes (the existing ModMatrix):**
+Routes reference macro names, not raw CC numbers. `Breath → VCA Level × 1.0` is meaningful
+regardless of which CC number "Breath" currently resolves to.
+
+**Pitchbend range normalisation:**
+Devices disagree wildly: Sylphyo default = ±48 st; standard MIDI keyboard = ±2 st; many are
+configurable. The raw pitchbend JUCE value is always ±1, so the normalization constant lives in
+the macro binding: `PB_semitones = rawPB × rangeSetting`. Routes see a ±1 value already scaled
+to the declared range, so a route "PB → pitch fine, ×1.0" always means ±1 declared semitone
+regardless of the physical device range.
+
+**Implementation notes:**
+- `ModSourceID` gains a `Macro` base (e.g. 512..519) alongside the existing `CC` and `MPE_*` IDs
+- processBlock resolves each macro to its bound raw value before passing to evaluate()
+- The macro binding table is a small struct array serialised inside the preset XML
+- Existing default routes are migrated automatically (CC + 2 → Macro::Breath at load time)
+
+### ModMatrix visual editor
+A full-screen (or full-panel) patching surface for building and editing route sets. This is
+the primary preset-editing UI — what lets a user create a new sweet spot without opening a DAW.
+
+**Design direction — Stack + patch points (hybrid):**
+- Left column: macro source nodes (Breath, Expression, Pressure, Slide, PB, Velocity)
+  each showing a live meter bar and its current MIDI binding (editable inline)
+- Right column: destination nodes (VCA Level, Cutoff, Reso, Pitch Fine, Glide, …)
+- Centre: the routes — each rendered as a horizontal strip:
+  `[● Breath] ──────── [▶ Cutoff] × [0.50 ▓▓▓░░] curve:[Exp▾] slew:[5/80ms]`
+- "+ Add route" at the bottom inserts a new strip with source and dest pickers
+- Delete button (×) on each strip removes it live
+- Amount is a draggable slider; curve and slew open a small popover
+- Live modulation value shown as a moving fill on each route's amount bar
+
+**Why not a pure flow/node graph:**
+Flow graphs are visually expressive but hard to interact with on a small plugin window or on
+an iPad. The strip layout is scannable, touch-friendly, and maps well to the existing
+ModMatrix data structure. A flow visualisation can be added as a secondary "view" toggle.
+
+**Source macro binding panel:**
+Accessible from a small "Edit sources…" button or from tapping a source node label:
+- For each macro: a CC picker (0–127), or toggle to Aftertouch / MPE Z / MPE Y / fixed
+- Pitchbend macro: additional range field (semitones, ±2..±96, free entry)
+- Changes take effect immediately; routes are live-updated since they reference the macro
 
 ### Parameter panel
 - Expose the full parameter set in the standalone window — at minimum a compact one-page view
 - Target: everything addressable without a DAW (Bitwig exposes params cleanly; Logic requires plugin-side UI)
-- Consider which parameters benefit from knobs vs sliders vs toggles vs menus
+- Parameters are synthesis-engine values (cutoff base, reso base, wave, glide time)
+  — distinct from ModMatrix amounts, which are per-route and live in the patch layer above
 
 ---
 
@@ -113,27 +171,28 @@ Design north star: a wind-first expressive instrument where intensity has multip
 
 ## Phase 7 — Integration & tooling
 
-### Learnable breath routing
-- The mod matrix currently hardcodes CC2 as "breath", but controllers vary:
-  Zefiro uses Aftertouch for breath, some setups use CC11 exclusively, others
-  use non-standard CC numbers or MIDI channel pressure
-- Add a "learn breath source" mode: Vane watches incoming MIDI, identifies
-  the highest-bandwidth continuous message during a calibration blow, and
-  stores that source ID as the breath route in the preset
-- Routes save/restore the source identity (CC number, Aftertouch, channel
-  pressure) so presets are portable across the original controller; a
-  re-learn step handles a different instrument
-
 ### Controller profiles
-- Store per-controller MIDI mappings: which CC/dimension carries breath,
-  expression, pressure, and slide for a named instrument (Sylphyo, Zefiro,
-  EWI, Exquis, Morph, etc.)
-- Profile bundles with the preset: switching preset automatically re-binds
-  the mod routes to the correct sources for that controller
-- Bidirectional where the protocol allows: Exquis (USB-MIDI sysex) exposes
-  scale, pad layout, and LED color — Vane could write a layout that reflects
-  the current scale/preset, or read the active Exquis config to pre-populate
-  tuning and voicing defaults
+Once source macros exist (Phase 2), a controller profile is simply a named macro-binding
+preset: "Sylphyo default" = { Breath→CC2, Expression→CC11, PB range=±48st }, "Zefiro" =
+{ Breath→Aftertouch, … }, etc. Profiles are separate from sound presets and can be mixed
+freely: load profile "Sylphyo" + sound "Reedlike Lyrical", or load profile "Exquis" + same
+sound.
+
+- Ship a small set of built-in profiles (Sylphyo, EWI, Zefiro, Exquis, keyboard default)
+- User-editable profiles stored alongside presets in the app data directory
+- Profile switching in the editor is a single tap / menu pick; routes are unaffected
+
+**MIDI learn for macro bindings:**
+In the macro binding panel, a "Learn" button per macro puts that macro in listen mode: the
+next continuous MIDI message arriving (CC, Aftertouch, MPE Z/Y) is adopted as the binding.
+A calibration blow or slider wiggle is enough. The learned CC number + range are stored in
+the profile.
+
+**Bidirectional (Exquis):**
+The Exquis USB-MIDI sysex API exposes scale, pad layout, and LED color. A future integration
+could write a layout matching the current preset's scale (via MTS-ESP) or read the active
+Exquis config to pre-populate tuning. This is exploratory — the sysex protocol is
+documented but the integration is non-trivial.
 
 ### DrawnQurve profile
 - Vane-specific curve set: map DrawnQurve's curve outputs to Vane's ModMatrix routes
