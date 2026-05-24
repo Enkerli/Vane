@@ -78,11 +78,16 @@ VaneProcessor::VaneProcessor()
     //   9  Velocity       → FilterCutoff   (pVeloCutAmt)
     //  10  MacroSlide     → FilterRes      (pCC74ResAmt)
 
+    // VCA amounts are now APVTS params so the ModMatrix UI can adjust them live.
+    auto* pBreathVCAAmt = apvts.getRawParameterValue("breathVCAamt");
+    auto* pExprVCAAmt   = apvts.getRawParameterValue("exprVCAamt");
+    auto* pPressVCAAmt  = apvts.getRawParameterValue("pressVCAamt");
+
     // VCA: breath and pressure control amplitude (amounts are calibrated so
     // MacroBreath and MacroExpr never both output 1.0 simultaneously in practice).
-    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f);
+    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathVCAAmt);
+    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pExprVCAAmt);
+    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f, ModRoute::CurveShape::Linear, pPressVCAAmt);
 
     // Slide → FilterCutoff: primary timbre sweep, full audible range.
     // Slide is bipolar in SynthVoice: neutral=0, up=+1, down=-1.
@@ -313,6 +318,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // ── Modulation route amounts ──────────────────────────────────────────────
     // How far each source sweeps its destination.  All are live parameters —
     // changing them mid-performance takes effect on the next audio block.
+
+    // VCA route amounts — making all routes adjustable from the ModMatrix UI.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathVCAamt", 1}, "Breath to VCA",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"exprVCAamt", 1}, "Expression to VCA",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pressVCAamt", 1}, "Pressure to VCA",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // CC74 (slide): 0 = no filter movement, 1 = full ±5-octave sweep.
     layout.add(std::make_unique<juce::AudioParameterFloat>(

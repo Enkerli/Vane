@@ -147,6 +147,7 @@ target_include_directories(Vane PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_sources(Vane PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/ModMatrixEditor.cpp
     Source/Synth/SynthVoice.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp

@@ -23,7 +23,8 @@ namespace VaneColors {
 }
 
 VaneEditor::VaneEditor(VaneProcessor& p)
-    : AudioProcessorEditor(p), vaneProcessor(p)
+    : AudioProcessorEditor(p), vaneProcessor(p),
+      matrixEditor(p)
 {
     setSize(480, 340);
 
@@ -110,6 +111,19 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     monoButton.setClickingTogglesState(true);
     styleBtn(monoButton);
 
+    // Matrix toggle — swaps the meters panel for the ModMatrix route editor.
+    addAndMakeVisible(matrixButton);
+    matrixButton.setClickingTogglesState(true);
+    matrixButton.onClick = [this] {
+        showMatrix = matrixButton.getToggleState();
+        matrixEditor.setVisible(showMatrix);
+        repaint();   // redraw so meters section appears/disappears correctly
+    };
+    styleBtn(matrixButton);
+
+    // ModMatrixEditor is hidden by default (meters visible first).
+    addChildComponent(matrixEditor);
+
     refreshPresetDisplay();
 
     // 20 Hz timer drives two things: meter repaints and MTS status + button-label
@@ -136,6 +150,11 @@ void VaneEditor::timerCallback()
     monoButton.setButtonText(isMono ? "Mono" : "Poly");
     monoButton.setColour(juce::TextButton::buttonColourId,
         isMono ? juce::Colour(0xff1a2535) : VaneColors::btnBg);
+
+    // Matrix toggle — colour indicates active state
+    matrixButton.setButtonText(showMatrix ? "Meters" : "Matrix");
+    matrixButton.setColour(juce::TextButton::buttonColourId,
+        showMatrix ? juce::Colour(0xff1a2535) : VaneColors::btnBg);
 
     // Trigger repaint so drawMeters() reads fresh values from the processor atomics.
     repaint();
@@ -285,8 +304,11 @@ void VaneEditor::paint(juce::Graphics& g)
                getLocalBounds().withTrimmedTop(32).removeFromTop(20),
                juce::Justification::centred);
 
-    // ── Meters section ────────────────────────────────────────────────────────
-    drawMeters(g, metersArea);
+    // ── Meters / Matrix section ───────────────────────────────────────────────
+    // MatrixEditor is a visible Component that paints itself; meters are painted
+    // here only when the matrix toggle is off.
+    if (!showMatrix)
+        drawMeters(g, metersArea);
 
     // ── Version footer ────────────────────────────────────────────────────────
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(10.0f)));
@@ -346,11 +368,18 @@ void VaneEditor::resized()
     pastePresetButton.setBounds (xPasteE, stripY, pasteW,  stripH);
     cancelNamingButton.setBounds(xCancel, stripY, canW,    stripH);
 
-    // ── Controls row: MTS reconnect (left) + Mono toggle (right) ─────────────
-    constexpr int mtsW  = 200;
-    constexpr int monoW = 70;
-    reconnectMtsButton.setBounds(margin,                ctrlY, mtsW,  ctrlH);
-    monoButton.setBounds        (getWidth() - margin - monoW, ctrlY, monoW, ctrlH);
+    // ── Controls row: MTS reconnect (left) · Matrix toggle (centre) · Mono (right) ──
+    constexpr int mtsW    = 160;
+    constexpr int matrixW = 64;
+    constexpr int monoW   = 60;
+    reconnectMtsButton.setBounds(margin,                               ctrlY, mtsW,    ctrlH);
+    matrixButton.setBounds      (margin + mtsW + gap,                  ctrlY, matrixW, ctrlH);
+    monoButton.setBounds        (getWidth() - margin - monoW,          ctrlY, monoW,   ctrlH);
+
+    // Both the meters panel and the matrix editor occupy the same rectangle.
+    // Visibility is toggled by matrixButton; resized() positions both here
+    // so that whichever is visible is correctly laid out.
+    matrixEditor.setBounds(metersArea);
 }
 
 // ── Preset navigation ─────────────────────────────────────────────────────────

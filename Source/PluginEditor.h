@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
+#include "ModMatrixEditor.h"
 
 class VaneEditor : public juce::AudioProcessorEditor,
                    private juce::Timer {
@@ -50,8 +51,16 @@ private:
     // ── Layout cache (set in resized, read in paint) ──────────────────────────
     juce::Rectangle<int> metersArea;
 
+    // ── ModMatrix editor panel ────────────────────────────────────────────────
+    // matrixEditor is declared before matrixButton so the toggle button can
+    // reference it safely.  Toggled by matrixButton in the controls row.
+    ModMatrixEditor matrixEditor;
+    bool            showMatrix { false };
+
+    // ── Controls row ──────────────────────────────────────────────────────────
     // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
-    juce::TextButton monoButton { "Poly" };
+    juce::TextButton monoButton   { "Poly" };
+    juce::TextButton matrixButton { "Matrix" };
     juce::AudioProcessorValueTreeState::ButtonAttachment monoAttachment {
         vaneProcessor.apvts, "monoMode", monoButton };
 
