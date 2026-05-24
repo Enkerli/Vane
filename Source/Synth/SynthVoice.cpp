@@ -13,7 +13,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    cutoffHz,
                         std::atomic<float>*    meterPressure,
                         std::atomic<float>*    meterSlide,
-                        std::atomic<float>*    meterPitchbend)
+                        std::atomic<float>*    meterPitchbend,
+                        std::atomic<float>*    pbRange)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -25,7 +26,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz)
     , sharedMeterPressure(meterPressure)
     , sharedMeterSlide(meterSlide)
-    , sharedMeterPitchbend(meterPitchbend) {}
+    , sharedMeterPitchbend(meterPitchbend)
+    , paramPBRange(pbRange) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -275,7 +277,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // Pitch: pitchbend (±48 st) + mod matrix fine tune + detune, as a per-block
     // multiplier applied on top of the per-sample smoothed base frequency.
     // Keeping std::pow() out of the sample loop avoids per-sample exp() cost.
-    constexpr float kBendRangeSemitones = 48.0f;
+    const float kBendRangeSemitones = paramPBRange ? paramPBRange->load() : 48.0f;
     float totalSemitones = pitchbend * kBendRangeSemitones
                          + mods[ModDestID::OscPitchFine]
                          + detuneCents / 100.0f;

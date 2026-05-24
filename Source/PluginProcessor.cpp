@@ -24,7 +24,7 @@ VaneProcessor::VaneProcessor()
                                       pGlide, &lastNoteHz, &lastVCALevel,
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
-                                      &meterPressure, &meterSlide, &meterPitchbend));
+                                      &meterPressure, &meterSlide, &meterPitchbend, pPBRange));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -41,65 +41,70 @@ VaneProcessor::VaneProcessor()
     auto* pBreathResAmt = apvts.getRawParameterValue("breathResAmt");
     auto* pCC74ResAmt   = apvts.getRawParameterValue("cc74ResAmt");
 
-    pOutputLevel = apvts.getRawParameterValue("outputLevel");
+    pOutputLevel    = apvts.getRawParameterValue("outputLevel");
+    pPBRange        = apvts.getRawParameterValue("pitchbendRange");
+    pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
+    pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
+    pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
+    pMacroExprCC    = apvts.getRawParameterValue("macroExprCC");
 
     // ── Default modulation routes ─────────────────────────────────────────────
     //
-    // Breath: CC2 (WX-11, EWI) and CC11 (Sylphyo, expression pedals).
-    // Controllers typically send one or the other; they sum but since only one
-    // is active at a time the combined result stays in range.
+    // All routes use abstract macro IDs rather than raw CC numbers so the
+    // concrete MIDI binding (which CC, or Aftertouch, or MPE dim) can be
+    // changed at runtime via the macro-binding parameters without rebuilding routes.
     //
     // Route index map (order below = index used by per-voice slewer array):
-    //   0  CC2       → VCALevel       (fixed 1.0)
-    //   1  CC11      → VCALevel       (fixed 1.0)
-    //   2  Pressure  → VCALevel       (fixed 0.5)
-    //   3  Slide     → FilterCutoff   (pCC74CutAmt)
-    //   4  CC2       → FilterCutoff   (pBreathCutAmt, Exponential)
-    //   5  CC11      → FilterCutoff   (pBreathCutAmt, Exponential) — shared param
-    //   6  Pressure  → FilterCutoff   (pPressCutAmt,  Exponential)
-    //   7  CC2       → FilterRes      (pBreathResAmt, Exponential)
-    //   8  CC11      → FilterRes      (pBreathResAmt, Exponential) — shared param
-    //   9  Velocity  → FilterCutoff   (pVeloCutAmt)
-    //  10  Slide     → FilterRes      (pCC74ResAmt)
+    //   0  MacroBreath    → VCALevel       (fixed 1.0)
+    //   1  MacroExpr      → VCALevel       (fixed 1.0)
+    //   2  MacroPressure  → VCALevel       (fixed 0.5)
+    //   3  MacroSlide     → FilterCutoff   (pCC74CutAmt)
+    //   4  MacroBreath    → FilterCutoff   (pBreathCutAmt, Exponential)
+    //   5  MacroExpr      → FilterCutoff   (pBreathCutAmt, Exponential) — shared param
+    //   6  MacroPressure  → FilterCutoff   (pPressCutAmt,  Exponential)
+    //   7  MacroBreath    → FilterRes      (pBreathResAmt, Exponential)
+    //   8  MacroExpr      → FilterRes      (pBreathResAmt, Exponential) — shared param
+    //   9  Velocity       → FilterCutoff   (pVeloCutAmt)
+    //  10  MacroSlide     → FilterRes      (pCC74ResAmt)
 
-    // VCA: breath and MPE pressure control amplitude (not user-editable amounts —
-    // they are calibrated so CC2 and CC11 never sum above 1.0 in practice).
-    modMatrix.addRoute(ModSourceID::CC + 2,       ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::CC + 11,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
-    modMatrix.addRoute(ModSourceID::MPE_Pressure, ModDestID::VCALevel, 0.5f,  3.0f, 50.0f);
+    // VCA: breath and pressure control amplitude (amounts are calibrated so
+    // MacroBreath and MacroExpr never both output 1.0 simultaneously in practice).
+    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
+    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f);
+    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f);
 
-    // CC74 (slide) → FilterCutoff: primary timbre sweep, full audible range.
+    // Slide → FilterCutoff: primary timbre sweep, full audible range.
     // Slide is bipolar in SynthVoice: neutral=0, up=+1, down=-1.
     // With default amount 0.9 and 5-oct scale in SynthVoice:
     //   baseCutoff/32 at slide bottom  (~53 Hz at 1200 Hz base)
     //   baseCutoff×32 at slide top     (~20 kHz clamped)
-    modMatrix.addRoute(ModSourceID::MPE_Slide, ModDestID::FilterCutoff,
+    modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterCutoff,
                        0.9f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74CutAmt);
 
     // Breath → FilterCutoff: secondary brightness accent, exponential curve.
-    // Both CC2 and CC11 share the same amount parameter.
-    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::FilterCutoff,
+    // MacroBreath and MacroExpr share the same amount parameter.
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterCutoff,
                        0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt);
-    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::FilterCutoff,
+    modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterCutoff,
                        0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt);
 
-    // MPE Pressure → FilterCutoff: per-note brightness, independent of slide.
-    modMatrix.addRoute(ModSourceID::MPE_Pressure, ModDestID::FilterCutoff,
+    // Pressure → FilterCutoff: per-note brightness, independent of slide.
+    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::FilterCutoff,
                        0.2f, 2.0f, 30.0f, ModRoute::CurveShape::Exponential, pPressCutAmt);
 
     // Breath → FilterRes: more air = more resonant peak (classic wind character).
-    modMatrix.addRoute(ModSourceID::CC + 2,  ModDestID::FilterRes,
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterRes,
                        0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt);
-    modMatrix.addRoute(ModSourceID::CC + 11, ModDestID::FilterRes,
+    modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterRes,
                        0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt);
 
     // Velocity → FilterCutoff: initial timbre accent, harder attacks are brighter.
     modMatrix.addRoute(ModSourceID::Velocity, ModDestID::FilterCutoff,
                        0.15f, 20.0f, 0.0f, ModRoute::CurveShape::Linear, pVeloCutAmt);
 
-    // CC74 (slide) → FilterRes: optional resonance sweep via slide.
+    // Slide → FilterRes: optional resonance sweep via slide.
     // Default amount 0.0 (off); player dials in the flavour they want.
-    modMatrix.addRoute(ModSourceID::MPE_Slide, ModDestID::FilterRes,
+    modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterRes,
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74ResAmt);
 
 #if JUCE_DEBUG
@@ -142,19 +147,53 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
-    // Feed all incoming CCs into the mod matrix before rendering voices
+    // Feed all incoming CCs and channel pressure into the mod matrix before rendering.
     for (const auto meta : midi) {
         auto msg = meta.getMessage();
         if (msg.isController())
             modMatrix.setCCValue(msg.getControllerNumber(),
                                   static_cast<float>(msg.getControllerValue()) / 127.0f);
+        else if (msg.isChannelPressure())
+            modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+    }
+
+    // Resolve macro source bindings once per block, before voices render.
+    // The choice param returns 0.0/1.0/2.0 — round before casting to int.
+    {
+        // Breath macro: 0=CC, 1=Aftertouch, 2=MPE Pressure (per-voice)
+        int breathSrc = pMacroBreathSrc ? static_cast<int>(std::round(pMacroBreathSrc->load())) : 0;
+        if (breathSrc == 2) {
+            // Per-voice MPE pressure — setMacroSlot marks it as voice-backed so
+            // evaluate() reads it from voiceVals, not from macroValues[].
+            modMatrix.setMacroSlot(0, 0.0f, ModSourceID::MPE_Pressure);
+        } else if (breathSrc == 1) {
+            modMatrix.setMacroSlot(0, modMatrix.getAftertouch(), -1);
+        } else {
+            int breathCC = pMacroBreathCC ? static_cast<int>(std::round(pMacroBreathCC->load())) : 2;
+            breathCC = juce::jlimit(0, 127, breathCC);
+            modMatrix.setMacroSlot(0, modMatrix.getCCValue(breathCC), -1);
+        }
+
+        // Expression macro: 0=CC, 1=Aftertouch
+        int exprSrc = pMacroExprSrc ? static_cast<int>(std::round(pMacroExprSrc->load())) : 0;
+        if (exprSrc == 1) {
+            modMatrix.setMacroSlot(1, modMatrix.getAftertouch(), -1);
+        } else {
+            int exprCC = pMacroExprCC ? static_cast<int>(std::round(pMacroExprCC->load())) : 11;
+            exprCC = juce::jlimit(0, 127, exprCC);
+            modMatrix.setMacroSlot(1, modMatrix.getCCValue(exprCC), -1);
+        }
+        // MacroPressure (2), MacroSlide (3), MacroPitchbend (4) are always per-voice;
+        // their macroVoiceBacking is set correctly in ModMatrix's defaults — no action needed.
     }
 
     synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
 
-    // Publish CC-based meter values for the editor (relaxed: stale by one block is fine).
-    meterBreath.store(modMatrix.getCCValue(2),  std::memory_order_relaxed);
-    meterExpr.store  (modMatrix.getCCValue(11), std::memory_order_relaxed);
+    // Publish macro-resolved meter values for the editor (relaxed: stale by one block is fine).
+    // CC-backed macros: macroValues[] was just written above by setMacroSlot().
+    // Per-voice macros (pressure, slide, pitchbend): written by the last active voice callback.
+    meterBreath.store(modMatrix.getMacroValue(0), std::memory_order_relaxed);  // MacroBreath
+    meterExpr.store  (modMatrix.getMacroValue(1), std::memory_order_relaxed);  // MacroExpr
 
     // Apply master output level per-sample so automation ramps smoothly.
     masterGain.setTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
@@ -272,6 +311,47 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cc74ResAmt", 1}, "CC74 to Resonance",
         juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
+
+    // ── Pitchbend range ───────────────────────────────────────────────────────
+    // Semitones for full ± pitchbend.  Controllers vary widely: keyboards are
+    // typically ±2 st, Sylphyo defaults to ±48 st, and most devices are
+    // configurable.  Setting this correctly prevents pitch overshoot or
+    // underexpressive bends.  Step size 1 st keeps it integer and preset-safe.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pitchbendRange", 1}, "Pitchbend Range (st)",
+        juce::NormalisableRange<float>(1.0f, 96.0f, 1.0f), 48.0f));
+
+    // ── Macro source bindings ─────────────────────────────────────────────────
+    // These parameters decouple abstract macro names from concrete MIDI sources.
+    // Changing them live re-routes the signal without altering any route table.
+
+    // Breath macro source: which physical MIDI dimension drives the Breath slot.
+    // 0 = CC  (use macroBreathCC number below)
+    // 1 = Aftertouch (global channel pressure)
+    // 2 = MPE Pressure (per-note, polyphonic)
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"macroBreathSrc", 1}, "Breath Source",
+        juce::StringArray{"CC", "Aftertouch", "MPE Pressure"}, 0));
+
+    // Which CC number drives Breath when macroBreathSrc == CC.
+    // Default 2 (breath controller, EWI/WX). Change to 11 for Sylphyo
+    // expression mode or any other controller's breath CC.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"macroBreathCC", 1}, "Breath CC Number",
+        juce::NormalisableRange<float>(0.0f, 127.0f, 1.0f), 2.0f));
+
+    // Expression macro source: secondary breath / expression slot.
+    // 0 = CC  (use macroExprCC number below)
+    // 1 = Aftertouch
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"macroExprSrc", 1}, "Expression Source",
+        juce::StringArray{"CC", "Aftertouch"}, 0));
+
+    // Which CC number drives Expression when macroExprSrc == CC.
+    // Default 11 (expression pedal / Sylphyo).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"macroExprCC", 1}, "Expression CC Number",
+        juce::NormalisableRange<float>(0.0f, 127.0f, 1.0f), 11.0f));
 
     return layout;
 }

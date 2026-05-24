@@ -90,7 +90,19 @@ private:
 
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.
-    std::atomic<float>* pOutputLevel   = nullptr;
+    std::atomic<float>* pOutputLevel      = nullptr;
+
+    // Pitchbend range: semitones for full ± bend.  Controllers vary widely —
+    // keyboards typically ±2 st, Sylphyo defaults to ±48 st.
+    std::atomic<float>* pPBRange          = nullptr;
+
+    // Macro source bindings — resolved each processBlock via setMacroSlot().
+    // Breath: 0 = CC (pMacroBreathCC), 1 = Aftertouch, 2 = MPE Pressure.
+    std::atomic<float>* pMacroBreathSrc   = nullptr;
+    std::atomic<float>* pMacroBreathCC    = nullptr;
+    // Expression: 0 = CC (pMacroExprCC), 1 = Aftertouch.
+    std::atomic<float>* pMacroExprSrc     = nullptr;
+    std::atomic<float>* pMacroExprCC      = nullptr;
 
     // Per-block smoothed output gain to avoid clicks during automation.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterGain;

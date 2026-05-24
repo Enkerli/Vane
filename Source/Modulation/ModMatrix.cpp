@@ -43,15 +43,41 @@ float ModMatrix::getCCValue(int ccNumber) const
     return 0.0f;
 }
 
+void ModMatrix::setMacroSlot(int macroIdx, float value, int voiceBacking)
+{
+    if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros) {
+        macroValues[macroIdx]      = value;
+        macroVoiceBacking[macroIdx] = voiceBacking;
+    }
+}
+
+float ModMatrix::getMacroValue(int macroIdx) const
+{
+    if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros)
+        return macroValues[macroIdx];
+    return 0.0f;
+}
+
 float ModMatrix::getSourceValue(int sourceID,
     const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const
 {
+    // Per-voice MPE dimensions
     if (sourceID >= 0 && sourceID < ModSourceID::NumVoiceSources)
         return voiceVals[sourceID];
 
+    // Raw CC (legacy routes and direct CC routing)
     int ccNum = sourceID - ModSourceID::CC;
     if (ccNum >= 0 && ccNum < 128)
         return ccValues[ccNum];
+
+    // Abstract macro slots — resolve to voice dim or pre-computed CC/AT value
+    int macroIdx = sourceID - ModSourceID::Macro;
+    if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros) {
+        int backing = macroVoiceBacking[macroIdx];
+        if (backing >= 0 && backing < ModSourceID::NumVoiceSources)
+            return voiceVals[backing];   // per-voice resolution
+        return macroValues[macroIdx];    // global resolution (CC/Aftertouch)
+    }
 
     return 0.0f;
 }
@@ -69,9 +95,14 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
         // Voice sources (MPE pressure/slide/pitchbend, velocity) must be slewed
         // per-voice so that two simultaneously held notes with different slide
         // positions don't contaminate each other through the shared route slewer.
-        // CC sources are genuinely global so the shared slewer is correct there.
+        // CC/Aftertouch sources are global so the shared slewer is correct there.
+        // Macro sources inherit their slewer type from their current backing.
+        int  macroIdx     = route.source - ModSourceID::Macro;
+        bool isMacroVoice = (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros
+                             && macroVoiceBacking[macroIdx] >= 0);
         bool isVoiceSource = (route.source >= 0
-                              && route.source < ModSourceID::NumVoiceSources);
+                              && route.source < ModSourceID::NumVoiceSources)
+                          || isMacroVoice;
         float slewed = isVoiceSource
                        ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
                        : route.slewer.process(raw);
@@ -100,8 +131,21 @@ void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
 {
     for (size_t i = 0; i < routes.size() && i < voiceSlewers.size(); ++i) {
         int src = routes[i].source;
-        if (src >= 0 && src < ModSourceID::NumVoiceSources)
+
+        // Direct voice source (MPE dims, velocity)
+        if (src >= 0 && src < ModSourceID::NumVoiceSources) {
             voiceSlewers[i].reset(voiceVals[static_cast<size_t>(src)]);
+            continue;
+        }
+
+        // Macro source whose current binding is a per-voice dimension:
+        // e.g. MacroBreath routed to MPE_Pressure rather than CC.
+        int macroIdx = src - ModSourceID::Macro;
+        if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros) {
+            int backing = macroVoiceBacking[macroIdx];
+            if (backing >= 0 && backing < ModSourceID::NumVoiceSources)
+                voiceSlewers[i].reset(voiceVals[static_cast<size_t>(backing)]);
+        }
     }
 }
 

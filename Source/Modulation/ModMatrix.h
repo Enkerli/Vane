@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <vector>
 #include "ModSource.h"
@@ -46,6 +47,19 @@ public:
     void  setCCValue(int ccNumber, float zeroToOne);
     float getCCValue(int ccNumber) const;
 
+    // Global (non-MPE) channel pressure / Aftertouch
+    void  setAftertouch(float zeroToOne) { aftertouchValue = std::clamp(zeroToOne, 0.0f, 1.0f); }
+    float getAftertouch() const { return aftertouchValue; }
+
+    // ── Macro slots ───────────────────────────────────────────────────────────
+    // Called from processBlock once per block, before evaluate().
+    // value        : resolved scalar for CC/Aftertouch-backed macros (ignored
+    //                when voiceBacking >= 0, since the value comes from voiceVals).
+    // voiceBacking : index into the voiceVals array passed to evaluate(), or -1
+    //                to use `value` directly (CC/Aftertouch source).
+    void  setMacroSlot(int macroIdx, float value, int voiceBacking);
+    float getMacroValue(int macroIdx) const;  // last-set value (CC/AT macros)
+
     // Evaluate all routes for one voice.
     // voiceVals:   [MPE_Pressure, MPE_Slide, MPE_Pitchbend, Velocity] — per-voice MPE state.
     // voiceSlewers: per-route slewers owned by this voice (see initVoiceSlewers).
@@ -80,6 +94,18 @@ private:
                          const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const;
 
     std::array<float, 128> ccValues {};   // CC 0..127, normalised 0..1
+    float aftertouchValue = 0.0f;         // MIDI channel pressure (global, not MPE)
+
+    // Macro slot state — written each block by setMacroSlot(), read in evaluate().
+    float macroValues   [ModSourceID::NumMacros] {};
+    int   macroVoiceBacking[ModSourceID::NumMacros] = {
+        -1,                       // MacroBreath   — CC-backed by default
+        -1,                       // MacroExpr     — CC-backed by default
+        ModSourceID::MPE_Pressure,// MacroPressure — per-voice
+        ModSourceID::MPE_Slide,   // MacroSlide    — per-voice
+        ModSourceID::MPE_Pitchbend// MacroPitchbend — per-voice
+    };
+
     std::vector<ModRoute>  routes;
     double sampleRate = 44100.0;
     int    blockSize  = 512;              // updated in prepare(); used by addRoute()

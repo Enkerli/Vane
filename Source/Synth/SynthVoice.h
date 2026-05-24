@@ -26,7 +26,10 @@ public:
                // Null-safe: ignored when not wired.
                std::atomic<float>*    meterPressure  = nullptr,
                std::atomic<float>*    meterSlide     = nullptr,
-               std::atomic<float>*    meterPitchbend = nullptr);
+               std::atomic<float>*    meterPitchbend = nullptr,
+               // Pitchbend range in semitones. When null, falls back to 48 st
+               // (Sylphyo default). Stored as an APVTS param so presets carry it.
+               std::atomic<float>*    pitchbendRange = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -64,6 +67,9 @@ private:
     std::atomic<float>*    sharedMeterPressure  = nullptr;
     std::atomic<float>*    sharedMeterSlide     = nullptr;
     std::atomic<float>*    sharedMeterPitchbend = nullptr;
+
+    // Pitchbend range parameter — read each render block.
+    std::atomic<float>*    paramPBRange = nullptr;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 
