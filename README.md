@@ -2,7 +2,7 @@
 
 An MPE/MTS-ESP/CC-first monophonic synthesizer plugin for macOS, built with JUCE 8.
 
-Designed for breath controllers (Sylphyo, EWI, WX-11) and other expressive MPE instruments. Every design decision prioritises continuous breath expression over velocity-centric keyboard paradigms.
+Designed around continuous gestural expression rather than discrete note events. Windcontrollers (Sylphyo, EWI, WX-11), dedicated breath controllers (BC-1, Zefiro), MPE instruments (Exquis, Seaboard), and polyphonic-aftertouch controllers (Launchpad X) all find a home here — anything that expresses through curves and phrases rather than velocity and key-release.
 
 ## Features
 
@@ -13,7 +13,7 @@ Designed for breath controllers (Sylphyo, EWI, WX-11) and other expressive MPE i
 - **Poly mode** — full MPE polyphony for chords and keyboard playing
 - **Portamento** — smoothed pitch glide between legato notes only; attacks always snap to pitch
 - **Subtractive synthesis** — PolyBLEP oscillator (sine, triangle, saw, square, noise) through a Cytomic TPT state-variable filter (LP/BP/HP)
-- **Wind-first VCA** — velocity contribution is a mix parameter (0 = pure breath, 1 = pure velocity)
+- **Breath-first VCA** — velocity contribution is a mix parameter (0 = breath/gesture drives amplitude, 1 = pure velocity)
 
 ## Architecture
 
@@ -83,7 +83,7 @@ Slide is converted to bipolar (±1) before routing so the filter sweeps symmetri
 | `filterRes` | Resonance | 0–1 | 0.3 |
 | `filterMode` | Filter Mode | LP / BP / HP | LP |
 | `glideTime` | Glide Time | 0–2 000 ms | 0 |
-| `velocityMix` | Velocity → VCA | 0–1 | 0 (wind mode) |
+| `velocityMix` | Velocity → VCA | 0–1 | 0 (breath mode) |
 | `masterTune` | Master Tune | ±100 cents | 0 |
 | `monoMode` | Mono / Poly | boolean | Poly |
 

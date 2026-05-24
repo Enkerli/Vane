@@ -1,6 +1,6 @@
 # Vane — Roadmap
 
-Design north star: a wind-first expressive instrument where intensity has multiple independent dimensions. A loud sine with a little noise can feel as present as a sawtooth through chorus. The goal is never a single linear loudness axis but a rich, performable space of timbral states.
+Design north star: a breath-savvy expressive instrument where intensity has multiple independent dimensions. A loud sine with a little noise can feel as present as a sawtooth through chorus. The goal is never a single linear loudness axis but a rich, performable space of timbral states — shaped by continuous gesture (breath, pressure, slide, bend) rather than triggered by discrete note events. Breath is central, but any continuous controller producing curves and phrases is at home here.
 
 ---
 
@@ -148,6 +148,9 @@ Accessible from a small "Edit sources…" button or from tapping a source node l
 ### Polyphonic legato
 - Each MPE voice maintains its own phase/filter state across note changes
 - "True polyphonic legato": simultaneous notes each get seamless transitions rather than restarts
+- Note: CC breath, CC11, and global aftertouch are single-channel (paraphonic) — all
+  simultaneous notes share one breath envelope. Per-note pressure (MPE Z) is truly
+  polyphonic. Profiles document which sources are paraphonic and which are per-note.
 
 ### Harmonic generation
 - Second-voice contrary motion: generate a line moving opposite the melody, at least an octave away, with independent legato
@@ -172,13 +175,51 @@ Accessible from a small "Edit sources…" button or from tapping a source node l
 ## Phase 7 — Integration & tooling
 
 ### Controller profiles
-Once source macros exist (Phase 2), a controller profile is simply a named macro-binding
-preset: "Sylphyo default" = { Breath→CC2, Expression→CC11, PB range=±48st }, "Zefiro" =
-{ Breath→Aftertouch, … }, etc. Profiles are separate from sound presets and can be mixed
-freely: load profile "Sylphyo" + sound "Reedlike Lyrical", or load profile "Exquis" + same
-sound.
 
-- Ship a small set of built-in profiles (Sylphyo, EWI, Zefiro, Exquis, keyboard default)
+Once source macros exist (Phase 2), a controller profile is simply a named macro-binding
+preset. Profiles are separate from sound presets and mix freely: load profile "Sylphyo" +
+sound "Reedlike Lyrical", or load profile "Exquis" + the same sound without changing any routes.
+
+**Controller categories:**
+
+Controllers differ substantially in what MIDI data they produce; profiles are organised by
+category rather than as a flat list:
+
+- **Windcontrollers** — monophonic, send note data alongside breath (via CC, aftertouch, or
+  PB) and typically bite or glide as pitchbend. The phrase and legato is the core gesture.
+  *Profiles: Sylphyo (breath→CC2+CC11+AT simultaneously, slide→CC74, PB ±48 st); WX-11
+  (breath→CC2, bite→PB up-only ±12 st); EWI-USB (breath→CC2, slide→CC74); Artinoise
+  re.corder. Special case: Eigenharp Pico — uniquely combines windcontroller gesture
+  with high-resolution breath and MPE-style per-note dimensions.*
+
+- **Breath controllers** — no note data; send only breath, bite, and/or accelerometer
+  signals. Always paired with a separate note source. The Sylphyo can send breath to three
+  CC routes simultaneously; the Zefiro lets the player shape the breath curve on the device.
+  *Profiles: Yamaha BC-1 (breath→CC2); Artinoise Zefiro (breath→AT, curve configurable).*
+
+- **MPE instruments** — per-note pressure (MPE Z), slide (CC74 / MPE Y), and pitchbend
+  on member channels 2–16. Full polyphonic expression, each note independent.
+  *Profiles: Exquis (pressure→MPE Z, slide→CC74, PB ±48 st); generic MPE.*
+
+- **Polyphonic aftertouch controllers** — velocity + polyphonic aftertouch; typically
+  no pitchbend or only coarse master-channel PB. Aftertouch maps naturally to MPE Pressure.
+  *Profiles: Novation Launchpad X; Launchpad Pro (adds programmable CC and PB).*
+
+- **Standard keyboard / default** — velocity-only or with mono aftertouch; PB ±2 st.
+  *Profile: keyboard default (velocityMix = 1.0, breath macro unbound).*
+
+Built-in profiles are a starting point; users can edit and save their own. A **compound
+profile** (e.g. Zefiro providing breath + Exquis providing notes and slide) is possible
+once the macro system can resolve breath and note sources independently.
+
+**Paraphonic breath in poly mode:**
+CC breath, CC11, and global aftertouch are inherently single-channel signals — one value
+shared across all voices. In poly mode this produces a *paraphonic* texture: simultaneous
+notes share a common breath envelope. This is musically distinct from full MPE (where each
+note has independent pressure) but is the natural and often desirable behaviour with
+windcontrollers and breath controllers. Profiles should document whether each macro source
+is global (paraphonic) or per-note (truly polyphonic).
+
 - User-editable profiles stored alongside presets in the app data directory
 - Profile switching in the editor is a single tap / menu pick; routes are unaffected
 
