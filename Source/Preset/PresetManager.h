@@ -36,6 +36,21 @@ public:
     // The name of the last saved/loaded preset, or empty if none.
     const juce::String& getCurrentPresetName() const { return currentPresetName; }
 
+    // ── Clipboard transfer ────────────────────────────────────────────────────
+    // Both methods work via Universal Clipboard on Apple devices sharing the
+    // same iCloud account — no USB or AirDrop setup required.
+    //
+    // importFromClipboard(): reads clipboard text, parses as Vane XML, and
+    //   calls apvts.replaceState().  Returns true on success.  currentPresetName
+    //   is cleared (state is live but not yet saved to disk).
+    //   On iOS 14+, the OS shows a one-time "allow paste" permission prompt.
+    //
+    // exportToClipboard(): serialises the current APVTS state to XML and copies
+    //   it to the clipboard.  On macOS the user can pipe to a .vanepreset file:
+    //     pbpaste > ~/Library/Vane/Presets/MyPreset.vanepreset
+    bool importFromClipboard();
+    void exportToClipboard();
+
 private:
     juce::AudioProcessorValueTreeState& apvts;
     juce::String currentPresetName;

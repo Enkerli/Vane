@@ -43,6 +43,26 @@ void PresetManager::deletePreset(const juce::String& name)
         currentPresetName = {};
 }
 
+bool PresetManager::importFromClipboard()
+{
+    auto text = juce::SystemClipboard::getTextFromClipboard();
+    if (text.isEmpty()) return false;
+
+    auto xml = juce::XmlDocument::parse(text);
+    if (!xml || !xml->hasTagName(apvts.state.getType())) return false;
+
+    apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    currentPresetName.clear();   // live in memory, not yet saved to disk
+    return true;
+}
+
+void PresetManager::exportToClipboard()
+{
+    auto xml = apvts.copyState().createXml();
+    if (xml)
+        juce::SystemClipboard::copyTextToClipboard(xml->toString());
+}
+
 juce::StringArray PresetManager::getPresetNames() const
 {
     juce::StringArray names;

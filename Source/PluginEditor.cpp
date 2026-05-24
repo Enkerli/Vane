@@ -28,6 +28,12 @@ VaneEditor::VaneEditor(VaneProcessor& p)
     addAndMakeVisible(savePresetButton);
     savePresetButton.onClick = [this] { enterNamingMode(); };
 
+    addAndMakeVisible(copyPresetButton);
+    copyPresetButton.setTooltip("Copy current state to clipboard (paste on another device)");
+    copyPresetButton.onClick = [this] {
+        vaneProcessor.presetManager.exportToClipboard();
+    };
+
     addAndMakeVisible(deletePresetButton);
     // × is U+00D7 (\xc3\x97 in UTF-8) — must use fromUTF8; String("×") asserts.
     deletePresetButton.setButtonText(juce::String::fromUTF8("\xc3\x97"));
@@ -55,6 +61,18 @@ VaneEditor::VaneEditor(VaneProcessor& p)
 
     addChildComponent(confirmSaveButton);
     confirmSaveButton.onClick = [this] { doSavePreset(); };
+
+    addChildComponent(pastePresetButton);
+    pastePresetButton.setTooltip("Paste preset from clipboard (import from another device)");
+    pastePresetButton.onClick = [this] {
+        // Applies the clipboard XML to APVTS immediately — user hears the
+        // change — then clears the name field so they type a new name.
+        // On iOS 14+ the OS shows a one-time "allow paste" permission prompt.
+        if (vaneProcessor.presetManager.importFromClipboard()) {
+            presetNameEditor.setText({}, juce::dontSendNotification);
+            presetNameEditor.grabKeyboardFocus();
+        }
+    };
 
     addChildComponent(cancelNamingButton);
     cancelNamingButton.onClick = [this] { exitNamingMode(); };
@@ -108,47 +126,50 @@ void VaneEditor::paint(juce::Graphics& g)
 void VaneEditor::resized()
 {
     // ── Preset strip ──────────────────────────────────────────────────────────
-    // Navigation mode: [◄ 30] [6] [label ...] [6] [► 30] [6] [Save 60] [6] [× 26]
-    // Naming mode:     [TextEditor ..........] [6] [Save 60] [6] [Cancel 52]
+    // Navigation mode: [◄][label][►][Copy][Save][×]
+    // Naming mode:     [TextEditor ..........][Save][Paste][Cancel]
     // Both modes share y=85, h=26.  Only one set is visible at a time.
     constexpr int margin = 20;
     constexpr int stripY = 85;
     constexpr int stripH = 26;
     constexpr int navW   = 30;   // ◄ and ►
-    constexpr int saveW  = 60;
+    constexpr int saveW  = 50;
+    constexpr int copyW  = 44;
     constexpr int delW   = 26;
-    constexpr int canW   = 52;   // Cancel
+    constexpr int pasteW = 44;
+    constexpr int canW   = 54;
     constexpr int gap    = 6;
-
-    // Fixed widths consumed on the right: [Save][gap][del/cancel]
-    // Navigation mode:  gap + navW + gap + saveW + gap + delW
-    // Naming mode:      gap + saveW + gap + canW
-    // The label/editor region fills whatever is left of the available 440 px.
 
     int available = getWidth() - 2 * margin;   // 440 px at default width
 
-    // Navigation mode geometry
-    int labelW = available - navW - gap - navW - gap - saveW - gap - delW;
-    int xPrev  = margin;
-    int xLabel = xPrev + navW + gap;
-    int xNext  = xLabel + labelW + gap;
-    int xSaveN = xNext + navW + gap;
-    int xDelN  = xSaveN + saveW + gap;
+    // Navigation mode: fixed right block = [Copy][gap][Save][gap][×]
+    int navRightW = copyW + gap + saveW + gap + delW;   // 180
+    int labelW    = available - navW - gap - navW - gap - navRightW;
+    int xPrev     = margin;
+    int xLabel    = xPrev  + navW  + gap;
+    int xNext     = xLabel + labelW + gap;
+    int xCopy     = xNext  + navW  + gap;
+    int xSaveN    = xCopy  + copyW  + gap;
+    int xDelN     = xSaveN + saveW  + gap;
 
-    prevPresetButton.setBounds (xPrev,  stripY, navW,   stripH);
-    presetNameLabel.setBounds  (xLabel, stripY, labelW, stripH);
-    nextPresetButton.setBounds (xNext,  stripY, navW,   stripH);
-    savePresetButton.setBounds (xSaveN, stripY, saveW,  stripH);
-    deletePresetButton.setBounds(xDelN, stripY, delW,   stripH);
+    prevPresetButton.setBounds (xPrev,  stripY, navW,  stripH);
+    presetNameLabel.setBounds  (xLabel, stripY, labelW,stripH);
+    nextPresetButton.setBounds (xNext,  stripY, navW,  stripH);
+    copyPresetButton.setBounds (xCopy,  stripY, copyW, stripH);
+    savePresetButton.setBounds (xSaveN, stripY, saveW, stripH);
+    deletePresetButton.setBounds(xDelN, stripY, delW,  stripH);
 
-    // Naming mode geometry — editor fills the ◄/label/► region
-    int editorW = labelW + navW + gap + navW;   // same total as the three above
-    int xSaveE  = margin + editorW + gap;
-    int xCancel = xSaveE + saveW + gap;
+    // Naming mode: [TextEditor][Save][Paste][Cancel]
+    int nameRightW = saveW + gap + pasteW + gap + canW;   // 204
+    int editorW    = available - nameRightW;
+    int xSaveE     = margin + editorW + gap;
+    int xPasteE    = xSaveE  + saveW  + gap;
+    int xCancel    = xPasteE + pasteW + gap;
 
-    presetNameEditor.setBounds (margin,   stripY, editorW, stripH);
-    confirmSaveButton.setBounds(xSaveE,   stripY, saveW,   stripH);
-    cancelNamingButton.setBounds(xCancel, stripY, canW,    stripH);
+    presetNameEditor.setBounds  (margin,   stripY, editorW, stripH);
+    confirmSaveButton.setBounds (xSaveE,   stripY, saveW,   stripH);
+    pastePresetButton.setBounds (xPasteE,  stripY, pasteW,  stripH);
+    cancelNamingButton.setBounds(xCancel,  stripY, canW,    stripH);
 
     // MTS reconnect button: centred, slightly above centre
     reconnectMtsButton.setBounds(
@@ -205,11 +226,13 @@ void VaneEditor::enterNamingMode()
     prevPresetButton.setVisible(false);
     presetNameLabel.setVisible(false);
     nextPresetButton.setVisible(false);
+    copyPresetButton.setVisible(false);
     savePresetButton.setVisible(false);
     deletePresetButton.setVisible(false);
 
     presetNameEditor.setVisible(true);
     confirmSaveButton.setVisible(true);
+    pastePresetButton.setVisible(true);
     cancelNamingButton.setVisible(true);
 
     presetNameEditor.grabKeyboardFocus();
@@ -226,11 +249,13 @@ void VaneEditor::exitNamingMode()
 
     presetNameEditor.setVisible(false);
     confirmSaveButton.setVisible(false);
+    pastePresetButton.setVisible(false);
     cancelNamingButton.setVisible(false);
 
     prevPresetButton.setVisible(true);
     presetNameLabel.setVisible(true);
     nextPresetButton.setVisible(true);
+    copyPresetButton.setVisible(true);
     savePresetButton.setVisible(true);
     deletePresetButton.setVisible(true);
 }

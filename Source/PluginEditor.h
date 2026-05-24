@@ -41,8 +41,12 @@ private:
     // ── Preset strip — naming mode (shown when Save is clicked) ──────────────
     bool             inNamingMode      { false };
     juce::TextEditor presetNameEditor;
-    juce::TextButton confirmSaveButton { "Save" };
-    juce::TextButton cancelNamingButton{ "Cancel" };
+    juce::TextButton confirmSaveButton  { "Save" };
+    juce::TextButton pastePresetButton  { "Paste" };  // clipboard → APVTS
+    juce::TextButton cancelNamingButton { "Cancel" };
+
+    // ── Preset strip — normal mode extras ────────────────────────────────────
+    juce::TextButton copyPresetButton   { "Copy" };   // APVTS → clipboard
 
     // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
     juce::TextButton monoButton { "Poly" };
