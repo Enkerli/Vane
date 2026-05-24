@@ -14,7 +14,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    meterPressure,
                         std::atomic<float>*    meterSlide,
                         std::atomic<float>*    meterPitchbend,
-                        std::atomic<float>*    pbRange)
+                        std::atomic<float>*    pbRange,
+                        std::atomic<float>*    globalPitchbend)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -27,7 +28,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedMeterPressure(meterPressure)
     , sharedMeterSlide(meterSlide)
     , sharedMeterPitchbend(meterPitchbend)
-    , paramPBRange(pbRange) {}
+    , paramPBRange(pbRange)
+    , sharedGlobalPB(globalPitchbend) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -274,11 +276,22 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                 + mods[ModDestID::VCALevel], 0.0f, 1.0f);
     smoothedVCA.setTargetValue(vcaLevel);
 
-    // Pitch: pitchbend (±48 st) + mod matrix fine tune + detune, as a per-block
-    // multiplier applied on top of the per-sample smoothed base frequency.
+    // Pitch: pitchbend + mod matrix fine tune + detune, as a per-block multiplier
+    // applied on top of the per-sample smoothed base frequency.
     // Keeping std::pow() out of the sample loop avoids per-sample exp() cost.
-    const float kBendRangeSemitones = paramPBRange ? paramPBRange->load() : 48.0f;
-    float totalSemitones = pitchbend * kBendRangeSemitones
+    //
+    // Pitchbend source selection:
+    //   Member-channel notes (2–16): JUCE calls notePitchbendChanged() → per-voice
+    //     `pitchbend` member is up to date.
+    //   Channel-1 notes (all non-MPE controllers): JUCE treats channel 1 as the MPE
+    //     master channel and only propagates PB to member notes, so notePitchbendChanged()
+    //     is never fired for these voices.  Use sharedGlobalPB captured in processBlock.
+    const bool  isMasterChannelNote = (currentlyPlayingNote.midiChannel <= 1);
+    const float effectivePitchbend  = (isMasterChannelNote && sharedGlobalPB)
+                                      ? sharedGlobalPB->load()
+                                      : pitchbend;
+    const float kBendRangeSemitones = paramPBRange ? paramPBRange->load() : 2.0f;
+    float totalSemitones = effectivePitchbend * kBendRangeSemitones
                          + mods[ModDestID::OscPitchFine]
                          + detuneCents / 100.0f;
     float pitchMult = std::pow(2.0f, totalSemitones / 12.0f);

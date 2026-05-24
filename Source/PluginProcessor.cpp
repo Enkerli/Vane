@@ -24,7 +24,8 @@ VaneProcessor::VaneProcessor()
                                       pGlide, &lastNoteHz, &lastVCALevel,
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
-                                      &meterPressure, &meterSlide, &meterPitchbend, pPBRange));
+                                      &meterPressure, &meterSlide, &meterPitchbend,
+                                      pPBRange, &globalPitchbend));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -147,7 +148,8 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
-    // Feed all incoming CCs and channel pressure into the mod matrix before rendering.
+    // Feed all incoming CCs, channel pressure, and master-channel pitchbend
+    // into the mod matrix / shared state before rendering voices.
     for (const auto meta : midi) {
         auto msg = meta.getMessage();
         if (msg.isController())
@@ -155,6 +157,14 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                                   static_cast<float>(msg.getControllerValue()) / 127.0f);
         else if (msg.isChannelPressure())
             modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+        else if (msg.isPitchWheel() && msg.getChannel() == 1) {
+            // Channel 1 is the MPE master channel.  JUCE routes master-channel PB
+            // to member-channel notes only — notes that arrived on channel 1 (all
+            // non-MPE controllers) never get notePitchbendChanged() fired for it.
+            // Capture the raw value here so SynthVoice can use it directly.
+            float pb = static_cast<float>(msg.getPitchWheelValue() - 8192) / 8192.0f;
+            globalPitchbend.store(juce::jlimit(-1.0f, 1.0f, pb), std::memory_order_relaxed);
+        }
     }
 
     // Resolve macro source bindings once per block, before voices render.
@@ -313,13 +323,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
 
     // ── Pitchbend range ───────────────────────────────────────────────────────
-    // Semitones for full ± pitchbend.  Controllers vary widely: keyboards are
-    // typically ±2 st, Sylphyo defaults to ±48 st, and most devices are
-    // configurable.  Setting this correctly prevents pitch overshoot or
-    // underexpressive bends.  Step size 1 st keeps it integer and preset-safe.
+    // Semitones for full ± pitchbend.  Default 2 st matches the MIDI standard
+    // and most non-MPE controllers (keyboards, Sylphyo in standard mode).
+    // Set to 48 st for MPE controllers that use the full ±48 st range per note.
+    // Step size 1 st keeps it integer and preset-safe.
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"pitchbendRange", 1}, "Pitchbend Range (st)",
-        juce::NormalisableRange<float>(1.0f, 96.0f, 1.0f), 48.0f));
+        juce::NormalisableRange<float>(1.0f, 96.0f, 1.0f), 2.0f));
 
     // ── Macro source bindings ─────────────────────────────────────────────────
     // These parameters decouple abstract macro names from concrete MIDI sources.

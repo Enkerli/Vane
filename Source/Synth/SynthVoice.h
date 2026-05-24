@@ -27,9 +27,13 @@ public:
                std::atomic<float>*    meterPressure  = nullptr,
                std::atomic<float>*    meterSlide     = nullptr,
                std::atomic<float>*    meterPitchbend = nullptr,
-               // Pitchbend range in semitones. When null, falls back to 48 st
-               // (Sylphyo default). Stored as an APVTS param so presets carry it.
-               std::atomic<float>*    pitchbendRange = nullptr);
+               // Pitchbend range in semitones. When null, falls back to 2 st
+               // (MIDI standard default). Stored as an APVTS param so presets carry it.
+               std::atomic<float>*    pitchbendRange  = nullptr,
+               // Master-channel (global) pitchbend captured from the raw MIDI
+               // stream in processBlock.  Used for notes on channel 1 (non-MPE
+               // controllers) which never receive notePitchbendChanged() from JUCE.
+               std::atomic<float>*    globalPitchbend = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -69,7 +73,9 @@ private:
     std::atomic<float>*    sharedMeterPitchbend = nullptr;
 
     // Pitchbend range parameter — read each render block.
-    std::atomic<float>*    paramPBRange = nullptr;
+    std::atomic<float>*    paramPBRange       = nullptr;
+    // Global pitchbend from master channel — fallback for non-MPE notes.
+    std::atomic<float>*    sharedGlobalPB     = nullptr;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 
