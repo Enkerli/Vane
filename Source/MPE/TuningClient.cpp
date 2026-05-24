@@ -64,5 +64,5 @@ void TuningClient::reconnect()
 
 float TuningClient::equalTemperamentHz(int midiNote)
 {
-    return 440.0f * std::pow(2.0f, (midiNote - 69) / 12.0f);
+    return 440.0f * std::pow(2.0f, static_cast<float>(midiNote - 69) / 12.0f);
 }

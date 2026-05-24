@@ -25,8 +25,11 @@ public:
     // libMTSClient uses atomics internally so this is safe while audio is running.
     void reconnect();
 
-private:
+    // Equal-temperament frequency for a MIDI note (A4 = 440 Hz reference).
+    // Public so unit tests and any future fallback callers can use it directly.
     static float equalTemperamentHz(int midiNote);
+
+private:
 
 #if VANE_HAS_MTS
     ::MTSClient* mtsClient = nullptr;

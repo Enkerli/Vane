@@ -78,7 +78,7 @@ void SynthVoice::noteStarted()
     // Dividing by 2 recovers normalizedPB in −1..1.
     // Member channels: use note.pitchbend.asSignedFloat() as usual.
     pitchbend = (note.midiChannel <= 1)
-                ? note.totalPitchbendInSemitones / 2.0f
+                ? static_cast<float>(note.totalPitchbendInSemitones) / 2.0f
                 : note.pitchbend.asSignedFloat();
 
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
@@ -252,7 +252,7 @@ void SynthVoice::notePitchbendChanged()
     // to recover the normalised −1..1 value.
     // Member channels: note.pitchbend is updated per-event as normal.
     pitchbend = (currentlyPlayingNote.midiChannel <= 1)
-                ? currentlyPlayingNote.totalPitchbendInSemitones / 2.0f
+                ? static_cast<float>(currentlyPlayingNote.totalPitchbendInSemitones) / 2.0f
                 : currentlyPlayingNote.pitchbend.asSignedFloat();
 
     // baseHz is intentionally NOT re-queried here.  It was set in noteStarted()
