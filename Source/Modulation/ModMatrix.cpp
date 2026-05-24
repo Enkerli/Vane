@@ -76,8 +76,9 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
                        ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
                        : route.slewer.process(raw);
 
-        float shaped       = applyCurve(slewed, route.curve);
-        float contribution = shaped * route.amount;
+        float shaped      = applyCurve(slewed, route.curve);
+        float eff_amount  = route.amountParam ? route.amountParam->load() : route.amount;
+        float contribution = shaped * eff_amount;
         result[route.dest] = std::clamp(
             result[route.dest] + contribution, -1.0f, 1.0f);
     }
@@ -105,15 +106,17 @@ void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
 }
 
 void ModMatrix::addRoute(int source, int dest, float amount,
-                          float attackMs, float releaseMs, ModRoute::CurveShape curve)
+                          float attackMs, float releaseMs, ModRoute::CurveShape curve,
+                          std::atomic<float>* amountParam)
 {
     ModRoute r;
-    r.source    = source;
-    r.dest      = dest;
-    r.amount    = amount;
-    r.curve     = curve;
-    r.attackMs  = attackMs;
-    r.releaseMs = releaseMs;
+    r.source      = source;
+    r.dest        = dest;
+    r.amount      = amount;
+    r.curve       = curve;
+    r.attackMs    = attackMs;
+    r.releaseMs   = releaseMs;
+    r.amountParam = amountParam;
     r.slewer.prepare(sampleRate, blockSize);
     r.slewer.setRates(attackMs, releaseMs);
     routes.push_back(std::move(r));

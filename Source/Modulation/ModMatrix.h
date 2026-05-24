@@ -16,11 +16,17 @@ struct ModRoute {
 
     int        source    = 0;
     int        dest      = 0;
-    float      amount    = 0.0f;   // -1..1; positive = add, negative = subtract
+    float      amount    = 0.0f;   // -1..1; fallback when amountParam is null
     CurveShape curve     = CurveShape::Linear;
     float      attackMs  = 5.0f;   // stored here so voices can clone matching slewers
     float      releaseMs = 30.0f;
-    Slewer     slewer;   // used for CC sources; voice-source routes use per-voice slewers
+    Slewer     slewer;             // used for CC sources; voice-source routes use per-voice slewers
+
+    // Optional live parameter pointer.  When non-null, its value is used as the
+    // route amount at evaluate() time instead of the hardcoded `amount` field.
+    // Points into the APVTS — the processor owns the lifetime, so the pointer
+    // is always valid while audio is running.
+    std::atomic<float>* amountParam = nullptr;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -64,7 +70,8 @@ public:
 
     void addRoute(int source, int dest, float amount,
                   float attackMs = 5.0f, float releaseMs = 30.0f,
-                  ModRoute::CurveShape curve = ModRoute::CurveShape::Linear);
+                  ModRoute::CurveShape curve = ModRoute::CurveShape::Linear,
+                  std::atomic<float>* amountParam = nullptr);
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
 

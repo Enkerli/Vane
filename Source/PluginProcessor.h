@@ -74,5 +74,12 @@ private:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    // Cached raw parameter pointers — safe to read on the audio thread.
+    // Initialised in the constructor after the APVTS is constructed.
+    std::atomic<float>* pOutputLevel   = nullptr;
+
+    // Per-block smoothed output gain to avoid clicks during automation.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterGain;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VaneProcessor)
 };
