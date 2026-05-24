@@ -15,18 +15,17 @@ private:
     void timerCallback() override;
 
     // ── Preset navigation ─────────────────────────────────────────────────────
-    // ComboBox popups are broken in AUv3 on iOS (PopupMenu can't escape the
-    // plugin's sandboxed view hierarchy). We use ◄ / label / ► instead — no
-    // popup, fully touch-friendly, works in every host.
     void navigatePreset(int delta);   // delta = -1 (prev) or +1 (next)
     void refreshPresetDisplay();
 
     // ── Inline preset naming ──────────────────────────────────────────────────
-    // No AlertWindow / modal loop: UIAlertController is unreliable in AUv3.
-    // Clicking Save swaps the nav strip for an inline TextEditor + confirm.
     void enterNamingMode();
     void exitNamingMode();
     void doSavePreset();
+
+    // ── Paint helpers ─────────────────────────────────────────────────────────
+    void drawBreathCurves(juce::Graphics&, juce::Rectangle<float> bounds);
+    void drawMeters(juce::Graphics&, juce::Rectangle<int> bounds);
 
     VaneProcessor&   vaneProcessor;
     juce::TextButton reconnectMtsButton;
@@ -42,11 +41,14 @@ private:
     bool             inNamingMode      { false };
     juce::TextEditor presetNameEditor;
     juce::TextButton confirmSaveButton  { "Save" };
-    juce::TextButton pastePresetButton  { "Paste" };  // clipboard → APVTS
+    juce::TextButton pastePresetButton  { "Paste" };
     juce::TextButton cancelNamingButton { "Cancel" };
 
     // ── Preset strip — normal mode extras ────────────────────────────────────
-    juce::TextButton copyPresetButton   { "Copy" };   // APVTS → clipboard
+    juce::TextButton copyPresetButton   { "Copy" };
+
+    // ── Layout cache (set in resized, read in paint) ──────────────────────────
+    juce::Rectangle<int> metersArea;
 
     // Mono/poly toggle — APVTS attachment keeps it in sync with the parameter.
     juce::TextButton monoButton { "Poly" };

@@ -38,6 +38,18 @@ public:
     ModMatrix    modMatrix;
     TuningClient tuning;
 
+    // ── Editor meter values ────────────────────────────────────────────────────
+    // Written on the audio thread (processBlock / MPE voice callbacks).
+    // Read on the message thread (editor timer) — lock-free via relaxed atomics.
+    // CC-based sources: updated every processBlock from the mod matrix.
+    // MPE per-voice sources: written by the most recently active SynthVoice;
+    // "last voice wins" is acceptable for visual meters.
+    std::atomic<float> meterBreath    { 0.0f };   // CC2,  0..1
+    std::atomic<float> meterExpr      { 0.0f };   // CC11, 0..1
+    std::atomic<float> meterPressure  { 0.0f };   // MPE Z channel pressure, 0..1
+    std::atomic<float> meterSlide     { 0.0f };   // CC74 / MPE Y timbre, 0..1
+    std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 

@@ -23,7 +23,8 @@ VaneProcessor::VaneProcessor()
                                       pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
                                       pGlide, &lastNoteHz, &lastVCALevel,
                                       &legatoGeneration, &lastOscPhase, pMono,
-                                      &lastFilterS1, &lastFilterS2, &lastCutoffHz));
+                                      &lastFilterS1, &lastFilterS2, &lastCutoffHz,
+                                      &meterPressure, &meterSlide, &meterPitchbend));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -150,6 +151,10 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     }
 
     synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
+
+    // Publish CC-based meter values for the editor (relaxed: stale by one block is fine).
+    meterBreath.store(modMatrix.getCCValue(2),  std::memory_order_relaxed);
+    meterExpr.store  (modMatrix.getCCValue(11), std::memory_order_relaxed);
 
     // Apply master output level per-sample so automation ramps smoothly.
     masterGain.setTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);

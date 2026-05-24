@@ -21,7 +21,12 @@ public:
                std::atomic<float>*    paramMono,
                std::atomic<float>*    lastFilterS1,
                std::atomic<float>*    lastFilterS2,
-               std::atomic<float>*    lastCutoffHz);
+               std::atomic<float>*    lastCutoffHz,
+               // Optional display meters — written lock-free for the editor UI.
+               // Null-safe: ignored when not wired.
+               std::atomic<float>*    meterPressure  = nullptr,
+               std::atomic<float>*    meterSlide     = nullptr,
+               std::atomic<float>*    meterPitchbend = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -54,6 +59,11 @@ private:
     std::atomic<float>*    sharedFilterS1     = nullptr;  // SVF integrator state handoff
     std::atomic<float>*    sharedFilterS2     = nullptr;
     std::atomic<float>*    sharedCutoffHz     = nullptr;  // smoothed cutoff at handoff
+
+    // Editor display meters — last-voice-wins, relaxed ordering sufficient.
+    std::atomic<float>*    sharedMeterPressure  = nullptr;
+    std::atomic<float>*    sharedMeterSlide     = nullptr;
+    std::atomic<float>*    sharedMeterPitchbend = nullptr;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 

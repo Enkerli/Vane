@@ -10,7 +10,10 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase,
                         std::atomic<float>*    mono,
                         std::atomic<float>*    filterS1,  std::atomic<float>*    filterS2,
-                        std::atomic<float>*    cutoffHz)
+                        std::atomic<float>*    cutoffHz,
+                        std::atomic<float>*    meterPressure,
+                        std::atomic<float>*    meterSlide,
+                        std::atomic<float>*    meterPitchbend)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -19,7 +22,10 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedLastVCALevel(lastVCALevel)
     , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase)
     , paramMono(mono)
-    , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz) {}
+    , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz)
+    , sharedMeterPressure(meterPressure)
+    , sharedMeterSlide(meterSlide)
+    , sharedMeterPitchbend(meterPitchbend) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -203,6 +209,8 @@ void SynthVoice::noteStopped(bool allowTailOff)
 void SynthVoice::notePressureChanged()
 {
     pressure = currentlyPlayingNote.pressure.asUnsignedFloat();
+    if (sharedMeterPressure)
+        sharedMeterPressure->store(pressure, std::memory_order_relaxed);
 }
 
 void SynthVoice::notePitchbendChanged()
@@ -210,11 +218,15 @@ void SynthVoice::notePitchbendChanged()
     pitchbend = currentlyPlayingNote.pitchbend.asSignedFloat();
     baseHz = tuning.noteToHz(currentlyPlayingNote.initialNote,
                               currentlyPlayingNote.midiChannel);
+    if (sharedMeterPitchbend)
+        sharedMeterPitchbend->store(pitchbend, std::memory_order_relaxed);
 }
 
 void SynthVoice::noteTimbreChanged()
 {
     slide = currentlyPlayingNote.timbre.asUnsignedFloat();
+    if (sharedMeterSlide)
+        sharedMeterSlide->store(slide, std::memory_order_relaxed);
 }
 
 void SynthVoice::noteKeyStateChanged() {}
