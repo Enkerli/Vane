@@ -28,6 +28,11 @@ struct ModRoute {
     // Points into the APVTS — the processor owns the lifetime, so the pointer
     // is always valid while audio is running.
     std::atomic<float>* amountParam = nullptr;
+
+    // Optional live curve override.  When non-null, evaluate() reads an int from
+    // this param (0=lin, 1=exp, 2=S) instead of the static `curve` enum.
+    // Allows the ModMatrix UI to change curve shape without rebuilding routes.
+    std::atomic<float>* curveParam  = nullptr;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -110,7 +115,8 @@ public:
     void addRoute(int source, int dest, float amount,
                   float attackMs = 5.0f, float releaseMs = 30.0f,
                   ModRoute::CurveShape curve = ModRoute::CurveShape::Linear,
-                  std::atomic<float>* amountParam = nullptr);
+                  std::atomic<float>* amountParam = nullptr,
+                  std::atomic<float>* curveParam  = nullptr);
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
 

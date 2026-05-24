@@ -83,11 +83,25 @@ VaneProcessor::VaneProcessor()
     auto* pExprVCAAmt   = apvts.getRawParameterValue("exprVCAamt");
     auto* pPressVCAAmt  = apvts.getRawParameterValue("pressVCAamt");
 
+    // Curve shape params — one per route.  0=lin, 1=exp, 2=S.
+    // Defaults are set in createParameterLayout() to match the original static curves.
+    auto* pBreathVCACrv    = apvts.getRawParameterValue("breathVCACurve");
+    auto* pExprVCACrv      = apvts.getRawParameterValue("exprVCACurve");
+    auto* pPressVCACrv     = apvts.getRawParameterValue("pressVCACurve");
+    auto* pCC74CutCrv      = apvts.getRawParameterValue("cc74CutoffCurve");
+    auto* pBreathCutCrv    = apvts.getRawParameterValue("breathCutoffCurve");
+    auto* pExprCutCrv      = apvts.getRawParameterValue("exprCutoffCurve");
+    auto* pPressCutCrv     = apvts.getRawParameterValue("pressCutoffCurve");
+    auto* pBreathResCrv    = apvts.getRawParameterValue("breathResCurve");
+    auto* pExprResCrv      = apvts.getRawParameterValue("exprResCurve");
+    auto* pVeloCutCrv      = apvts.getRawParameterValue("veloCutoffCurve");
+    auto* pCC74ResCrv      = apvts.getRawParameterValue("cc74ResCurve");
+
     // VCA: breath and pressure control amplitude (amounts are calibrated so
     // MacroBreath and MacroExpr never both output 1.0 simultaneously in practice).
-    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathVCAAmt);
-    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pExprVCAAmt);
-    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f, ModRoute::CurveShape::Linear, pPressVCAAmt);
+    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathVCAAmt, pBreathVCACrv);
+    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pExprVCAAmt,   pExprVCACrv);
+    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f, ModRoute::CurveShape::Linear, pPressVCAAmt,  pPressVCACrv);
 
     // Slide → FilterCutoff: primary timbre sweep, full audible range.
     // Slide is bipolar in SynthVoice: neutral=0, up=+1, down=-1.
@@ -95,33 +109,33 @@ VaneProcessor::VaneProcessor()
     //   baseCutoff/32 at slide bottom  (~53 Hz at 1200 Hz base)
     //   baseCutoff×32 at slide top     (~20 kHz clamped)
     modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterCutoff,
-                       0.9f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74CutAmt);
+                       0.9f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74CutAmt, pCC74CutCrv);
 
     // Breath → FilterCutoff: secondary brightness accent, exponential curve.
-    // MacroBreath and MacroExpr share the same amount parameter.
+    // MacroBreath and MacroExpr share the same amount parameter; curve is independent.
     modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterCutoff,
-                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt);
+                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt, pBreathCutCrv);
     modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterCutoff,
-                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt);
+                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt, pExprCutCrv);
 
     // Pressure → FilterCutoff: per-note brightness, independent of slide.
     modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::FilterCutoff,
-                       0.2f, 2.0f, 30.0f, ModRoute::CurveShape::Exponential, pPressCutAmt);
+                       0.2f, 2.0f, 30.0f, ModRoute::CurveShape::Exponential, pPressCutAmt, pPressCutCrv);
 
     // Breath → FilterRes: more air = more resonant peak (classic wind character).
     modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterRes,
-                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt);
+                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt, pBreathResCrv);
     modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterRes,
-                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt);
+                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt, pExprResCrv);
 
     // Velocity → FilterCutoff: initial timbre accent, harder attacks are brighter.
     modMatrix.addRoute(ModSourceID::Velocity, ModDestID::FilterCutoff,
-                       0.15f, 20.0f, 0.0f, ModRoute::CurveShape::Linear, pVeloCutAmt);
+                       0.15f, 20.0f, 0.0f, ModRoute::CurveShape::Linear, pVeloCutAmt, pVeloCutCrv);
 
     // Slide → FilterRes: optional resonance sweep via slide.
     // Default amount 0.0 (off); player dials in the flavour they want.
     modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterRes,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74ResAmt);
+                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74ResAmt, pCC74ResCrv);
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
@@ -360,6 +374,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cc74ResAmt", 1}, "CC74 to Resonance",
         juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
+
+    // ── Modulation route curve shapes ─────────────────────────────────────────
+    // One integer-stepped parameter per route (0=lin, 1=exp, 2=S).
+    // These match the ModRoute::CurveShape enum values and are read by
+    // ModMatrix::evaluate() via curveParam pointers.
+    // Default values reflect the audio-design intent: VCA and slide routes are
+    // linear; breath-to-filter routes are exponential for natural response.
+    auto makeCurveParam = [&](const char* id, const char* name, float defaultVal) {
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id, 1}, name,
+            juce::NormalisableRange<float>(0.0f, 2.0f, 1.0f), defaultVal));
+    };
+    makeCurveParam("breathVCACurve",    "Breath→VCA Curve",        0.0f); // lin
+    makeCurveParam("exprVCACurve",      "Expr→VCA Curve",          0.0f); // lin
+    makeCurveParam("pressVCACurve",     "Pressure→VCA Curve",      0.0f); // lin
+    makeCurveParam("cc74CutoffCurve",   "CC74→Cutoff Curve",       0.0f); // lin
+    makeCurveParam("breathCutoffCurve", "Breath→Cutoff Curve",     1.0f); // exp
+    makeCurveParam("exprCutoffCurve",   "Expr→Cutoff Curve",       1.0f); // exp
+    makeCurveParam("pressCutoffCurve",  "Pressure→Cutoff Curve",   1.0f); // exp
+    makeCurveParam("breathResCurve",    "Breath→Reso Curve",       1.0f); // exp
+    makeCurveParam("exprResCurve",      "Expr→Reso Curve",         1.0f); // exp
+    makeCurveParam("veloCutoffCurve",   "Velocity→Cutoff Curve",   0.0f); // lin
+    makeCurveParam("cc74ResCurve",      "CC74→Reso Curve",         0.0f); // lin
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

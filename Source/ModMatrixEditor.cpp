@@ -14,10 +14,11 @@ static juce::Colour colourForSource(int src)
     return juce::Colour(0xff897f6c);
 }
 
-static const char* curveName(ModRoute::CurveShape c)
+// curveIndex: 0=lin, 1=exp, 2=S  (matches ModRoute::CurveShape integer values)
+static const char* curveName(int curveIndex)
 {
-    if (c == ModRoute::CurveShape::Exponential) return "exp";
-    if (c == ModRoute::CurveShape::SCurve)      return "S";
+    if (curveIndex == 1) return "exp";
+    if (curveIndex == 2) return "S";
     return "lin";
 }
 
@@ -70,13 +71,17 @@ void ModMatrixEditor::RouteRow::paint(juce::Graphics& g)
                juce::Rectangle<int>(kDstX, 0, kDstW, h),
                juce::Justification::centredLeft, true);
 
-    // Curve badge — right of slider area
+    // Curve badge — right of slider area.
+    // Reads the live curveParam when wired; falls back to the static enum.
+    const int curveIdx = desc.curveParam
+        ? static_cast<int>(std::round(desc.curveParam->load()))
+        : static_cast<int>(desc.curve);
     const int curveX = getWidth() - kCrvW - kPadR;
     g.setColour(juce::Colour(0xff2a2520));
     g.fillRoundedRectangle((float)curveX, (float)(cy - 7), (float)kCrvW, 14.0f, 4.0f);
     g.setColour(juce::Colour(0xff897f6c));
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(9.0f)));
-    g.drawText(curveName(desc.curve),
+    g.drawText(curveName(curveIdx),
                juce::Rectangle<int>(curveX, 0, kCrvW, h),
                juce::Justification::centred);
 }
@@ -88,6 +93,22 @@ void ModMatrixEditor::RouteRow::resized()
     const int slrH   = 14;
     const int slrY   = (getHeight() - slrH) / 2;
     amtSlider.setBounds(kSlrX, slrY, juce::jmax(0, slrEnd - kSlrX), slrH);
+}
+
+void ModMatrixEditor::RouteRow::mouseDown(const juce::MouseEvent& e)
+{
+    // Cycle curve shape when the badge area is clicked.
+    // The slider handles its own mouse events as a child component, so this
+    // handler is only called for clicks outside the slider bounds.
+    const int cy     = getHeight() / 2;
+    const int curveX = getWidth() - kCrvW - kPadR;
+    const juce::Rectangle<int> badgeBounds(curveX, cy - 7, kCrvW, 14);
+
+    if (badgeBounds.contains(e.getPosition()) && desc.curveParam != nullptr) {
+        const int cur = static_cast<int>(std::round(desc.curveParam->load()));
+        desc.curveParam->store(static_cast<float>((cur + 1) % 3));
+        repaint();
+    }
 }
 
 // ── ModMatrixEditor ───────────────────────────────────────────────────────────
@@ -131,37 +152,42 @@ void ModMatrixEditor::buildRoutes()
         const char* srcLbl;
         const char* dstLbl;
         const char* paramId;
+        const char* curveParamId;
         C    curve;
         float atk, rel;
     };
 
+    // Keep in sync with PluginProcessor.cpp addRoute() call order and
+    // createParameterLayout() curve param IDs.
     const Spec specs[] = {
-        //  src                  dst               srcLbl      dstLbl       paramId           curve       atk  rel
-        { M::MacroBreath,   D::VCALevel,    "Breath",   "VCA",    "breathVCAamt",    C::Linear,      5,  80 },
-        { M::MacroExpr,     D::VCALevel,    "Expr",     "VCA",    "exprVCAamt",      C::Linear,      5,  80 },
-        { M::MacroPressure, D::VCALevel,    "Pressure", "VCA",    "pressVCAamt",     C::Linear,      3,  50 },
-        { M::MacroSlide,    D::FilterCutoff,"Slide",    "Cutoff", "cc74CutoffAmt",   C::Linear,      2,  20 },
-        { M::MacroBreath,   D::FilterCutoff,"Breath",   "Cutoff", "breathCutoffAmt", C::Exponential, 5,  80 },
-        { M::MacroExpr,     D::FilterCutoff,"Expr",     "Cutoff", "breathCutoffAmt", C::Exponential, 5,  80 },
-        { M::MacroPressure, D::FilterCutoff,"Pressure", "Cutoff", "pressCutoffAmt",  C::Exponential, 2,  30 },
-        { M::MacroBreath,   D::FilterRes,   "Breath",   "Reso",   "breathResAmt",    C::Exponential, 5,  80 },
-        { M::MacroExpr,     D::FilterRes,   "Expr",     "Reso",   "breathResAmt",    C::Exponential, 5,  80 },
-        { M::Velocity,      D::FilterCutoff,"Velocity", "Cutoff", "veloCutoffAmt",   C::Linear,     20,   0 },
-        { M::MacroSlide,    D::FilterRes,   "Slide",    "Reso",   "cc74ResAmt",      C::Linear,      2,  20 },
+        //  src                  dst               srcLbl      dstLbl       paramId            curveParamId       curve       atk  rel
+        { M::MacroBreath,   D::VCALevel,    "Breath",   "VCA",    "breathVCAamt",    "breathVCACurve",   C::Linear,      5,  80 },
+        { M::MacroExpr,     D::VCALevel,    "Expr",     "VCA",    "exprVCAamt",      "exprVCACurve",     C::Linear,      5,  80 },
+        { M::MacroPressure, D::VCALevel,    "Pressure", "VCA",    "pressVCAamt",     "pressVCACurve",    C::Linear,      3,  50 },
+        { M::MacroSlide,    D::FilterCutoff,"Slide",    "Cutoff", "cc74CutoffAmt",   "cc74CutoffCurve",  C::Linear,      2,  20 },
+        { M::MacroBreath,   D::FilterCutoff,"Breath",   "Cutoff", "breathCutoffAmt", "breathCutoffCurve",C::Exponential, 5,  80 },
+        { M::MacroExpr,     D::FilterCutoff,"Expr",     "Cutoff", "breathCutoffAmt", "exprCutoffCurve",  C::Exponential, 5,  80 },
+        { M::MacroPressure, D::FilterCutoff,"Pressure", "Cutoff", "pressCutoffAmt",  "pressCutoffCurve", C::Exponential, 2,  30 },
+        { M::MacroBreath,   D::FilterRes,   "Breath",   "Reso",   "breathResAmt",    "breathResCurve",   C::Exponential, 5,  80 },
+        { M::MacroExpr,     D::FilterRes,   "Expr",     "Reso",   "breathResAmt",    "exprResCurve",     C::Exponential, 5,  80 },
+        { M::Velocity,      D::FilterCutoff,"Velocity", "Cutoff", "veloCutoffAmt",   "veloCutoffCurve",  C::Linear,     20,   0 },
+        { M::MacroSlide,    D::FilterRes,   "Slide",    "Reso",   "cc74ResAmt",      "cc74ResCurve",     C::Linear,      2,  20 },
     };
 
     routeDescs.reserve(std::size(specs));
     for (const auto& s : specs) {
         RouteDesc rd;
-        rd.source      = s.src;
-        rd.dest        = s.dst;
-        rd.sourceLabel = s.srcLbl;
-        rd.destLabel   = s.dstLbl;
-        rd.colour      = colourForSource(s.src);
-        rd.paramId     = s.paramId;
-        rd.curve       = s.curve;
-        rd.atkMs       = s.atk;
-        rd.relMs       = s.rel;
+        rd.source       = s.src;
+        rd.dest         = s.dst;
+        rd.sourceLabel  = s.srcLbl;
+        rd.destLabel    = s.dstLbl;
+        rd.colour       = colourForSource(s.src);
+        rd.paramId      = s.paramId;
+        rd.curveParamId = s.curveParamId;
+        rd.curve        = s.curve;
+        rd.atkMs        = s.atk;
+        rd.relMs        = s.rel;
+        rd.curveParam   = processor.apvts.getRawParameterValue(s.curveParamId);
         routeDescs.push_back(std::move(rd));
     }
 

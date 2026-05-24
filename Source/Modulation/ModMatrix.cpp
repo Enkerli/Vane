@@ -116,7 +116,14 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
                        ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
                        : route.slewer.process(raw);
 
-        float shaped       = applyCurve(slewed, route.curve);
+        // Use live curve param if wired, otherwise fall back to the static enum.
+        ModRoute::CurveShape effectiveCurve = route.curve;
+        if (route.curveParam) {
+            int ci = static_cast<int>(std::round(route.curveParam->load()));
+            if (ci >= 0 && ci <= 2)
+                effectiveCurve = static_cast<ModRoute::CurveShape>(ci);
+        }
+        float shaped       = applyCurve(slewed, effectiveCurve);
         float eff_amount   = route.amountParam ? route.amountParam->load() : route.amount;
         float contribution = shaped * eff_amount;
 
@@ -170,7 +177,7 @@ void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
 
 void ModMatrix::addRoute(int source, int dest, float amount,
                           float attackMs, float releaseMs, ModRoute::CurveShape curve,
-                          std::atomic<float>* amountParam)
+                          std::atomic<float>* amountParam, std::atomic<float>* curveParam)
 {
     // Called stopped-only — routes.push_back may reallocate the vector,
     // which is a data race if any voice is mid-render.  See ModMatrix.h thread model.
@@ -182,6 +189,7 @@ void ModMatrix::addRoute(int source, int dest, float amount,
     r.attackMs    = attackMs;
     r.releaseMs   = releaseMs;
     r.amountParam = amountParam;
+    r.curveParam  = curveParam;
     r.slewer.prepare(sampleRate, blockSize);
     r.slewer.setRates(attackMs, releaseMs);
     routes.push_back(std::move(r));

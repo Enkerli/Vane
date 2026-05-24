@@ -38,21 +38,28 @@ private:
         juce::String         destLabel;    // destination display name ("Cutoff")
         juce::Colour         colour;       // source-specific palette colour
         juce::String         paramId;      // APVTS param ID for the amount
-        ModRoute::CurveShape curve;        // static for this pass; not yet editable
+        juce::String         curveParamId; // APVTS param ID for the curve (0=lin,1=exp,2=S)
+        ModRoute::CurveShape curve;        // fallback when curveParam is null
         float                atkMs;        // slew attack (display only)
         float                relMs;        // slew release (display only)
-        float                liveValue = 0.0f;  // updated each timer tick
+        float                liveValue = 0.0f;     // updated each timer tick
+        std::atomic<float>*  curveParam = nullptr;  // live curve pointer; may be null
     };
 
     // ── One route row ─────────────────────────────────────────────────────
     // Paints: dot, source/dest labels, live meter bar, curve badge.
     // Hosts the amount Slider as a child component.
+    // Clicking the curve badge cycles lin → exp → S → lin.
     class RouteRow final : public juce::Component {
     public:
-        explicit RouteRow(const RouteDesc& d) : desc(d) {}
+        explicit RouteRow(const RouteDesc& d) : desc(d)
+        {
+            addAndMakeVisible(amtSlider);
+        }
 
         void paint(juce::Graphics&) override;
         void resized() override;
+        void mouseDown(const juce::MouseEvent&) override;
 
         juce::Slider amtSlider;
 
