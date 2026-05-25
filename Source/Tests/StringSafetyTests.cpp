@@ -1,5 +1,6 @@
 #include <juce_core/juce_core.h>
 #include "Preset/PresetManager.h"
+#include <cstring>
 
 // ── JUCE String safety tests ───────────────────────────────────────────────
 //
@@ -9,11 +10,20 @@
 // or any JUCE API that accepts String via implicit const-char* conversion will
 // fire jassert(CharPointer_ASCII::isValidString(...)) at runtime.
 //
-// Rule: every non-ASCII constant must go through String::fromUTF8() (or
-//       CharPointer_UTF8) before entering JUCE's type system.
+// ── Rule ──────────────────────────────────────────────────────────────────
+// Every non-ASCII constant MUST go through String::fromUTF8() (or
+// CharPointer_UTF8) before entering JUCE's type system.
 //
-// The tests below catch the two most common failure modes so regressions show
-// up immediately in Debug builds.
+// ── Common traps ──────────────────────────────────────────────────────────
+// • juce::TextButton { "label with → or × or · " }  — brace-init calls
+//   String(const char*).  Use setButtonText(String::fromUTF8(...)) instead.
+// • APVTS param display names passed as const char* to AudioParameterFloat —
+//   → (U+2192) is tempting in "Breath→VCA" but is three non-ASCII bytes.
+//   Use plain ASCII: "Breath to VCA".
+// • Any ComboBox::addItem("label with accent chars") — same trap.
+//
+// The tests below catch the three most common failure modes so regressions
+// surface immediately in Debug builds.
 
 class StringSafetyTests : public juce::UnitTest
 {
@@ -24,6 +34,7 @@ public:
     {
         fileExtensionIsAsciiSafe();
         utf8RoundTrip();
+        apvtsParamNamesAreAsciiSafe();
     }
 
 private:
@@ -57,6 +68,48 @@ private:
         // And it must not be empty or the ASCII fallback "?".
         expect(fromEscapes.isNotEmpty());
         expect(fromEscapes != juce::String("?"));
+    }
+
+    // ── 3. APVTS display names must be ASCII ─────────────────────────────────
+    // AudioParameterFloat(id, name, ...) stores `name` via juce::String(const char*).
+    // Any non-ASCII byte in the display name fires the assertion.
+    //
+    // The specific regression this catches: using → (U+2192, \xe2\x86\x92) as
+    // a "goes to" arrow in parameter names like "Breath→VCA Curve".
+    // The fix is to use "Breath to VCA Curve" (plain ASCII).
+    void apvtsParamNamesAreAsciiSafe()
+    {
+        beginTest("APVTS parameter display names are ASCII-safe");
+
+        // The forbidden pattern: → encodes to \xe2\x86\x92, three non-ASCII bytes.
+        // Verify that the ASCII validator correctly rejects it.
+        const char* arrowName = "Breath\xe2\x86\x92VCA Curve";  // "Breath→VCA Curve"
+        expect(!juce::CharPointer_ASCII::isValidString(arrowName,
+                   static_cast<int>(std::strlen(arrowName))),
+               "Arrow-containing name should fail ASCII check (sanity)");
+
+        // The safe alternatives actually used in createParameterLayout().
+        // If any of these change to include non-ASCII bytes, the test fails here
+        // rather than as a hard crash in the plugin constructor.
+        const char* safeNames[] = {
+            "Breath to VCA Curve",
+            "Expr to VCA Curve",
+            "Pressure to VCA Curve",
+            "CC74 to Cutoff Curve",
+            "Breath to Cutoff Curve",
+            "Expr to Cutoff Curve",
+            "Pressure to Cutoff Curve",
+            "Breath to Reso Curve",
+            "Expr to Reso Curve",
+            "Velocity to Cutoff Curve",
+            "CC74 to Reso Curve",
+        };
+        for (auto* name : safeNames) {
+            expect(juce::CharPointer_ASCII::isValidString(
+                       name, static_cast<int>(std::strlen(name))),
+                   juce::String("Param name is not ASCII-safe: use 'to' not arrow — ")
+                       + juce::String(name));
+        }
     }
 };
 

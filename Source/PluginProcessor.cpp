@@ -386,17 +386,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
             juce::ParameterID{id, 1}, name,
             juce::NormalisableRange<float>(0.0f, 2.0f, 1.0f), defaultVal));
     };
-    makeCurveParam("breathVCACurve",    "Breath→VCA Curve",        0.0f); // lin
-    makeCurveParam("exprVCACurve",      "Expr→VCA Curve",          0.0f); // lin
-    makeCurveParam("pressVCACurve",     "Pressure→VCA Curve",      0.0f); // lin
-    makeCurveParam("cc74CutoffCurve",   "CC74→Cutoff Curve",       0.0f); // lin
-    makeCurveParam("breathCutoffCurve", "Breath→Cutoff Curve",     1.0f); // exp
-    makeCurveParam("exprCutoffCurve",   "Expr→Cutoff Curve",       1.0f); // exp
-    makeCurveParam("pressCutoffCurve",  "Pressure→Cutoff Curve",   1.0f); // exp
-    makeCurveParam("breathResCurve",    "Breath→Reso Curve",       1.0f); // exp
-    makeCurveParam("exprResCurve",      "Expr→Reso Curve",         1.0f); // exp
-    makeCurveParam("veloCutoffCurve",   "Velocity→Cutoff Curve",   0.0f); // lin
-    makeCurveParam("cc74ResCurve",      "CC74→Reso Curve",         0.0f); // lin
+    // IMPORTANT: display names must be pure ASCII — juce::String(const char*)
+    // asserts on any byte > 127.  Use " to " not "→" (U+2192 = \xe2\x86\x92).
+    makeCurveParam("breathVCACurve",    "Breath to VCA Curve",        0.0f); // lin
+    makeCurveParam("exprVCACurve",      "Expr to VCA Curve",          0.0f); // lin
+    makeCurveParam("pressVCACurve",     "Pressure to VCA Curve",      0.0f); // lin
+    makeCurveParam("cc74CutoffCurve",   "CC74 to Cutoff Curve",       0.0f); // lin
+    makeCurveParam("breathCutoffCurve", "Breath to Cutoff Curve",     1.0f); // exp
+    makeCurveParam("exprCutoffCurve",   "Expr to Cutoff Curve",       1.0f); // exp
+    makeCurveParam("pressCutoffCurve",  "Pressure to Cutoff Curve",   1.0f); // exp
+    makeCurveParam("breathResCurve",    "Breath to Reso Curve",       1.0f); // exp
+    makeCurveParam("exprResCurve",      "Expr to Reso Curve",         1.0f); // exp
+    makeCurveParam("veloCutoffCurve",   "Velocity to Cutoff Curve",   0.0f); // lin
+    makeCurveParam("cc74ResCurve",      "CC74 to Reso Curve",         0.0f); // lin
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its
