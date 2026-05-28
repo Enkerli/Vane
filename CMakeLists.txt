@@ -149,6 +149,7 @@ target_sources(Vane PRIVATE
     Source/PluginEditor.cpp
     Source/ModMatrixEditor.cpp
     Source/PatchPanel.cpp
+    Source/Synth/Oscillator.cpp
     Source/Synth/SynthVoice.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
