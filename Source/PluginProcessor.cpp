@@ -274,24 +274,57 @@ void VaneProcessor::setStateInformation(const void* data, int size)
 
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
 
-    // ── Backward-compat parameter migration ───────────────────────────────────
+    // ── Backward-compat migration for Phase 2 (oscMorphPos / oscPW) ──────────
     //
-    // JUCE sets any parameter absent from a loaded preset to normalised 0.0,
-    // which maps to the range minimum — not the parameter's declared default.
-    // For each parameter added after the initial release, if it is absent from
-    // the XML we restore its declared default here.
+    // Phase 2 replaced the discrete oscWave choice (0=Sine 1=Tri 2=Saw
+    // 3=Square 4=Noise) with a continuous oscMorphPos (0=Sine 1=Tri 2=Sqr
+    // 3=Saw) and a phase-distortion pw (0.5 = identity).
     //
-    // Phase 2 additions (oscMorphPos, oscPW):
-    //   Old presets have oscWave but no oscMorphPos / oscPW.
-    //   Without this fix: oscMorphPos=0 (Sine) and oscPW=0 (extreme narrow
-    //   pulse distortion) rather than 3.0 (Saw) and 0.5 (identity warp).
+    // Two failure modes when loading old presets:
+    //
+    //   A) oscWave present, oscMorphPos / oscPW absent:
+    //      JUCE sets absent params to normalised 0.0 (range minimum, not the
+    //      declared default).  Both new params end up at 0.0 → Sine + extreme
+    //      narrow pulse.  Correct by mapping the old discrete index.
+    //
+    //   B) oscWave present, oscMorphPos / oscPW also present (value 0.0):
+    //      The project was saved AFTER a bad initial load of the old preset —
+    //      JUCE wrote the range-minimum values into the saved state.  The
+    //      presence of oscWave in the XML is the reliable indicator that this
+    //      was originally a pre-Phase-2 preset; treat it the same as (A).
+    //
+    // In both cases: if oscWave is in the XML, map it to morphPos and reset pw.
+    //
+    // Old oscWave:   0=Sine  1=Triangle  2=Saw  3=Square  4=Noise
+    // New morph pos: 0=Sine  1=Triangle  2=Sqr  3=Saw     (Noise → Phase 3)
+    if (auto* oldWaveEl = xml->getChildByAttribute("id", "oscWave")) {
+        float morphPos = 3.0f;   // default: Saw
+        switch (static_cast<int>(oldWaveEl->getDoubleAttribute("value", 2.0))) {
+            case 0: morphPos = 0.0f; break;   // Sine
+            case 1: morphPos = 1.0f; break;   // Triangle
+            case 2: morphPos = 3.0f; break;   // Saw
+            case 3: morphPos = 2.0f; break;   // Square
+            default: morphPos = 3.0f; break;  // Noise / unknown → Saw
+        }
+        // setValueNotifyingHost() takes a normalised [0,1] value.
+        // oscMorphPos range [0,3] linear → divide by 3.
+        // oscPW        range [0,1] linear → 0.5 is already in [0,1].
+        if (auto* p = apvts.getParameter("oscMorphPos"))
+            p->setValueNotifyingHost(morphPos / 3.0f);
+        if (auto* p = apvts.getParameter("oscPW"))
+            p->setValueNotifyingHost(0.5f);
+        return;   // oscWave presence is sufficient; skip further checks.
+    }
+
+    // Belt-and-suspenders: a preset with no oscWave but also no oscMorphPos/oscPW
+    // (shouldn't exist in practice, but guards against partial saves).
     auto restoreDefault = [&](const char* id) {
         if (xml->getChildByAttribute("id", id) == nullptr)
             if (auto* p = apvts.getParameter(id))
                 p->setValueNotifyingHost(p->getDefaultValue());
     };
-    restoreDefault("oscMorphPos");   // default 3.0 (Saw)
-    restoreDefault("oscPW");         // default 0.5 (identity warp)
+    restoreDefault("oscMorphPos");
+    restoreDefault("oscPW");
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParameterLayout()
