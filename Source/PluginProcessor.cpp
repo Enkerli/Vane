@@ -29,6 +29,8 @@ VaneProcessor::VaneProcessor()
     auto* pMono        = apvts.getRawParameterValue("monoMode");
     auto* pPBRangeLocal       = apvts.getRawParameterValue("pitchbendRange");
     auto* pNonMPEPBRangeLocal = apvts.getRawParameterValue("nonMPEPBRange");
+    auto* pGlideMode  = apvts.getRawParameterValue("glideMode");
+    auto* pGlideCurve = apvts.getRawParameterValue("glideCurve");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
@@ -36,7 +38,8 @@ VaneProcessor::VaneProcessor()
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
                                       &meterPressure, &meterSlide, &meterPitchbend,
-                                      pPBRangeLocal, pNonMPEPBRangeLocal));
+                                      pPBRangeLocal, pNonMPEPBRangeLocal,
+                                      pGlideMode, pGlideCurve));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -309,6 +312,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"glideTime", 1}, "Glide Time",
         juce::NormalisableRange<float>(0.0f, 2000.0f, 0.0f, 0.5f), 0.0f));
+
+    // Fixed Time: glideTime = total ramp duration in ms (same for any interval).
+    // Fixed Rate: glideTime = ms per semitone; an octave takes 12× longer.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"glideMode", 1}, "Glide Mode",
+        juce::StringArray{"Fixed Time", "Fixed Rate"}, 0));
+
+    // Linear:      constant pitch rate in semitones/ms (Multiplicative smoother).
+    // Exponential: 1-pole IIR in log2(Hz) — even semitone feel across the keyboard.
+    // RC:          1-pole IIR in linear Hz — true analog RC circuit; snappier in the
+    //              high register (larger Hz gap), heavier in the bass.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"glideCurve", 1}, "Glide Curve",
+        juce::StringArray{"Linear", "Exponential", "RC"}, 0));
 
     // TODO: masterTune is declared and saved in presets but is NOT yet applied
     // in SynthVoice::renderNextBlock.  To wire it up:

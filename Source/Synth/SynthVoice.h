@@ -39,7 +39,13 @@ public:
                // Stored as an APVTS param so presets carry it.
                std::atomic<float>*    pitchbendRange  = nullptr,
                // Pitchbend range for channel-1 legacy (non-MPE) notes (default 2 st).
-               std::atomic<float>*    nonMPEPBRange    = nullptr);
+               std::atomic<float>*    nonMPEPBRange    = nullptr,
+               // Glide mode: 0 = Fixed Time (constant duration regardless of interval),
+               //             1 = Fixed Rate (duration ∝ interval; glideTime = ms per semitone).
+               std::atomic<float>*    glideMode        = nullptr,
+               // Glide curve: 0 = Linear semitones (constant speed, Multiplicative smoother),
+               //              1 = Exponential approach (fast start → smooth landing, analog style).
+               std::atomic<float>*    glideCurve       = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -82,6 +88,29 @@ private:
     std::atomic<float>*    paramPBRange       = nullptr;
     // Pitchbend range for channel-1 legacy (non-MPE) notes (default 2 st).
     std::atomic<float>*    paramNonMPEPBRange = nullptr;
+    // Glide mode / curve — read block-rate in renderNextBlock.
+    std::atomic<float>*    paramGlideMode     = nullptr;
+    std::atomic<float>*    paramGlideCurve    = nullptr;
+
+    // ── Glide curve state ─────────────────────────────────────────────────────
+    //
+    // Exponential (glideCurve == 1): 1-pole IIR in log2(Hz) space.
+    //   glideExpLogHz += (glideTargetLogHz − glideExpLogHz) × glideExpCoeff
+    //   Perceptually even across the keyboard — equal semitone intervals feel
+    //   equal regardless of absolute pitch.
+    //
+    // RC (glideCurve == 2): 1-pole IIR in linear Hz space (true analog RC circuit).
+    //   glideRcHz += (targetHz − glideRcHz) × glideRcCoeff
+    //   The Hz gap is larger at higher pitches, so the glide feels snappier in the
+    //   top register and heavier in the bass — the character of a physical RC filter.
+    //
+    // Both use the same coefficient formula: c = 1 − exp(−4.6 / N) so 99 % of
+    // the interval is covered within effGlideMs (N = effGlideMs × sr / 1000).
+    float glideExpLogHz    = 0.0f;   // current log2(Hz), stepped each sample (Exp mode)
+    float glideTargetLogHz = 0.0f;   // log2(target Hz), shared by Exp and RC for init
+    float glideExpCoeff    = 0.0f;   // 1-pole coeff for Exp mode
+    float glideRcHz        = 0.0f;   // current Hz, stepped each sample (RC mode)
+    float glideRcCoeff     = 0.0f;   // 1-pole coeff for RC mode
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 

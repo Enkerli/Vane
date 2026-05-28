@@ -15,7 +15,9 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    meterSlide,
                         std::atomic<float>*    meterPitchbend,
                         std::atomic<float>*    pbRange,
-                        std::atomic<float>*    nonMPEPBRange)
+                        std::atomic<float>*    nonMPEPBRange,
+                        std::atomic<float>*    glideMode,
+                        std::atomic<float>*    glideCurve)
     : modMatrix(matrix), tuning(t)
     , paramWave(wave), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -29,7 +31,9 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , sharedMeterSlide(meterSlide)
     , sharedMeterPitchbend(meterPitchbend)
     , paramPBRange(pbRange)
-    , paramNonMPEPBRange(nonMPEPBRange) {}
+    , paramNonMPEPBRange(nonMPEPBRange)
+    , paramGlideMode(glideMode)
+    , paramGlideCurve(glideCurve) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -182,14 +186,90 @@ void SynthVoice::noteStarted()
     // to pitch immediately regardless of glideTime — otherwise a note played after
     // a long silence glides in from the previous pitch (audibly wrong), and a
     // false-legato from a tailing-off voice would also produce the wrong initial pitch.
-    float glideMs = paramGlide ? paramGlide->load() : 0.0f;
-    float prevHz  = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
-    smoothedHz.reset(sampleRate, static_cast<double>(glideMs) * 0.001);
-    if (isLegato && glideMs > 0.0f && prevHz > 0.0f) {
-        smoothedHz.setCurrentAndTargetValue(prevHz);
-        smoothedHz.setTargetValue(baseHz);
-    } else {
+    float glideMs   = paramGlide     ? paramGlide->load()     : 0.0f;
+    float prevHz    = sharedLastNoteHz ? sharedLastNoteHz->load() : 0.0f;
+    int   glideMode = paramGlideMode  ? static_cast<int>(std::round(paramGlideMode->load()))  : 0;
+    int   glideCurv = paramGlideCurve ? static_cast<int>(std::round(paramGlideCurve->load())) : 0;
+
+    // ── Glide duration ───────────────────────────────────────────────────────
+    //
+    // Fixed Time (0): glideMs is the total ramp time regardless of interval.
+    //   A semitone and an octave take the same number of milliseconds.
+    //
+    // Fixed Rate (1): glideMs is the cost per semitone.  Larger intervals take
+    //   proportionally longer, like a cello or theremin slide.  Capped at 5 s
+    //   to prevent absurdly long glides across multiple octaves at high settings.
+    float nominalGlideMs = glideMs;
+    if (glideMode == 1 && isLegato && prevHz > 0.0f && glideMs > 0.0f) {
+        float semitones = std::abs(12.0f * std::log2f(baseHz / prevHz));
+        nominalGlideMs  = std::min(glideMs * semitones, 5000.0f);
+    }
+
+    // ── Minimum legato slope-continuity ramp ─────────────────────────────────
+    //
+    // Even with glideTime = 0, apply at minimum one period at the target pitch.
+    // Without this, phaseInc snaps from prevHz/sr to baseHz/sr in one sample —
+    // a slope discontinuity that registers as a brief click, increasingly audible
+    // at higher frequencies where the sine changes steeply per sample.
+    //
+    // One period at baseHz (0.23 ms at 4 kHz, 2.3 ms at 440 Hz) is well below
+    // the perceptible portamento threshold (~20 ms), so the player never hears a
+    // glide, but the kink is spread across a full cycle instead of a single sample.
+    float minLegatoMs = (isLegato && prevHz > 0.0f) ? (1000.0f / baseHz) : 0.0f;
+    float effGlideMs  = std::max(nominalGlideMs, minLegatoMs);
+
+    // ── Glide curve ──────────────────────────────────────────────────────────
+    //
+    // Linear (0): constant semitone rate — Multiplicative smoother.
+    // Exponential (1): 1-pole IIR in log2(Hz) — even semitone feel at all pitches.
+    // RC (2): 1-pole IIR in linear Hz — true analog circuit; faster in high register.
+    //
+    // All modes start at prevHz so Voice B's first sample uses the same phaseInc
+    // as Voice A's last, preserving both waveform value and slope continuity.
+    //
+    // Coefficient formula (Exp and RC): c = 1 − exp(−4.6 / N) → 99 % arrival
+    // within N = effGlideMs × sr / 1000 samples.
+    glideTargetLogHz = std::log2f(std::max(baseHz, 1.0f));  // used by Exp init; RC uses baseHz
+
+    if (glideCurv == 1 /* Exponential — 1-pole IIR in log2(Hz) space */) {
+        if (isLegato && effGlideMs > 0.0f && prevHz > 0.0f) {
+            glideExpLogHz = std::log2f(prevHz);
+            float N        = effGlideMs * 0.001f * static_cast<float>(sampleRate);
+            glideExpCoeff  = (N > 0.0f) ? (1.0f - std::exp(-4.6f / N)) : 1.0f;
+        } else {
+            glideExpLogHz = glideTargetLogHz;
+            glideExpCoeff = 1.0f;   // instant snap — non-legato attack
+        }
+        glideRcHz = baseHz;  glideRcCoeff = 0.0f;   // keep RC state neutral
+        smoothedHz.reset(sampleRate, 0.0);
         smoothedHz.setCurrentAndTargetValue(baseHz);
+
+    } else if (glideCurv == 2 /* RC — 1-pole IIR in linear Hz space */) {
+        // Same formula as Exponential but operated on raw Hz.
+        // Effect: the glide feels faster in the high register (larger Hz gap)
+        // and heavier in the bass — classic analog RC-circuit portamento character.
+        if (isLegato && effGlideMs > 0.0f && prevHz > 0.0f) {
+            glideRcHz   = prevHz;
+            float N     = effGlideMs * 0.001f * static_cast<float>(sampleRate);
+            glideRcCoeff = (N > 0.0f) ? (1.0f - std::exp(-4.6f / N)) : 1.0f;
+        } else {
+            glideRcHz   = baseHz;
+            glideRcCoeff = 1.0f;    // instant snap — non-legato attack
+        }
+        glideExpLogHz = glideTargetLogHz;  glideExpCoeff = 0.0f;  // keep Exp state neutral
+        smoothedHz.reset(sampleRate, 0.0);
+        smoothedHz.setCurrentAndTargetValue(baseHz);
+
+    } else /* Linear in semitones — Multiplicative smoother */ {
+        smoothedHz.reset(sampleRate, static_cast<double>(effGlideMs) * 0.001);
+        if (isLegato && effGlideMs > 0.0f && prevHz > 0.0f) {
+            smoothedHz.setCurrentAndTargetValue(prevHz);
+            smoothedHz.setTargetValue(baseHz);
+        } else {
+            smoothedHz.setCurrentAndTargetValue(baseHz);
+        }
+        glideExpLogHz = glideTargetLogHz;  glideExpCoeff = 0.0f;
+        glideRcHz = baseHz;               glideRcCoeff = 0.0f;
     }
     if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
 
@@ -321,6 +401,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
     auto waveIndex   = static_cast<int>(paramWave   ? paramWave->load()   : 2.0f);
     auto detuneCents =                  paramDetune ? paramDetune->load() : 0.0f;
+    // Read once per block — branch predictor handles the inner if trivially.
+    int  glideCurveNow = paramGlideCurve
+                       ? static_cast<int>(std::round(paramGlideCurve->load())) : 0;
+    bool useExpGlide   = (glideCurveNow == 1);
+    bool useRcGlide    = (glideCurveNow == 2);
 
     osc.setWaveform(static_cast<Oscillator::Waveform>(juce::jlimit(0, 4, waveIndex)));
 
@@ -403,10 +488,29 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 break;
             }
         }
-        // Advance all three smoothers one sample each.
-        filter.setCutoff(smoothedCutoff.getNextValue());  // smooth filter cutoff
-        osc.setFrequency(smoothedHz.getNextValue() * smoothedPitchMult.getNextValue());  // portamento + pb
-        float gain = smoothedVCA.getNextValue();          // smooth VCA amplitude
+        // Advance all smoothers one sample each.
+        filter.setCutoff(smoothedCutoff.getNextValue());
+        {
+            float hzBase;
+            if (useExpGlide) {
+                // 1-pole IIR in log2(Hz): fast start, smooth arrival, even semitones.
+                glideExpLogHz += (glideTargetLogHz - glideExpLogHz) * glideExpCoeff;
+                if (std::abs(glideExpLogHz - glideTargetLogHz) < 8.33e-6f)  // 0.01 ¢
+                    glideExpLogHz = glideTargetLogHz;
+                hzBase = std::exp2(glideExpLogHz);
+            } else if (useRcGlide) {
+                // 1-pole IIR in linear Hz: true RC-circuit response.
+                // Snappier at high pitches (larger Hz gap), heavier at low ones.
+                glideRcHz += (baseHz - glideRcHz) * glideRcCoeff;
+                if (std::abs(glideRcHz - baseHz) < 0.01f)   // 0.01 Hz ≈ 0.04 ¢ at A4
+                    glideRcHz = baseHz;
+                hzBase = glideRcHz;
+            } else {
+                hzBase = smoothedHz.getNextValue();
+            }
+            osc.setFrequency(hzBase * smoothedPitchMult.getNextValue());
+        }
+        float gain = smoothedVCA.getNextValue();
         float sample = filter.process(osc.next(), filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
