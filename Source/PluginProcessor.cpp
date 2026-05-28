@@ -270,8 +270,28 @@ void VaneProcessor::getStateInformation(juce::MemoryBlock& dest)
 void VaneProcessor::setStateInformation(const void* data, int size)
 {
     auto xml = getXmlFromBinary(data, size);
-    if (xml && xml->hasTagName(apvts.state.getType()))
-        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    if (!xml || !xml->hasTagName(apvts.state.getType())) return;
+
+    apvts.replaceState(juce::ValueTree::fromXml(*xml));
+
+    // ── Backward-compat parameter migration ───────────────────────────────────
+    //
+    // JUCE sets any parameter absent from a loaded preset to normalised 0.0,
+    // which maps to the range minimum — not the parameter's declared default.
+    // For each parameter added after the initial release, if it is absent from
+    // the XML we restore its declared default here.
+    //
+    // Phase 2 additions (oscMorphPos, oscPW):
+    //   Old presets have oscWave but no oscMorphPos / oscPW.
+    //   Without this fix: oscMorphPos=0 (Sine) and oscPW=0 (extreme narrow
+    //   pulse distortion) rather than 3.0 (Saw) and 0.5 (identity warp).
+    auto restoreDefault = [&](const char* id) {
+        if (xml->getChildByAttribute("id", id) == nullptr)
+            if (auto* p = apvts.getParameter(id))
+                p->setValueNotifyingHost(p->getDefaultValue());
+    };
+    restoreDefault("oscMorphPos");   // default 3.0 (Saw)
+    restoreDefault("oscPW");         // default 0.5 (identity warp)
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParameterLayout()
