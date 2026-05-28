@@ -46,7 +46,11 @@ public:
                std::atomic<float>*    glideMode        = nullptr,
                // Glide curve: 0 = Linear semitones (constant speed, Multiplicative smoother),
                //              1 = Exponential approach (fast start → smooth landing, analog style).
-               std::atomic<float>*    glideCurve       = nullptr);
+               std::atomic<float>*    glideCurve       = nullptr,
+               // Noise blend: 0 = pure wavetable, 1 = pure noise (pre-filter).
+               std::atomic<float>*    noiseBlend       = nullptr,
+               // Noise type: 0 = White, 1 = Pink (~1/f), 2 = Brown (~1/f²).
+               std::atomic<float>*    noiseType        = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -93,6 +97,9 @@ private:
     // Glide mode / curve — read block-rate in renderNextBlock.
     std::atomic<float>*    paramGlideMode     = nullptr;
     std::atomic<float>*    paramGlideCurve    = nullptr;
+    // Noise parameters — read block-rate in renderNextBlock.
+    std::atomic<float>*    paramNoiseBlend    = nullptr;
+    std::atomic<float>*    paramNoiseType     = nullptr;
 
     // ── Glide curve state ─────────────────────────────────────────────────────
     //
@@ -160,6 +167,17 @@ private:
     // instead of ahead of it.  Mono legato notes do NOT reset so the PW is continuous
     // across note boundaries (matching the behaviour of smoothedCutoff / filter state).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedPW;
+
+    // ── Per-voice noise generation state ────────────────────────────────────────
+    // All three generators run independently per voice so simultaneous MPE notes
+    // never share noise state (which would cause audible correlation between notes).
+    //
+    // White: 64-bit LCG (same constants as Oscillator — period 2^64, no seeding needed).
+    // Pink:  Paul Kellett 7-state ~1/f approximation; output / 9 → [-1, 1].
+    // Brown: 1-pole leaky integrator on white noise; output × 3 → [-1, 1] (approx).
+    uint64_t noiseWhiteState = 12345u;
+    float    noisePinkB[7]   = {};      // b0..b6: Kellett integrator state
+    float    noiseBrownAcc   = 0.0f;   // leaky accumulator
 
     // Live MPE state — updated via noteXxxChanged() callbacks
     float pressure  = 0.0f;   // 0..1

@@ -55,6 +55,10 @@ struct ModDestID {
     static constexpr int OscWaveshape  = 4;   // morph position sweep
     static constexpr int GlideTime     = 5;   // intended: scale on base glide time (unwired)
     static constexpr int OscPulseWidth = 6;   // phase-distortion pulse width
+    // OscNoiseMix: additive offset to noiseBlend (0..1).
+    //   activeNoiseMix = clamp(noiseBlend + mods[OscNoiseMix], 0, 1)
+    //   so a +1 route at amount 1.0 sweeps from off to full noise.
+    static constexpr int OscNoiseMix   = 7;   // oscillator noise blend
 
-    static constexpr int NumDests = 7;
+    static constexpr int NumDests = 8;
 };

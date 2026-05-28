@@ -24,6 +24,8 @@ struct PatchPanel::ContentComponent : public juce::Component
     // ── OSCILLATOR ────────────────────────────────────────────────────────────
     juce::Slider   morphSlider;    // oscMorphPos: 0=Sine 1=Tri 2=Sqr 3=Saw
     juce::Slider   pwSlider;       // oscPW: 0.5 = identity, <0.5 narrow, >0.5 wide
+    juce::Slider   noiseSlider;    // noiseBlend: 0=pure WT, 1=pure noise
+    juce::ComboBox noiseTypeBox;   // White / Pink / Brown
     juce::Slider   detuneSlider;
 
     // ── PERFORMANCE ───────────────────────────────────────────────────────────
@@ -37,11 +39,11 @@ struct PatchPanel::ContentComponent : public juce::Component
     // ── APVTS attachments ─────────────────────────────────────────────────────
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    std::unique_ptr<SA> cutoffAtt, resAtt, morphAtt, pwAtt, detuneAtt,
+    std::unique_ptr<SA> cutoffAtt, resAtt, morphAtt, pwAtt, noiseAtt, detuneAtt,
                         outputAtt, glideAtt, velMixAtt,
                         pbRangeAtt, nonMPEPBAtt,
                         breathCCAtt, exprCCAtt;
-    std::unique_ptr<CA> filterModeAtt,
+    std::unique_ptr<CA> filterModeAtt, noiseTypeAtt,
                         breathSrcAtt, exprSrcAtt;
 
     explicit ContentComponent(VaneProcessor& p)
@@ -85,10 +87,17 @@ struct PatchPanel::ContentComponent : public juce::Component
         // ── OSCILLATOR ────────────────────────────────────────────────────────
         styleSlider(morphSlider,  oscCol); addAndMakeVisible(morphSlider);
         styleSlider(pwSlider,     oscCol); addAndMakeVisible(pwSlider);
+        styleSlider(noiseSlider,  oscCol); addAndMakeVisible(noiseSlider);
+        noiseTypeBox.addItem("White", 1);
+        noiseTypeBox.addItem("Pink",  2);
+        noiseTypeBox.addItem("Brown", 3);
+        styleCombo(noiseTypeBox); addAndMakeVisible(noiseTypeBox);
         styleSlider(detuneSlider, oscCol); addAndMakeVisible(detuneSlider);
-        morphAtt  = std::make_unique<SA>(apvts, "oscMorphPos", morphSlider);
-        pwAtt     = std::make_unique<SA>(apvts, "oscPW",       pwSlider);
-        detuneAtt = std::make_unique<SA>(apvts, "oscDetune",   detuneSlider);
+        morphAtt    = std::make_unique<SA>(apvts, "oscMorphPos", morphSlider);
+        pwAtt       = std::make_unique<SA>(apvts, "oscPW",       pwSlider);
+        noiseAtt    = std::make_unique<SA>(apvts, "noiseBlend",  noiseSlider);
+        noiseTypeAtt= std::make_unique<CA>(apvts, "noiseType",   noiseTypeBox);
+        detuneAtt   = std::make_unique<SA>(apvts, "oscDetune",   detuneSlider);
 
         // ── PERFORMANCE ───────────────────────────────────────────────────────
         styleSlider(outputSlider,   perfCol); addAndMakeVisible(outputSlider);
@@ -175,6 +184,8 @@ struct PatchPanel::ContentComponent : public juce::Component
         addHdr("OSCILLATOR");
         addSlider("Morph",     morphSlider);
         addSlider("PW",        pwSlider);
+        addSlider("Noise",     noiseSlider);
+        addCombo ("Noise Type",noiseTypeBox);
         addSlider("Detune",    detuneSlider);
         y += 8;
 

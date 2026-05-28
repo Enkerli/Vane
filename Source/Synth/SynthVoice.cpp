@@ -18,7 +18,9 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    pbRange,
                         std::atomic<float>*    nonMPEPBRange,
                         std::atomic<float>*    glideMode,
-                        std::atomic<float>*    glideCurve)
+                        std::atomic<float>*    glideCurve,
+                        std::atomic<float>*    noiseBlend,
+                        std::atomic<float>*    noiseType)
     : modMatrix(matrix), tuning(t)
     , paramMorphPos(morphPos), paramPW(pw), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -34,7 +36,9 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramPBRange(pbRange)
     , paramNonMPEPBRange(nonMPEPBRange)
     , paramGlideMode(glideMode)
-    , paramGlideCurve(glideCurve) {}
+    , paramGlideCurve(glideCurve)
+    , paramNoiseBlend(noiseBlend)
+    , paramNoiseType(noiseType) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -477,6 +481,16 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // (from BWS Expressions or mod-matrix routes) are also interpolated.
     smoothedPW.setTargetValue(activePW);
 
+    // Noise: blend amount (0=pure wave, 1=pure noise) and character.
+    // OscNoiseMix mod is additive — a +1 route sweeps from 0 to full noise.
+    // Block-rate param; noise is spectrally diffuse so block-boundary steps
+    // are inaudible (unlike PW or cutoff which have instantaneous spectral effects).
+    float noiseBlendBase = paramNoiseBlend ? paramNoiseBlend->load() : 0.0f;
+    float activeNoiseMix = std::clamp(noiseBlendBase + mods[ModDestID::OscNoiseMix],
+                                      0.0f, 1.0f);
+    int noiseTypeNow = paramNoiseType
+                       ? static_cast<int>(std::round(paramNoiseType->load())) : 0;
+
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
     // step changes at block boundaries that cause crunchiness during breath sweeps.
@@ -535,8 +549,57 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             osc.setFrequency(hzBase * smoothedPitchMult.getNextValue());
         }
         float gain = smoothedVCA.getNextValue();
-        float sample = filter.process(osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue()),
-                                       filterMode) * gain * tailLevel;
+
+        // Oscillator output (morphed wavetable + PD warp).
+        float wave = osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue());
+
+        // Noise blend: mix noise pre-filter so both wave and noise share the same
+        // tonal character from the SVF.  Generation is skipped when blend is off
+        // (the branch is fully predicted after the first block).
+        float rawSample = wave;
+        if (activeNoiseMix > 0.0005f)
+        {
+            // White noise: 64-bit LCG, uniform [-1, 1].
+            noiseWhiteState = noiseWhiteState * 6364136223846793005ULL
+                                              + 1442695040888963407ULL;
+            float white = static_cast<float>(
+                              static_cast<int32_t>(noiseWhiteState >> 33))
+                          / 2147483648.0f;
+
+            float noiseOut;
+            if (noiseTypeNow == 1)
+            {
+                // Pink noise: Paul Kellett 7-state ~1/f approximation.
+                // Output sum / 9 normalises to approximately [-1, 1].
+                noisePinkB[0] = 0.99886f * noisePinkB[0] + white * 0.0555179f;
+                noisePinkB[1] = 0.99332f * noisePinkB[1] + white * 0.0750759f;
+                noisePinkB[2] = 0.96900f * noisePinkB[2] + white * 0.1538520f;
+                noisePinkB[3] = 0.86650f * noisePinkB[3] + white * 0.3104856f;
+                noisePinkB[4] = 0.55000f * noisePinkB[4] + white * 0.5329522f;
+                noisePinkB[5] = -0.7616f * noisePinkB[5] - white * 0.0168980f;
+                noiseOut = (noisePinkB[0] + noisePinkB[1] + noisePinkB[2]
+                           + noisePinkB[3] + noisePinkB[4] + noisePinkB[5]
+                           + noisePinkB[6] + white * 0.5362f) * (1.0f / 9.0f);
+                noisePinkB[6] = white * 0.115926f;
+            }
+            else if (noiseTypeNow == 2)
+            {
+                // Brown noise: 1-pole leaky integrator in linear amplitude.
+                //   y[n] = 0.999·y[n-1] + 0.025·white[n]
+                // ×3 brings output RMS to approximately match white/pink.
+                noiseBrownAcc = 0.999f * noiseBrownAcc + 0.025f * white;
+                noiseOut = noiseBrownAcc * 3.0f;
+            }
+            else
+            {
+                noiseOut = white;  // White: use LCG output directly.
+            }
+
+            rawSample = wave * (1.0f - activeNoiseMix)
+                       + noiseOut * activeNoiseMix;
+        }
+
+        float sample = filter.process(rawSample, filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
     }

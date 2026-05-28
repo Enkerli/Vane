@@ -32,6 +32,8 @@ VaneProcessor::VaneProcessor()
     auto* pNonMPEPBRangeLocal = apvts.getRawParameterValue("nonMPEPBRange");
     auto* pGlideMode  = apvts.getRawParameterValue("glideMode");
     auto* pGlideCurve = apvts.getRawParameterValue("glideCurve");
+    auto* pNoiseBlend = apvts.getRawParameterValue("noiseBlend");
+    auto* pNoiseType  = apvts.getRawParameterValue("noiseType");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pMorphPos, pDetune, pPW, pCutoff, pRes, pFilterMode, pVeloMix,
@@ -40,7 +42,8 @@ VaneProcessor::VaneProcessor()
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
                                       &meterPressure, &meterSlide, &meterPitchbend,
                                       pPBRangeLocal, pNonMPEPBRangeLocal,
-                                      pGlideMode, pGlideCurve));
+                                      pGlideMode, pGlideCurve,
+                                      pNoiseBlend, pNoiseType));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -365,6 +368,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscMorphPos", 1}, "Osc Morph",
         juce::NormalisableRange<float>(0.0f, 3.0f), 3.0f));
+
+    // Noise blend: 0 = pure wavetable, 1 = pure noise.  Applied pre-filter so the
+    // noise shares the same filter character as the oscillator signal.
+    // Modulated by OscNoiseMix destination (direct additive offset, clamped 0..1).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"noiseBlend", 1}, "Noise Blend",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.0f));
+
+    // Noise character: White = flat spectrum, Pink ≈ −3 dB/oct, Brown ≈ −6 dB/oct.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"noiseType", 1}, "Noise Type",
+        juce::StringArray{"White", "Pink", "Brown"}, 0));
 
     // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
     //
