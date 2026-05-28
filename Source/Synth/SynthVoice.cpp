@@ -82,6 +82,11 @@ void SynthVoice::prepare(double sr, int blockSize)
     // Linear (not Multiplicative) because amplitude can start from zero.
     smoothedVCA.reset(sr, 0.003);
     smoothedVCA.setCurrentAndTargetValue(0.0f);
+
+    // PW smoother: 3 ms ramp prevents the spectral pop at note-on when CC74
+    // drives PW to an extreme value before the VCA has opened.  See header.
+    smoothedPW.reset(sr, 0.003);
+    smoothedPW.setCurrentAndTargetValue(0.5f);
 }
 
 void SynthVoice::noteStarted()
@@ -180,7 +185,14 @@ void SynthVoice::noteStarted()
             pressure, slideBp, pitchbend, velocity
         };
         modMatrix.resetVoiceSlewers(voiceSlewers, noteOnVals);
+
+        // Snap PW smoother to identity so the timbral warp arrives with
+        // the breath rather than preceding it.  The target is set in the
+        // first renderNextBlock() call once activePW is known.
+        smoothedPW.setCurrentAndTargetValue(0.5f);
     }
+    // Mono legato: smoothedPW is intentionally NOT reset — the PW continues
+    // smoothly from the previous note, matching filter-state handoff behaviour.
 
     // Portamento: glide from the previous note's pitch if glideTime > 0 AND the
     // transition is legato (breath was continuously on).  Non-legato attacks snap
@@ -455,11 +467,15 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
     // Morph + PW: apply mod matrix offsets once per block and clamp.
     // OscWaveshape mod is scaled ×3 so a ±1 route sweeps the full spectrum.
-    // OscPulseWidth mod is unscaled; 0.5 base + ±0.5 mod covers 0..1.
+    // OscPulseWidth mod is additive; range [0.5, 0.999] — negative mods floor
+    // at 0.5 (identity), so you cannot cross to the mirror-symmetric side.
     float activeMorphPos = std::clamp(morphPos + mods[ModDestID::OscWaveshape] * 3.0f,
                                       0.0f, 3.0f);
     float activePW       = std::clamp(basePW   + mods[ModDestID::OscPulseWidth],
-                                      0.0f, 1.0f);
+                                      0.5f, 0.999f);
+    // Feed activePW into the per-sample smoother so block-rate mod updates
+    // (from BWS Expressions or mod-matrix routes) are also interpolated.
+    smoothedPW.setTargetValue(activePW);
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
@@ -519,7 +535,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             osc.setFrequency(hzBase * smoothedPitchMult.getNextValue());
         }
         float gain = smoothedVCA.getNextValue();
-        float sample = filter.process(osc.nextMorphed(activeMorphPos, activePW),
+        float sample = filter.process(osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue()),
                                        filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;

@@ -148,6 +148,19 @@ private:
     // New notes initialise this from lastVCALevel so legato transitions are seamless.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedVCA;
 
+    // Per-sample PW interpolation — eliminates the spectral "pop" at MPE note-on
+    // when a new note starts at a higher CC74 (timbre/slide) than the previous one.
+    //
+    // Without smoothing: the block-rate param update (BWS Expressions or mod routes)
+    // immediately sets activePW to the CC74-driven extreme, so the VCA opens into
+    // already-harsh harmonic content — perceived as a stronger-than-intended attack.
+    //
+    // Fix: every non-legato note-on snaps smoothedPW to 0.5 (identity warp) and sets
+    // the target to activePW; the 3 ms ramp lets the timbre arrive with the breath
+    // instead of ahead of it.  Mono legato notes do NOT reset so the PW is continuous
+    // across note boundaries (matching the behaviour of smoothedCutoff / filter state).
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedPW;
+
     // Live MPE state — updated via noteXxxChanged() callbacks
     float pressure  = 0.0f;   // 0..1
     float slide     = 0.0f;   // 0..1 (CC74)

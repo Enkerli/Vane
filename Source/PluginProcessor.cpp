@@ -308,11 +308,12 @@ void VaneProcessor::setStateInformation(const void* data, int size)
         }
         // setValueNotifyingHost() takes a normalised [0,1] value.
         // oscMorphPos range [0,3] linear → divide by 3.
-        // oscPW        range [0,1] linear → 0.5 is already in [0,1].
+        // oscPW: use getDefaultValue() so this stays correct regardless of range/skew.
+        //   With range [0.5, 0.999] skew 2: normalised default = 0.0 → actual 0.5. ✓
         if (auto* p = apvts.getParameter("oscMorphPos"))
             p->setValueNotifyingHost(morphPos / 3.0f);
         if (auto* p = apvts.getParameter("oscPW"))
-            p->setValueNotifyingHost(0.5f);
+            p->setValueNotifyingHost(p->getDefaultValue());
         return;   // oscWave presence is sufficient; skip further checks.
     }
 
@@ -365,12 +366,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"oscMorphPos", 1}, "Osc Morph",
         juce::NormalisableRange<float>(0.0f, 3.0f), 3.0f));
 
-    // Phase-distortion pulse width: 0.5 = identity warp (no change to timbre).
-    // < 0.5: narrow-pulse character.  > 0.5: wide-pulse / approaching a spike.
-    // Modulated by OscPulseWidth destination (direct additive offset).
+    // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
+    //
+    // Range [0.5, 0.999] — the PD warp is symmetric around 0.5, so the two halves
+    // [0, 0.5) and (0.5, 1] produce mirror-image spectra.  We keep only the upper
+    // half so modulation is unambiguous and the UI has a clear "identity" minimum.
+    //
+    // Skew factor 2 (quadratic): proportion² mapping → more resolution near 0.5
+    // (subtle warp in the lower 70 % of the knob range) and compressed extreme
+    // values toward the top — matching the "partly exponential" perceptual feel.
+    //
+    // Modulated by OscPulseWidth destination (direct additive offset, clamped to range).
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscPW", 1}, "Osc Pulse Width",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.5f, 0.999f, 0.0f, 2.0f), 0.5f));
 
     // ── Performance ──────────────────────────────────────────────────────────
     layout.add(std::make_unique<juce::AudioParameterFloat>(
