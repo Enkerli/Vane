@@ -46,13 +46,15 @@ struct ModDestID {
     static constexpr int VCALevel      = 2;   // additive, clamped 0..1 in SynthVoice
     static constexpr int OscPitchFine  = 3;   // semitones, additive to pitchbend total
 
-    // ── Reserved — declared but not yet wired into SynthVoice::renderNextBlock ──
-    // Adding a new destination requires:
-    //   1. Reading mods[OscWaveshape] / mods[GlideTime] in renderNextBlock.
-    //   2. Adding a route in VaneProcessor's constructor.
-    //   3. Adding an APVTS parameter for the amount (optional but expected).
-    static constexpr int OscWaveshape  = 4;   // intended: wavetable position / morph
-    static constexpr int GlideTime     = 5;   // intended: scale on base glide time
+    // ── Oscillator modulation destinations ───────────────────────────────────────
+    // OscWaveshape: additive offset to oscMorphPos (0..3).  Applied as
+    //   activeMorphPos = clamp(morphPos + mods[OscWaveshape] × 3, 0, 3)
+    //   so a ±1 mod sweeps the full Sine→Tri→Sqr→Saw spectrum.
+    // OscPulseWidth: additive offset to oscPW (0..1, 0.5 = identity warp).
+    //   activePW = clamp(basePW + mods[OscPulseWidth], 0, 1)
+    static constexpr int OscWaveshape  = 4;   // morph position sweep
+    static constexpr int GlideTime     = 5;   // intended: scale on base glide time (unwired)
+    static constexpr int OscPulseWidth = 6;   // phase-distortion pulse width
 
-    static constexpr int NumDests = 6;
+    static constexpr int NumDests = 7;
 };

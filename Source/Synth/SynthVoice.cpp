@@ -2,8 +2,9 @@
 #include <cmath>
 
 SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
-                        std::atomic<float>*    wave,      std::atomic<float>*    detune,
-                        std::atomic<float>*    cutoff,    std::atomic<float>*    res,
+                        std::atomic<float>*    morphPos,  std::atomic<float>*    detune,
+                        std::atomic<float>*    pw,        std::atomic<float>*    cutoff,
+                        std::atomic<float>*    res,
                         std::atomic<float>*    filterMode,std::atomic<float>*    velocityMix,
                         std::atomic<float>*    glide,     std::atomic<float>*    lastNoteHz,
                         std::atomic<float>*    lastVCALevel,
@@ -19,7 +20,7 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    glideMode,
                         std::atomic<float>*    glideCurve)
     : modMatrix(matrix), tuning(t)
-    , paramWave(wave), paramDetune(detune)
+    , paramMorphPos(morphPos), paramPW(pw), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
     , paramFilterMode(filterMode), paramVelocityMix(velocityMix)
     , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
@@ -399,15 +400,14 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    auto waveIndex   = static_cast<int>(paramWave   ? paramWave->load()   : 2.0f);
-    auto detuneCents =                  paramDetune ? paramDetune->load() : 0.0f;
+    float morphPos   = paramMorphPos ? paramMorphPos->load() : 3.0f;  // default Saw
+    float basePW     = paramPW       ? paramPW->load()       : 0.5f;  // default identity
+    auto detuneCents =                 paramDetune ? paramDetune->load() : 0.0f;
     // Read once per block — branch predictor handles the inner if trivially.
     int  glideCurveNow = paramGlideCurve
                        ? static_cast<int>(std::round(paramGlideCurve->load())) : 0;
     bool useExpGlide   = (glideCurveNow == 1);
     bool useRcGlide    = (glideCurveNow == 2);
-
-    osc.setWaveform(static_cast<Oscillator::Waveform>(juce::jlimit(0, 4, waveIndex)));
 
     // MPE slide (CC74) is unipolar 0..1 with neutral at 0.5.
     // Convert to bipolar -1..+1 so the ModMatrix route sweeps symmetrically
@@ -452,6 +452,14 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float pitchMult = std::pow(2.0f, totalSemitones / 12.0f);
     if (!std::isfinite(pitchMult) || pitchMult <= 0.0f) pitchMult = 1.0f;
     smoothedPitchMult.setTargetValue(pitchMult);
+
+    // Morph + PW: apply mod matrix offsets once per block and clamp.
+    // OscWaveshape mod is scaled ×3 so a ±1 route sweeps the full spectrum.
+    // OscPulseWidth mod is unscaled; 0.5 base + ±0.5 mod covers 0..1.
+    float activeMorphPos = std::clamp(morphPos + mods[ModDestID::OscWaveshape] * 3.0f,
+                                      0.0f, 3.0f);
+    float activePW       = std::clamp(basePW   + mods[ModDestID::OscPulseWidth],
+                                      0.0f, 1.0f);
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
@@ -511,7 +519,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             osc.setFrequency(hzBase * smoothedPitchMult.getNextValue());
         }
         float gain = smoothedVCA.getNextValue();
-        float sample = filter.process(osc.next(), filterMode) * gain * tailLevel;
+        float sample = filter.process(osc.nextMorphed(activeMorphPos, activePW),
+                                       filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
     }

@@ -89,6 +89,66 @@ public:
         return out;
     }
 
+    // Continuous-morph wavetable read with optional phase-distortion pulse width.
+    //
+    // morphPos — 0.0..3.0, crossfades through the waveform sequence:
+    //   0 = Sine   1 = Triangle   2 = Square   3 = Sawtooth
+    // pw — 0.0..1.0, phase distortion duty cycle; 0.5 = identity (no warp).
+    //   < 0.5: narrow pulse / faster first-half traversal of the table.
+    //   > 0.5: wide pulse  / slower first-half traversal.
+    //
+    // Implementation:
+    //   1. PD warp: piecewise-linear remap of phase → warpedPhase.
+    //   2. Mip select: cachedMipLevel from the last setFrequency() call.
+    //   3. Crossfade: lerp between the two adjacent mip-level tables.
+    //
+    // Note on aliasing: the PD warp changes the instantaneous traversal speed
+    // at the boundary (phase == pw), which in theory could alias at extreme PW
+    // values.  In practice the mip tables already band-limit each waveform, so
+    // the artefact is very mild; a future improvement would be to also mip-select
+    // based on the effective local frequency (1/(2·pw·f) and 1/(2·(1-pw)·f)).
+    float nextMorphed(float morphPos, float pw) {
+        // ── PD warp ────────────────────────────────────────────────────────────
+        // Clamp pw so neither branch divides by zero.
+        pw = (pw < 0.001f) ? 0.001f : (pw > 0.999f ? 0.999f : pw);
+        float wp;
+        if (phase < pw)
+            wp = phase * (0.5f / pw);
+        else
+            wp = 0.5f + (phase - pw) * (0.5f / (1.0f - pw));
+
+        // ── Morph blend ────────────────────────────────────────────────────────
+        // Waveform order:   Sine(0) → Triangle(1) → Square(2) → Sawtooth(3)
+        // Table index LUT:  s_tables[0]=Sine, [1]=Tri, [2]=Saw, [3]=Sqr
+        //   → morph order needs:  pos0→tbl0, pos1→tbl1, pos2→tbl3, pos3→tbl2
+        static constexpr int kMorphLut[4] = { 0, 1, 3, 2 };   // Sine Tri Sqr Saw
+
+        float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > 3.0f ? 3.0f : morphPos);
+        int   iA  = static_cast<int>(pos);
+        if (iA > 2) iA = 2;                  // guard: iA+1 is always ≤ 3
+        float blend = pos - static_cast<float>(iA);
+
+        int tA = kMorphLut[iA];
+        int tB = kMorphLut[iA + 1];
+
+        // ── Table lookup (linear interpolation, guard-point safe) ──────────────
+        float       idx  = wp * static_cast<float>(kTableSize);
+        int         i0   = static_cast<int>(idx);
+        if (i0 >= kTableSize) i0 = kTableSize - 1;
+        float       frac = idx - static_cast<float>(i0);
+        const float* tbA = s_tables[tA][cachedMipLevel];
+        const float* tbB = s_tables[tB][cachedMipLevel];
+        float sA = tbA[i0] + frac * (tbA[i0 + 1] - tbA[i0]);
+        float sB = tbB[i0] + frac * (tbB[i0 + 1] - tbB[i0]);
+
+        float out = sA + blend * (sB - sA);
+
+        phase += phaseInc;
+        if (phase >= 1.0f) phase -= std::floor(phase);
+
+        return out;
+    }
+
     // Returns the phase that will be used on the NEXT call to next() (i.e. the
     // phase after the last advance).  SynthVoice reads this at the dying voice
     // to hand the exact phase to the new legato voice via reset().

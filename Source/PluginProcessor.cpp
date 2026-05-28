@@ -19,7 +19,8 @@ VaneProcessor::VaneProcessor()
     // silently falls back to hard-coded defaults for pitchbend range, etc.
     // This was a real bug: all 15 voices played with ±2 st range regardless of
     // the parameter value because pPBRange was null inside every voice.
-    auto* pWave        = apvts.getRawParameterValue("oscWave");
+    auto* pMorphPos    = apvts.getRawParameterValue("oscMorphPos");
+    auto* pPW          = apvts.getRawParameterValue("oscPW");
     auto* pDetune      = apvts.getRawParameterValue("oscDetune");
     auto* pCutoff      = apvts.getRawParameterValue("filterCutoff");
     auto* pRes         = apvts.getRawParameterValue("filterRes");
@@ -33,7 +34,7 @@ VaneProcessor::VaneProcessor()
     auto* pGlideCurve = apvts.getRawParameterValue("glideCurve");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
-                                      pWave, pDetune, pCutoff, pRes, pFilterMode, pVeloMix,
+                                      pMorphPos, pDetune, pPW, pCutoff, pRes, pFilterMode, pVeloMix,
                                       pGlide, &lastNoteHz, &lastVCALevel,
                                       &legatoGeneration, &lastOscPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
@@ -304,9 +305,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"oscDetune", 1}, "Osc Detune",
         juce::NormalisableRange<float>(-100.0f, 100.0f), 0.0f));
 
-    layout.add(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"oscWave", 1}, "Osc Waveform",
-        juce::StringArray{"Sine", "Triangle", "Saw", "Square", "Noise"}, 2));
+    // Continuous morph through Sine → Triangle → Square → Sawtooth.
+    // Default 3.0 (Sawtooth) matches the original fixed-waveform default.
+    // Modulated by OscWaveshape destination (×3 scale inside SynthVoice).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"oscMorphPos", 1}, "Osc Morph",
+        juce::NormalisableRange<float>(0.0f, 3.0f), 3.0f));
+
+    // Phase-distortion pulse width: 0.5 = identity warp (no change to timbre).
+    // < 0.5: narrow-pulse character.  > 0.5: wide-pulse / approaching a spike.
+    // Modulated by OscPulseWidth destination (direct additive offset).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"oscPW", 1}, "Osc Pulse Width",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // ── Performance ──────────────────────────────────────────────────────────
     layout.add(std::make_unique<juce::AudioParameterFloat>(

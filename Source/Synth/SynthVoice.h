@@ -19,7 +19,8 @@ public:
     // are assigned AFTER the voice loop and will be null if passed directly —
     // voices silently fall back to hard-coded defaults.  See PluginProcessor.cpp.
     SynthVoice(ModMatrix& matrix, TuningClient& tuning,
-               std::atomic<float>*    paramWave,      std::atomic<float>*    paramDetune,
+               std::atomic<float>*    paramMorphPos,  std::atomic<float>*    paramDetune,
+               std::atomic<float>*    paramPW,
                std::atomic<float>*    paramCutoff,    std::atomic<float>*    paramRes,
                std::atomic<float>*    paramFilterMode,std::atomic<float>*    paramVelocityMix,
                std::atomic<float>*    paramGlide,     std::atomic<float>*    lastNoteHz,
@@ -63,7 +64,8 @@ private:
     ModMatrix&    modMatrix;
     TuningClient& tuning;
 
-    std::atomic<float>* paramWave        = nullptr;
+    std::atomic<float>* paramMorphPos    = nullptr;   // 0.0-3.0: Sine→Tri→Sqr→Saw
+    std::atomic<float>* paramPW          = nullptr;   // 0.0-1.0: phase-distortion PW
     std::atomic<float>* paramDetune      = nullptr;
     std::atomic<float>* paramCutoff      = nullptr;
     std::atomic<float>* paramRes         = nullptr;
