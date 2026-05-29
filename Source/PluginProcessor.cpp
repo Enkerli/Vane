@@ -340,6 +340,17 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     //
     // Two failure modes when loading old presets:
     //
+    // The decisive test is whether oscMorphPos is PRESENT in the loaded XML:
+    //
+    //   • oscMorphPos ABSENT  → genuinely pre-Phase-2 preset.  Map the old
+    //     oscWave index to a morph position and reset pw.
+    //   • oscMorphPos PRESENT → post-Phase-2 preset; its value is authoritative
+    //     and MUST be trusted, even if a stale oscWave child is still in the XML.
+    //     (oscWave is no longer a registered parameter, but old project files /
+    //     carried-over presets can still carry it.  Migrating off it here would
+    //     clobber the user's saved morph — e.g. a deliberate Sine (morphPos 0)
+    //     would be forced back to Saw because the leftover oscWave reads 2.)
+    //
     //   A) oscWave present, oscMorphPos / oscPW absent:
     //      JUCE sets absent params to normalised 0.0 (range minimum, not the
     //      declared default).  Both new params end up at 0.0 → Sine + extreme
@@ -355,25 +366,30 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     //
     // Old oscWave:   0=Sine  1=Triangle  2=Saw  3=Square  4=Noise
     // New morph pos: 0=Sine  1=Triangle  2=Sqr  3=Saw     (Noise → Phase 3)
-    if (auto* oldWaveEl = xml->getChildByAttribute("id", "oscWave")) {
-        float morphPos = 3.0f;   // default: Saw
-        switch (static_cast<int>(oldWaveEl->getDoubleAttribute("value", 2.0))) {
-            case 0: morphPos = 0.0f; break;   // Sine
-            case 1: morphPos = 1.0f; break;   // Triangle
-            case 2: morphPos = 3.0f; break;   // Saw
-            case 3: morphPos = 2.0f; break;   // Square
-            default: morphPos = 3.0f; break;  // Noise / unknown → Saw
+    const bool hasMorphPos = (xml->getChildByAttribute("id", "oscMorphPos") != nullptr);
+    if (!hasMorphPos)
+    {
+        if (auto* oldWaveEl = xml->getChildByAttribute("id", "oscWave")) {
+            float morphPos = 3.0f;   // default: Saw
+            switch (static_cast<int>(oldWaveEl->getDoubleAttribute("value", 2.0))) {
+                case 0: morphPos = 0.0f; break;   // Sine
+                case 1: morphPos = 1.0f; break;   // Triangle
+                case 2: morphPos = 3.0f; break;   // Saw
+                case 3: morphPos = 2.0f; break;   // Square
+                default: morphPos = 3.0f; break;  // Noise / unknown → Saw
+            }
+            // setValueNotifyingHost() takes a normalised [0,1] value.
+            // oscMorphPos range [0,3] linear → divide by 3.
+            // oscPW: use getDefaultValue() so this stays correct regardless of range/skew.
+            //   With range [0.5, 0.999] skew 2: normalised default = 0.0 → actual 0.5. ✓
+            if (auto* p = apvts.getParameter("oscMorphPos"))
+                p->setValueNotifyingHost(morphPos / 3.0f);
+            if (auto* p = apvts.getParameter("oscPW"))
+                p->setValueNotifyingHost(p->getDefaultValue());
+            return;   // genuinely old preset migrated.
         }
-        // setValueNotifyingHost() takes a normalised [0,1] value.
-        // oscMorphPos range [0,3] linear → divide by 3.
-        // oscPW: use getDefaultValue() so this stays correct regardless of range/skew.
-        //   With range [0.5, 0.999] skew 2: normalised default = 0.0 → actual 0.5. ✓
-        if (auto* p = apvts.getParameter("oscMorphPos"))
-            p->setValueNotifyingHost(morphPos / 3.0f);
-        if (auto* p = apvts.getParameter("oscPW"))
-            p->setValueNotifyingHost(p->getDefaultValue());
-        return;   // oscWave presence is sufficient; skip further checks.
     }
+    // oscMorphPos present (or no oscWave to migrate from): trust the loaded state.
 
     // Belt-and-suspenders: a preset with no oscWave but also no oscMorphPos/oscPW
     // (shouldn't exist in practice, but guards against partial saves).
