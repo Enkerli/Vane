@@ -144,7 +144,7 @@ void ModMatrixEditor::buildRoutes()
     using D = ModDestID;
     using C = ModRoute::CurveShape;
 
-    // Mirrors the 11 default routes added in VaneProcessor::VaneProcessor().
+    // Mirrors the 17 default routes added in VaneProcessor::VaneProcessor().
     // Index in this table == route index in the ModMatrix (determines which
     // per-voice slewer slot is used).  Keep in sync with PluginProcessor.cpp.
     struct Spec {
@@ -172,6 +172,13 @@ void ModMatrixEditor::buildRoutes()
         { M::MacroExpr,     D::FilterRes,   "Expr",     "Reso",   "breathResAmt",    "exprResCurve",     C::Exponential, 5,  80 },
         { M::Velocity,      D::FilterCutoff,"Velocity", "Cutoff", "veloCutoffAmt",   "veloCutoffCurve",  C::Linear,     20,   0 },
         { M::MacroSlide,    D::FilterRes,   "Slide",    "Reso",   "cc74ResAmt",      "cc74ResCurve",     C::Linear,      2,  20 },
+        // Oscillator-timbre routes (per-voice, opt-in) — keep order in sync with PluginProcessor.cpp.
+        { M::MacroSlide,    D::OscWaveshape, "Slide",   "Morph",  "slideMorphAmt",   "slideMorphCurve",  C::Linear,      2,  20 },
+        { M::MacroPressure, D::OscWaveshape, "Pressure","Morph",  "pressMorphAmt",   "pressMorphCurve",  C::Linear,      2,  30 },
+        { M::MacroSlide,    D::OscPulseWidth,"Slide",   "PW",     "slidePWAmt",      "slidePWCurve",     C::Linear,      2,  20 },
+        { M::MacroPressure, D::OscPulseWidth,"Pressure","PW",     "pressPWAmt",      "pressPWCurve",     C::Linear,      2,  30 },
+        { M::MacroSlide,    D::OscNoiseMix,  "Slide",   "Noise",  "slideNoiseAmt",   "slideNoiseCurve",  C::Linear,      2,  20 },
+        { M::MacroPressure, D::OscNoiseMix,  "Pressure","Noise",  "pressNoiseAmt",   "pressNoiseCurve",  C::Linear,      2,  30 },
     };
 
     routeDescs.reserve(std::size(specs));

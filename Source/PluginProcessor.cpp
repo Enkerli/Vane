@@ -144,6 +144,43 @@ VaneProcessor::VaneProcessor()
     modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterRes,
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74ResAmt, pCC74ResCrv);
 
+    // ── Oscillator-timbre routes (per-voice; opt-in, default amount 0) ──────────
+    //
+    // These give the new oscillator destinations (Morph / PW / Noise) the same
+    // per-voice modulation that FilterCutoff already has.  Source is the per-note
+    // MPE Slide (CC74) and Pressure, so each voice's own expression drives its own
+    // timbre — exactly the "internal routing" path, which is the only way to get
+    // per-voice modulation in a JUCE VST3 (external parameter modulation is global).
+    //
+    // All default to amount 0.0 so loading is behaviour-neutral until the player
+    // dials a route up in the ModMatrix panel.  Route order MUST match the spec
+    // table in ModMatrixEditor::buildRoutes() (index == per-voice slewer slot).
+    auto* pSlideMorphAmt = apvts.getRawParameterValue("slideMorphAmt");
+    auto* pPressMorphAmt = apvts.getRawParameterValue("pressMorphAmt");
+    auto* pSlidePWAmt    = apvts.getRawParameterValue("slidePWAmt");
+    auto* pPressPWAmt    = apvts.getRawParameterValue("pressPWAmt");
+    auto* pSlideNoiseAmt = apvts.getRawParameterValue("slideNoiseAmt");
+    auto* pPressNoiseAmt = apvts.getRawParameterValue("pressNoiseAmt");
+    auto* pSlideMorphCrv = apvts.getRawParameterValue("slideMorphCurve");
+    auto* pPressMorphCrv = apvts.getRawParameterValue("pressMorphCurve");
+    auto* pSlidePWCrv    = apvts.getRawParameterValue("slidePWCurve");
+    auto* pPressPWCrv    = apvts.getRawParameterValue("pressPWCurve");
+    auto* pSlideNoiseCrv = apvts.getRawParameterValue("slideNoiseCurve");
+    auto* pPressNoiseCrv = apvts.getRawParameterValue("pressNoiseCurve");
+
+    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscWaveshape,
+                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideMorphAmt, pSlideMorphCrv);
+    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscWaveshape,
+                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressMorphAmt, pPressMorphCrv);
+    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscPulseWidth,
+                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlidePWAmt,    pSlidePWCrv);
+    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscPulseWidth,
+                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressPWAmt,    pPressPWCrv);
+    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscNoiseMix,
+                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideNoiseAmt, pSlideNoiseCrv);
+    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscNoiseMix,
+                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressNoiseAmt, pPressNoiseCrv);
+
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
     juce::UnitTestRunner runner;
@@ -480,6 +517,34 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"cc74ResAmt", 1}, "CC74 to Resonance",
         juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
 
+    // ── Oscillator-timbre route amounts (per-voice, opt-in) ────────────────────
+    // Slide (CC74) and Pressure → Morph / PW / Noise.  All default 0 (off).
+    //
+    // Range rationale (the mod is added to the base param inside SynthVoice):
+    //   Morph: mods[OscWaveshape] is scaled ×3, so amount 1.0 with full slide
+    //          sweeps the entire Sine→Saw span → range 0..1.
+    //   PW:    mods[OscPulseWidth] is added directly to a [0.5,0.999] param, so
+    //          amount 0.5 covers the full warp range → range 0..0.5.
+    //   Noise: mods[OscNoiseMix] is added directly to a [0,1] param → range 0..1.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"slideMorphAmt", 1}, "Slide to Morph",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pressMorphAmt", 1}, "Pressure to Morph",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"slidePWAmt", 1}, "Slide to PW",
+        juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pressPWAmt", 1}, "Pressure to PW",
+        juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"slideNoiseAmt", 1}, "Slide to Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pressNoiseAmt", 1}, "Pressure to Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+
     // ── Modulation route curve shapes ─────────────────────────────────────────
     // One integer-stepped parameter per route (0=lin, 1=exp, 2=S).
     // These match the ModRoute::CurveShape enum values and are read by
@@ -504,6 +569,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     makeCurveParam("exprResCurve",      "Expr to Reso Curve",         1.0f); // exp
     makeCurveParam("veloCutoffCurve",   "Velocity to Cutoff Curve",   0.0f); // lin
     makeCurveParam("cc74ResCurve",      "CC74 to Reso Curve",         0.0f); // lin
+    // Oscillator-timbre route curves (default linear).
+    makeCurveParam("slideMorphCurve",   "Slide to Morph Curve",       0.0f); // lin
+    makeCurveParam("pressMorphCurve",   "Pressure to Morph Curve",    0.0f); // lin
+    makeCurveParam("slidePWCurve",      "Slide to PW Curve",          0.0f); // lin
+    makeCurveParam("pressPWCurve",      "Pressure to PW Curve",       0.0f); // lin
+    makeCurveParam("slideNoiseCurve",   "Slide to Noise Curve",       0.0f); // lin
+    makeCurveParam("pressNoiseCurve",   "Pressure to Noise Curve",    0.0f); // lin
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its
