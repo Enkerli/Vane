@@ -115,7 +115,8 @@ body{
 .vis-read .chip{height:26px;font-size:11px;background:color-mix(in srgb,var(--vn-panel) 82%,transparent);backdrop-filter:blur(4px)}
 .vis-legend{position:absolute;top:10px;left:12px;display:flex;gap:12px;flex-wrap:wrap}
 .vis-legend span{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--vn-muted)}
-.vis-t{position:absolute;bottom:8px;left:12px;font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted)}
+.vis-t{position:absolute;bottom:8px;left:12px;font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted);
+  background:color-mix(in srgb,var(--vn-field) 78%,transparent);padding:2px 7px;border-radius:6px;backdrop-filter:blur(3px);pointer-events:none;z-index:2}
 .meters{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
 .meter-row{display:grid;grid-template-columns:104px 1fr auto;gap:10px;align-items:center}
 .meter-label{display:flex;align-items:center;gap:7px;font-weight:600;font-size:12px}
@@ -278,15 +279,17 @@ body{
   <!-- Header — preset name is the primary title (F2) -->
   <div class="header">
     <div class="brand"><span class="mark">Vane</span></div>
-    <div class="preset-nav">
+    <div class="preset-nav" style="position:relative">
       <button onclick="Preset.step(-1)" aria-label="Previous preset">‹</button>
-      <span class="name"><span class="unsaved" id="unsaved" title="Unsaved changes"></span><span id="presetName">Reedlike · Lyrical</span></span>
+      <span class="name" onclick="openPresetMenu(event)" style="cursor:pointer" title="Browse presets"><span class="unsaved" id="unsaved" title="Unsaved changes"></span><span id="presetName">Reedlike · Lyrical</span><span style="opacity:.45;font-size:11px;margin-left:3px">▾</span></span>
       <button onclick="Preset.step(1)" aria-label="Next preset">›</button>
+      <div class="menu" id="presetMenu" style="left:50%;transform:translateX(-50%);max-height:300px;overflow:auto;min-width:210px"></div>
     </div>
     <div class="spacer"></div>
-    <span class="chip"><span class="dot expr"></span>Sylphyo</span>
+    <span class="chip" id="ctrlChip" onclick="openCtrlMenu(event)" style="position:relative;cursor:pointer" title="Select controller"><span class="dot expr"></span><span id="ctrlName">Sylphyo</span><span style="opacity:.45;margin-left:3px">▾</span>
+      <div class="menu" id="ctrlMenu" style="left:0;right:auto"></div></span>
     <span class="chip ghost" id="tuningChip" onclick="toggleMts()" title="Toggle MTS-ESP connection">12-EDO · MTS-ESP</span>
-    <button class="icon-btn" id="monoBtn" onclick="toggleMono()" style="width:auto;padding:0 12px">Mono</button>
+    <button class="icon-btn" id="monoBtn" onclick="toggleMono()" style="width:auto;max-width:none;min-width:62px;padding:0 16px">Mono</button>
     <button class="icon-btn warn" title="Panic" onclick="Bridge.send('panic')">!</button>
     <button class="icon-btn" title="Toggle theme" onclick="toggleTheme()">◐</button>
   </div>
@@ -308,7 +311,7 @@ body{
           <div class="vis-legend" id="visLegend"></div>
           <svg id="visSvg" preserveAspectRatio="none" viewBox="0 0 600 200"></svg>
           <div class="vis-read">
-            <span class="chip num">♪ A3</span>
+            <span class="chip num" id="noteRead">♪ —</span>
             <span class="chip num" id="voiceRead">Saw · LP 1.1k</span>
           </div>
           <div class="vis-t num" id="visT">t = 0.000s · ch 1</div>
@@ -517,7 +520,10 @@ function pslider(key,label,color="--vn-breath"){
       <div class="thumb" style="border-color:var(${color})"></div>
     </div></div>`;
 }
+const patchUpd={};   // key → in-place updater, so param echoes don't rebuild the tab
 function renderPatch(){
+  for(const k in patchUpd) delete patchUpd[k];
+  const _sc=$('#tabbody').scrollTop;
   $('#tabbody').innerHTML=`<div class="params">
     <div class="group"><span class="eyebrow">Oscillator</span>
       ${pslider('Morph','Morph','--vn-slide')}${pslider('PW','Pulse Width','--vn-slide')}
@@ -545,12 +551,14 @@ function renderPatch(){
     <p class="fine-hint">Drag any slider to adjust · hold <kbd>Shift</kbd>/<kbd>Alt</kbd> or drag vertically for fine control · double-click the value to type · <kbd>↑</kbd><kbd>↓</kbd> to nudge · hover for ± steppers.</p>
   </div>`;
   document.querySelectorAll('.pslider[data-pk]').forEach(wirePatchSlider);
+  $('#tabbody').scrollTop=_sc;
 }
 function wirePatchSlider(el){
   const key=el.dataset.pk, [a,b,step]=RANGE[key];
   const fill=$('.fill',el), thumb=$('.thumb',el), val=$('.val',el), track=$('.track',el);
   const fmt=()=>{ const v=state.patch[key]; const n=clamp((v-a)/(b-a),0,1);
     fill.style.width=(n*100)+'%'; thumb.style.left=(n*100)+'%'; val.textContent=(FMT[key]||FMT.default)(v); };
+  patchUpd[key]=fmt;   // param echo updates this slider in place (no rebuild → drag survives)
   attachDrag(track,{get:()=>state.patch[key],set:v=>{state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty();},min:a,max:b,step:step,fineStep:step/5,onMove:fmt});
   el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ const d=+s.dataset.step*step; state.patch[key]=clamp(state.patch[key]+d,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]}); markDirty(); fmt(); });
   val.ondblclick=()=>typeEdit(key,val,a,b,fmt);
@@ -764,6 +772,21 @@ function applyIo(){ try{ const v=JSON.parse($('#ioTxt').value); if(Array.isArray
 let mono=true;
 function toggleMono(){ mono=!mono; $('#monoBtn').textContent=mono?'Mono':'Poly'; Bridge.send('setParam',{id:'monoMode',value:mono?1:0}); markDirty(); }
 function toggleTheme(){ const r=document.documentElement; r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'; }
+function closeMenus(){ document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open')); }
+// Quick preset picker from the header title (F2).
+function openPresetMenu(e){ if(e)e.stopPropagation(); const m=$('#presetMenu'); const willOpen=!m.classList.contains('open');
+  closeMenus(); if(!willOpen) return;
+  m.innerHTML = PRESETS.length
+    ? PRESETS.map((p,i)=>`<button onclick="event.stopPropagation();pickPreset(${i});closeMenus()">${i===selPreset?'● ':'&nbsp;&nbsp;&nbsp;'}${p.name}</button>`).join('')
+    : '<button disabled>No presets</button>';
+  m.classList.add('open'); }
+// Controller chip picker (display-only for now; no backend controller model yet).
+function openCtrlMenu(e){ if(e)e.stopPropagation(); const m=$('#ctrlMenu'); const willOpen=!m.classList.contains('open');
+  closeMenus(); if(!willOpen) return;
+  m.innerHTML=["Sylphyo","EWI","Exquis","Sensel Morph","LinnStrument","Generic MPE"]
+    .map(c=>`<button onclick="event.stopPropagation();setCtrl('${c}')">${c}</button>`).join('');
+  m.classList.add('open'); }
+function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; closeMenus(); }
 function toggleMts(){ state.mts=!state.mts; const c=$('#tuningChip');
   if(state.mts){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; Bridge.send('reconnectMts'); }
   else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } }
@@ -772,20 +795,26 @@ function toggleMts(){ state.mts=!state.mts; const c=$('#tuningChip');
 Bridge.on('meters',m=>{ Object.assign(state.meters,m); if(!state.sim) tickMeters(); });
 Bridge.on('paramChanged',({id,value})=>{
   if(id==='monoMode'){ mono=value>0.5; const b=$('#monoBtn'); if(b)b.textContent=mono?'Mono':'Poly'; return; }
-  if(id in state.patch){ state.patch[id]=value; if(tab==='patch')renderPatch(); } });
+  if(id in state.patch){ state.patch[id]=value;
+    if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
 Bridge.on('tuningStatus',({connected})=>{ state.mts=connected; const c=$('#tuningChip'); if(!c)return;
   if(connected){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; }
   else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } });
-Bridge.on('controllerLabel',({name})=>{ const c=document.querySelector('.header .chip:not(.ghost)');
-  if(c) c.innerHTML='<span class="dot expr"></span>'+(name||'Generic MPE'); });
+Bridge.on('controllerLabel',({name})=>{ const e=$('#ctrlName'); if(e)e.textContent=name||'Generic MPE'; });
+// Live played-note readout (♪) from the engine's last note.
+Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
   if(tab==='matrix')renderMatrix(); });
 // Real preset library from PresetManager.
 Bridge.on('presetList',({presets,selected})=>{ if(!Array.isArray(presets))return;
-  PRESETS = presets.map(p=>typeof p==='string'?{name:p,tags:[],ctrl:'',scale:'',fav:false}:p);
-  if(typeof selected==='number') selPreset=selected;
+  // Defensive defaults: real PresetManager rows omit tags/fav → renderPresets()
+  // calls p.tags.map(); without this the Presets tab throws and shows nothing.
+  PRESETS = presets.map(p=> typeof p==='string'
+      ? {name:p,tags:[],ctrl:'',scale:'',fav:false}
+      : {name:'',tags:[],ctrl:'',scale:'',fav:false,...p, tags:Array.isArray(p.tags)?p.tags:[]});
+  if(typeof selected==='number') selPreset=clamp(selected,0,Math.max(0,PRESETS.length-1));
   const nm=PRESETS[selPreset]; if(nm)$('#presetName').textContent=nm.name;
   if(tab==='presets')renderPresets(); });
 

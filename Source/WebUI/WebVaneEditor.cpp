@@ -171,6 +171,14 @@ void WebVaneEditor::navigateIfNeeded()
 }
 
 // ── Outbound: meters at 30 Hz ─────────────────────────────────────────────────
+static juce::String hzToNote (float hz)
+{
+    if (hz < 20.0f) return "—";
+    const int midi = static_cast<int> (std::lround (69.0 + 12.0 * std::log2 (hz / 440.0)));
+    static const char* names[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    return juce::String (names[((midi % 12) + 12) % 12]) + juce::String (midi / 12 - 1);
+}
+
 void WebVaneEditor::timerCallback()
 {
     if (! pageReady) return;
@@ -182,6 +190,13 @@ void WebVaneEditor::timerCallback()
         { "Pitchbend",  (proc.meterPitchbend.load() + 1.0f) * 0.5f },
         { "Velocity",   0.0f },
     }));
+
+    // ♪ note readout — emit only when it changes.
+    const auto note = hzToNote (proc.currentNoteHz());
+    if (note != lastNoteSent) {
+        lastNoteSent = note;
+        webView.emitEventIfBrowserIsVisible ("voice", makeObj ({ { "note", note } }));
+    }
 }
 
 // ── Outbound: param echo ──────────────────────────────────────────────────────

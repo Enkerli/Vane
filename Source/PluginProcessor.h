@@ -56,6 +56,9 @@ public:
     // All-notes-off / reset — called from the UI "panic" bridge event.
     void panic() { synth.turnOffAllVoices (false); }
 
+    // Hz of the most recently started note (for the UI ♪ note readout).
+    float currentNoteHz() const { return lastNoteHz.load(); }
+
 private:
     juce::MPESynthesiser synth;
 

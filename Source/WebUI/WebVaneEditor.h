@@ -52,6 +52,7 @@ private:
     VaneProcessor&             proc;
     juce::WebBrowserComponent  webView;
     juce::StringArray          listenedParams;
+    juce::String               lastNoteSent;   // dedupe the ♪ note readout
     std::atomic<bool>          pageReady   { false };
     bool                       pageNavigated { false };
 
