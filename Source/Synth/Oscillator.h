@@ -218,6 +218,11 @@ public:
     // Set the starting phase (0..1).  Called at note-on for legato handoff.
     void reset(float startPhase = 0.0f) { phase = startPhase; }
 
+    // Inharmonicity FM modulator phase — published/restored for legato handoff so
+    // the modulator stays continuous across a mono-legato voice change.
+    float getPmPhase() const { return pmPhase; }
+    void  setPmPhase(float p) { pmPhase = p; }
+
 private:
     // ── Table generation (Oscillator.cpp) ────────────────────────────────────
     static void initTables();

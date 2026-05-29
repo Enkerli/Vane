@@ -40,7 +40,7 @@ VaneProcessor::VaneProcessor()
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pMorphPos, pDetune, pPW, pCutoff, pRes, pFilterMode, pVeloMix,
                                       pGlide, &lastNoteHz, &lastVCALevel,
-                                      &legatoGeneration, &lastOscPhase, pMono,
+                                      &legatoGeneration, &lastOscPhase, &lastPmPhase, pMono,
                                       &lastFilterS1, &lastFilterS2, &lastCutoffHz,
                                       &meterPressure, &meterSlide, &meterPitchbend,
                                       pPBRangeLocal, pNonMPEPBRangeLocal,

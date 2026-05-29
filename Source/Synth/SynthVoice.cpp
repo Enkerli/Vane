@@ -9,6 +9,7 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    glide,     std::atomic<float>*    lastNoteHz,
                         std::atomic<float>*    lastVCALevel,
                         std::atomic<uint32_t>* legatoGen, std::atomic<float>*    lastOscPhase,
+                        std::atomic<float>*    lastPmPhase,
                         std::atomic<float>*    mono,
                         std::atomic<float>*    filterS1,  std::atomic<float>*    filterS2,
                         std::atomic<float>*    cutoffHz,
@@ -30,6 +31,7 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramGlide(glide), sharedLastNoteHz(lastNoteHz)
     , sharedLastVCALevel(lastVCALevel)
     , sharedLegatoGen(legatoGen), sharedOscPhase(lastOscPhase)
+    , sharedPmPhase(lastPmPhase)
     , paramMono(mono)
     , sharedFilterS1(filterS1), sharedFilterS2(filterS2), sharedCutoffHz(cutoffHz)
     , sharedMeterPressure(meterPressure)
@@ -341,6 +343,11 @@ void SynthVoice::noteStarted()
 
         if (sharedOscPhase)
             osc.reset(sharedOscPhase->load());
+
+        // Continue the inharmonicity FM modulator from the dying voice so its
+        // sidebands don't step at the boundary.
+        if (sharedPmPhase)
+            osc.setPmPhase(sharedPmPhase->load());
 
         if (sharedCutoffHz && sharedFilterS1 && sharedFilterS2) {
             float c = sharedCutoffHz->load();
@@ -694,6 +701,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // fine since state sync is only used when returning to mono.
     if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue() * tailLevel);
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
+    if (sharedPmPhase)      sharedPmPhase->store(osc.getPmPhase());
     if (sharedFilterS1 && sharedFilterS2) {
         float s1, s2;
         filter.getState(s1, s2);

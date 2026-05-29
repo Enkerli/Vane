@@ -77,6 +77,12 @@ private:
     // without a phase discontinuity (audible as a click at the note boundary).
     std::atomic<float> lastOscPhase { 0.0f };
 
+    // Phase of the inharmonicity FM modulator, published alongside lastOscPhase.
+    // Handed to new legato voices so the √2-ratio modulator stays continuous across
+    // the note boundary — without this it jumps, stepping the FM sidebands (a subtle
+    // discontinuity, masked by the inharmonic spectrum but real).
+    std::atomic<float> lastPmPhase { 0.0f };
+
     // Filter state for legato handoff.  Even with perfect oscillator phase sync,
     // switching to a new voice with different SVF integrator states (s1, s2) causes
     // a step-response transient (filter ringing) audible as a multi-sample click.
