@@ -25,6 +25,7 @@ struct PatchPanel::ContentComponent : public juce::Component
     juce::Slider   morphSlider;    // oscMorphPos: 0=Sine 1=Tri 2=Sqr 3=Saw
     juce::Slider   pwSlider;       // oscPW: 0.5 = identity, <0.5 narrow, >0.5 wide
     juce::Slider   foldSlider;     // oscFold: 0=transparent, 1=heavy fold
+    juce::Slider   inharmSlider;   // oscInharm: 0=harmonic, 1=metallic
     juce::Slider   noiseSlider;    // noiseBlend: 0=pure WT, 1=pure noise
     juce::ComboBox noiseTypeBox;   // White / Pink / Brown
     juce::Slider   detuneSlider;
@@ -40,7 +41,7 @@ struct PatchPanel::ContentComponent : public juce::Component
     // ── APVTS attachments ─────────────────────────────────────────────────────
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    std::unique_ptr<SA> cutoffAtt, resAtt, morphAtt, pwAtt, foldAtt, noiseAtt, detuneAtt,
+    std::unique_ptr<SA> cutoffAtt, resAtt, morphAtt, pwAtt, foldAtt, inharmAtt, noiseAtt, detuneAtt,
                         outputAtt, glideAtt, velMixAtt,
                         pbRangeAtt, nonMPEPBAtt,
                         breathCCAtt, exprCCAtt;
@@ -89,6 +90,7 @@ struct PatchPanel::ContentComponent : public juce::Component
         styleSlider(morphSlider,  oscCol); addAndMakeVisible(morphSlider);
         styleSlider(pwSlider,     oscCol); addAndMakeVisible(pwSlider);
         styleSlider(foldSlider,   oscCol); addAndMakeVisible(foldSlider);
+        styleSlider(inharmSlider, oscCol); addAndMakeVisible(inharmSlider);
         styleSlider(noiseSlider,  oscCol); addAndMakeVisible(noiseSlider);
         noiseTypeBox.addItem("White", 1);
         noiseTypeBox.addItem("Pink",  2);
@@ -98,6 +100,7 @@ struct PatchPanel::ContentComponent : public juce::Component
         morphAtt    = std::make_unique<SA>(apvts, "oscMorphPos", morphSlider);
         pwAtt       = std::make_unique<SA>(apvts, "oscPW",       pwSlider);
         foldAtt     = std::make_unique<SA>(apvts, "oscFold",     foldSlider);
+        inharmAtt   = std::make_unique<SA>(apvts, "oscInharm",   inharmSlider);
         noiseAtt    = std::make_unique<SA>(apvts, "noiseBlend",  noiseSlider);
         noiseTypeAtt= std::make_unique<CA>(apvts, "noiseType",   noiseTypeBox);
         detuneAtt   = std::make_unique<SA>(apvts, "oscDetune",   detuneSlider);
@@ -188,6 +191,7 @@ struct PatchPanel::ContentComponent : public juce::Component
         addSlider("Morph",     morphSlider);
         addSlider("PW",        pwSlider);
         addSlider("Fold",      foldSlider);
+        addSlider("Inharm",    inharmSlider);
         addSlider("Noise",     noiseSlider);
         addCombo ("Noise Type",noiseTypeBox);
         addSlider("Detune",    detuneSlider);

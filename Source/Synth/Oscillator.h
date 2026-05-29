@@ -89,25 +89,32 @@ public:
         return out;
     }
 
-    // Continuous-morph wavetable read with optional phase-distortion pulse width.
+    // Continuous-morph wavetable read with optional phase-distortion pulse width
+    // and FM-approximation inharmonicity.
     //
     // morphPos — 0.0..3.0, crossfades through the waveform sequence:
     //   0 = Sine   1 = Triangle   2 = Square   3 = Sawtooth
     // pw — 0.0..1.0, phase distortion duty cycle; 0.5 = identity (no warp).
     //   < 0.5: narrow pulse / faster first-half traversal of the table.
     //   > 0.5: wide pulse  / slower first-half traversal.
+    // inharm — 0.0..1.0, inharmonicity (FM index).  0 = harmonic (no modulation).
+    //   The table read position is phase-modulated by a sine running at a NON-
+    //   integer ratio (kInharmRatio = √2) to the carrier, so the sidebands fall
+    //   at f0·(1 ± k·√2) — inharmonic, giving bell/metallic timbres that still
+    //   track pitch.  inharm scales the modulation depth (index) 0 → kInharmMaxDepth.
     //
     // Implementation:
     //   1. PD warp: piecewise-linear remap of phase → warpedPhase.
-    //   2. Mip select: cachedMipLevel from the last setFrequency() call.
-    //   3. Crossfade: lerp between the two adjacent mip-level tables.
+    //   2. PM: add inharm-scaled sine modulator to the read position.
+    //   3. Mip select: cachedMipLevel from the last setFrequency() call.
+    //   4. Crossfade: lerp between the two adjacent mip-level tables.
     //
-    // Note on aliasing: the PD warp changes the instantaneous traversal speed
-    // at the boundary (phase == pw), which in theory could alias at extreme PW
-    // values.  In practice the mip tables already band-limit each waveform, so
-    // the artefact is very mild; a future improvement would be to also mip-select
-    // based on the effective local frequency (1/(2·pw·f) and 1/(2·(1-pw)·f)).
-    float nextMorphed(float morphPos, float pw) {
+    // Note on aliasing: both the PD warp and the FM widen the spectrum beyond the
+    // band-limited table, so extreme PW or high inharm can alias above Nyquist.
+    // The mip tables limit the carrier and the downstream filter tames the rest;
+    // a future improvement would be to drop the carrier a mip level when inharm is
+    // high, and/or oversample (same trade-off noted for the wavefolder).
+    float nextMorphed(float morphPos, float pw, float inharm) {
         // ── PD warp ────────────────────────────────────────────────────────────
         // Clamp pw so neither branch divides by zero.
         pw = (pw < 0.001f) ? 0.001f : (pw > 0.999f ? 0.999f : pw);
@@ -116,6 +123,18 @@ public:
             wp = phase * (0.5f / pw);
         else
             wp = 0.5f + (phase - pw) * (0.5f / (1.0f - pw));
+
+        // ── Inharmonicity (phase modulation) ────────────────────────────────────
+        // Modulate the read position by a √2-ratio sine.  The modulator phase
+        // always advances (cheap) so it stays coherent; the std::sin and the
+        // position shift are gated behind a non-zero index.
+        if (inharm > 1.0e-4f) {
+            const float m = std::sin(juce::MathConstants<float>::twoPi * pmPhase);
+            wp += inharm * kInharmMaxDepth * m;
+            wp -= std::floor(wp);                 // wrap to [0,1)
+        }
+        pmPhase += kInharmRatio * phaseInc;
+        if (pmPhase >= 1.0f) pmPhase -= std::floor(pmPhase);
 
         // ── Morph blend ────────────────────────────────────────────────────────
         // Waveform order:   Sine(0) → Triangle(1) → Square(2) → Sawtooth(3)
@@ -213,11 +232,22 @@ private:
     // Zero-initialised; filled by initTables() on first prepare().
     inline static float s_tables[kNumWaveforms][kNumMipLevels][kTableSize + 1] {};
 
+    // ── Inharmonicity (FM) constants ──────────────────────────────────────────
+    // kInharmRatio — modulator : carrier frequency ratio.  √2 is irrational, so
+    //   the FM sidebands never line up with the harmonic series → maximally
+    //   inharmonic (bell/metallic).  A future param could expose this for
+    //   variety (small-integer ratios give more "harmonic" FM).
+    // kInharmMaxDepth — read-position shift (in cycles) at inharm = 1.0.  0.5 of a
+    //   cycle ≈ index π — a strong but musical maximum.
+    static constexpr float kInharmRatio    = 1.41421356f;
+    static constexpr float kInharmMaxDepth = 0.5f;
+
     // ── Per-instance state ────────────────────────────────────────────────────
     Waveform waveform       = Waveform::Saw;
     float    sr             = 44100.0f;
     float    phase          = 0.0f;
     float    phaseInc       = 0.0f;
+    float    pmPhase        = 0.0f;   // inharmonicity modulator phase (free-running)
     int      cachedMipLevel = 0;
     uint64_t noiseState     = 12345u;
 };

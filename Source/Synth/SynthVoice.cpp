@@ -21,7 +21,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    glideCurve,
                         std::atomic<float>*    noiseBlend,
                         std::atomic<float>*    noiseType,
-                        std::atomic<float>*    fold)
+                        std::atomic<float>*    fold,
+                        std::atomic<float>*    inharm)
     : modMatrix(matrix), tuning(t)
     , paramMorphPos(morphPos), paramPW(pw), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -40,7 +41,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramGlideCurve(glideCurve)
     , paramNoiseBlend(noiseBlend)
     , paramNoiseType(noiseType)
-    , paramFold(fold) {}
+    , paramFold(fold)
+    , paramInharm(inharm) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -98,6 +100,10 @@ void SynthVoice::prepare(double sr, int blockSize)
     // Holds drive (1 = transparent), not the 0..1 amount.
     smoothedFoldDrive.reset(sr, 0.003);
     smoothedFoldDrive.setCurrentAndTargetValue(1.0f);
+
+    // Inharmonicity smoother: 3 ms ramp prevents zipper on FM-index changes.
+    smoothedInharm.reset(sr, 0.003);
+    smoothedInharm.setCurrentAndTargetValue(0.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -505,6 +511,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float activeFold = std::clamp(foldBase + mods[ModDestID::OscFold], 0.0f, 1.0f);
     smoothedFoldDrive.setTargetValue(Oscillator::foldDrive(activeFold));
 
+    // Inharmonicity: base param + per-voice OscInharm mod, clamped 0..1.
+    float inharmBase   = paramInharm ? paramInharm->load() : 0.0f;
+    float activeInharm = std::clamp(inharmBase + mods[ModDestID::OscInharm], 0.0f, 1.0f);
+    smoothedInharm.setTargetValue(activeInharm);
+
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
     // step changes at block boundaries that cause crunchiness during breath sweeps.
@@ -564,8 +575,9 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         }
         float gain = smoothedVCA.getNextValue();
 
-        // Oscillator output (morphed wavetable + PD warp).
-        float wave = osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue());
+        // Oscillator output (morphed wavetable + PD warp + FM inharmonicity).
+        float wave = osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue(),
+                                     smoothedInharm.getNextValue());
 
         // Noise blend: mix noise pre-filter so both wave and noise share the same
         // tonal character from the SVF.  Generation is skipped when blend is off

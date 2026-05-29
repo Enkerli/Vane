@@ -52,7 +52,9 @@ public:
                // Noise type: 0 = White, 1 = Pink (~1/f), 2 = Brown (~1/f²).
                std::atomic<float>*    noiseType        = nullptr,
                // Wavefold depth: 0 = transparent, 1 = heavy (pre-filter).
-               std::atomic<float>*    fold             = nullptr);
+               std::atomic<float>*    fold             = nullptr,
+               // Inharmonicity (FM index): 0 = harmonic, 1 = strong/metallic.
+               std::atomic<float>*    inharm           = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -104,6 +106,8 @@ private:
     std::atomic<float>*    paramNoiseType     = nullptr;
     // Wavefold depth — read block-rate in renderNextBlock.
     std::atomic<float>*    paramFold          = nullptr;
+    // Inharmonicity (FM index) — read block-rate in renderNextBlock.
+    std::atomic<float>*    paramInharm        = nullptr;
 
     // ── Glide curve state ─────────────────────────────────────────────────────
     //
@@ -181,6 +185,11 @@ private:
     // smoothers.  Not reset at note-on: it continues from the voice's previous
     // value, ramping to the new target.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedFoldDrive;
+
+    // Per-sample inharmonicity (FM index) interpolation — prevents zipper when the
+    // index changes block-rate (UI drag or a slewed Slide/Pressure → Inharm route).
+    // 3 ms ramp matches the other smoothers; Linear (it's an index, not a freq).
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedInharm;
 
     // ── Per-voice noise generation state ────────────────────────────────────────
     // All three generators run independently per voice so simultaneous MPE notes

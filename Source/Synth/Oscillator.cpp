@@ -12,6 +12,7 @@
 void Oscillator::prepare(double sampleRate) {
     sr         = static_cast<float>(sampleRate);
     phase      = 0.0f;
+    pmPhase    = 0.0f;
     noiseState = 12345u;
 
     static std::once_flag flag;

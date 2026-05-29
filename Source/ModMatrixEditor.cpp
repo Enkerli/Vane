@@ -144,7 +144,7 @@ void ModMatrixEditor::buildRoutes()
     using D = ModDestID;
     using C = ModRoute::CurveShape;
 
-    // Mirrors the 19 default routes added in VaneProcessor::VaneProcessor().
+    // Mirrors the 21 default routes added in VaneProcessor::VaneProcessor().
     // Index in this table == route index in the ModMatrix (determines which
     // per-voice slewer slot is used).  Keep in sync with PluginProcessor.cpp.
     struct Spec {
@@ -181,6 +181,8 @@ void ModMatrixEditor::buildRoutes()
         { M::MacroPressure, D::OscNoiseMix,  "Pressure","Noise",  "pressNoiseAmt",   "pressNoiseCurve",  C::Linear,      2,  30 },
         { M::MacroSlide,    D::OscFold,      "Slide",   "Fold",   "slideFoldAmt",    "slideFoldCurve",   C::Linear,      2,  20 },
         { M::MacroPressure, D::OscFold,      "Pressure","Fold",   "pressFoldAmt",    "pressFoldCurve",   C::Linear,      2,  30 },
+        { M::MacroSlide,    D::OscInharm,    "Slide",   "Inharm", "slideInharmAmt",  "slideInharmCurve", C::Linear,      2,  20 },
+        { M::MacroPressure, D::OscInharm,    "Pressure","Inharm", "pressInharmAmt",  "pressInharmCurve", C::Linear,      2,  30 },
     };
 
     routeDescs.reserve(std::size(specs));

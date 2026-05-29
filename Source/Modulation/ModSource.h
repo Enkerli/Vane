@@ -63,6 +63,10 @@ struct ModDestID {
     //   activeFold = clamp(oscFold + mods[OscFold], 0, 1)
     //   Drives the pre-filter wavefolder; 0 = transparent, 1 = heavy folding.
     static constexpr int OscFold       = 8;   // wavefold depth
+    // OscInharm: additive offset to inharmonicity (0..1).
+    //   activeInharm = clamp(oscInharm + mods[OscInharm], 0, 1)
+    //   Drives the FM-approximation inharmonicity (FM index); 0 = harmonic.
+    static constexpr int OscInharm     = 9;   // inharmonicity / FM index
 
-    static constexpr int NumDests = 9;
+    static constexpr int NumDests = 10;
 };
