@@ -94,9 +94,10 @@ void SynthVoice::prepare(double sr, int blockSize)
     smoothedPW.reset(sr, 0.003);
     smoothedPW.setCurrentAndTargetValue(0.5f);
 
-    // Fold smoother: 3 ms ramp prevents zipper on fold-depth changes.
-    smoothedFold.reset(sr, 0.003);
-    smoothedFold.setCurrentAndTargetValue(0.0f);
+    // Fold-drive smoother: 3 ms ramp prevents zipper on fold-depth changes.
+    // Holds drive (1 = transparent), not the 0..1 amount.
+    smoothedFoldDrive.reset(sr, 0.003);
+    smoothedFoldDrive.setCurrentAndTargetValue(1.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -498,10 +499,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                        ? static_cast<int>(std::round(paramNoiseType->load())) : 0;
 
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
-    // Fed to the per-sample smoother so UI/mod changes don't zipper.
+    // Map the 0..1 amount to an exponential drive ONCE per block (std::pow is too
+    // costly per sample), then ramp the drive per sample to avoid zipper.
     float foldBase   = paramFold ? paramFold->load() : 0.0f;
     float activeFold = std::clamp(foldBase + mods[ModDestID::OscFold], 0.0f, 1.0f);
-    smoothedFold.setTargetValue(activeFold);
+    smoothedFoldDrive.setTargetValue(Oscillator::foldDrive(activeFold));
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
@@ -612,9 +614,9 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         }
 
         // Wavefold (pre-filter): reshapes the osc+noise signal, multiplying
-        // harmonics.  Transparent at depth 0; the filter tames fold-induced
-        // brightness.  wavefold() early-outs when depth is negligible.
-        float folded = Oscillator::wavefold(rawSample, smoothedFold.getNextValue());
+        // harmonics.  Transparent at drive 1; the filter tames fold-induced
+        // brightness.  wavefold() early-outs when drive is negligible.
+        float folded = Oscillator::wavefold(rawSample, smoothedFoldDrive.getNextValue());
 
         float sample = filter.process(folded, filterMode) * gain * tailLevel;
         left[i] += sample;

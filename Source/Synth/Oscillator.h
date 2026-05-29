@@ -153,26 +153,42 @@ public:
     // Reflective triangle fold applied to an arbitrary input sample (not just this
     // oscillator's output — SynthVoice folds the post-noise-blend signal pre-filter).
     //
-    // amount — 0..1.  0 = transparent (returns x unchanged).  As amount rises the
-    //   input is scaled by an increasing drive and the result reflects back inside
-    //   [-1, 1] every time it would exceed the rails, multiplying harmonic content
-    //   ("West-Coast"/Serge-style timbre).  Output is always bounded to [-1, 1].
+    // drive — multiplies the input before folding.  drive ≤ 1 is transparent
+    //   (returns x unchanged, since the input is bounded to [-1,1]); higher drive
+    //   reflects the signal back inside [-1, 1] every time it would exceed the
+    //   rails, multiplying harmonic content ("West-Coast"/Serge-style timbre).
+    //   Output is always bounded to [-1, 1].  Callers map a 0..1 "amount" knob to
+    //   drive via foldDrive() — see below.
     //
     // Closed-form triangle (no audio-thread loops): for the scaled input s,
     //   y = ((s − 1) mod 4) ∈ [0,4) ;  fold = |y − 2| − 1
     // which is exactly the reflective fold and is the identity on [-1, 1] at
-    // drive = 1, so the control is continuous as amount leaves 0.
+    // drive = 1, so the control is continuous as drive leaves 1.
     //
     // Aliasing note: the fold corners are non-differentiable, so high drive can
     // alias.  The downstream filter tames most of it; a future improvement would
     // be to 2× oversample just this stage (mirroring the cubic-interp TODO above).
-    static float wavefold(float x, float amount) {
-        if (amount <= 1.0e-4f) return x;              // transparent when off
-        constexpr float kFoldDrive = 5.0f;            // drive spans 1..6
-        const float s = x * (1.0f + amount * kFoldDrive);
+    static float wavefold(float x, float drive) {
+        if (drive <= 1.0001f) return x;               // transparent (no fold)
+        const float s = x * drive;
         float y = std::fmod(s - 1.0f, 4.0f);
-        if (y < 0.0f) y += 4.0f;                      // wrap into [0,4)
+        if (y < 0.0f) y += 4.0f;                       // wrap into [0,4)
         return std::fabs(y - 2.0f) - 1.0f;
+    }
+
+    // Maps a 0..1 fold amount to the wavefolder drive.  EXPONENTIAL by design:
+    // the perceived fold brightness grows ≈ logarithmically with drive (each unit
+    // of drive adds a roughly fixed number of fold-overs, but the ear hears
+    // harmonic richness on a log scale).  An exponential amount→drive map cancels
+    // that, so brightness grows ~linearly with the amount knob — the audible
+    // change is spread evenly across the control instead of bunching near the
+    // bottom (the symptom of a linear drive, worst on near-sinusoidal inputs
+    // whose peaks cross the first fold threshold abruptly).
+    //   amount 0 → drive 1 (transparent) ; amount 1 → drive kFoldDriveMax.
+    // Called once per block (not per sample) — std::pow is too costly per sample.
+    static float foldDrive(float amount) {
+        constexpr float kFoldDriveMax = 8.0f;
+        return std::pow(kFoldDriveMax, amount);
     }
 
     // Returns the phase that will be used on the NEXT call to next() (i.e. the

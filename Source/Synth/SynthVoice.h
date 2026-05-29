@@ -172,13 +172,15 @@ private:
     // across note boundaries (matching the behaviour of smoothedCutoff / filter state).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedPW;
 
-    // Per-sample wavefold-depth interpolation — prevents zipper when the fold
-    // amount changes block-rate (UI drag or a slewed Slide/Pressure → Fold route).
-    // Folding sharply reshapes the waveform, so a coefficient step at the block
-    // boundary would be audible; the 3 ms ramp matches the other smoothers.
-    // Linear is correct (depth, not frequency).  Not reset at note-on: it simply
-    // continues from the voice's previous value, ramping to the new target.
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedFold;
+    // Per-sample wavefold-DRIVE interpolation — prevents zipper when the fold
+    // depth changes block-rate (UI drag or a slewed Slide/Pressure → Fold route).
+    // Holds the exponential drive (1..8 from Oscillator::foldDrive), not the raw
+    // 0..1 amount: the std::pow mapping is done once per block, then the resulting
+    // drive is ramped per sample.  Folding sharply reshapes the waveform, so a
+    // step at the block boundary would be audible; the 3 ms ramp matches the other
+    // smoothers.  Not reset at note-on: it continues from the voice's previous
+    // value, ramping to the new target.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedFoldDrive;
 
     // ── Per-voice noise generation state ────────────────────────────────────────
     // All three generators run independently per voice so simultaneous MPE notes

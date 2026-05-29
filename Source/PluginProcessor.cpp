@@ -427,12 +427,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"noiseType", 1}, "Noise Type",
         juce::StringArray{"White", "Pink", "Brown"}, 0));
 
-    // Wavefold depth: 0 = transparent, 1 = heavy folding (pre-filter, drive 1..6).
+    // Wavefold depth: 0 = transparent, 1 = heavy folding (pre-filter).
     // Reflective triangle fold — multiplies harmonic content for West-Coast timbres.
+    // LINEAR range: the perceptual curve lives in Oscillator::foldDrive() (an
+    // exponential amount→drive map), so the knob position already tracks perceived
+    // brightness evenly — a param skew here would double-curve it.
     // Modulated by OscFold destination (direct additive offset, clamped 0..1).
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscFold", 1}, "Wavefold",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
     //
