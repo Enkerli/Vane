@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vane — App Prototype</title>
+<!--
+  Vane whole-app UI prototype (per Vane Design/vane_ui_overhaul_spec.md).
+  Self-contained: open in a browser. A mock bridge (see <script> at bottom)
+  simulates the JUCE param/meter streams so the UI is live and testable with
+  NO plugin build — this is the spec §9 validation harness.
+
+  To wire to the real plugin, replace MockBridge with the JUCE
+  WebBrowserComponent native-integration bridge (emit/withEventListener),
+  keeping the same event names (paramChanged / meters / slotEdit / setParam …).
+
+  Reflects the shipped backend: 24 generic slots, sources
+  {Off,Breath,Expression,Pressure,Slide,Pitchbend,Velocity}, dests
+  {VCA,Cutoff,Reso,Pitch,Morph,PW,Fold,Noise,Inharm}, curves {Lin,Exp,S}.
+-->
+<style>
+:root{
+  --bg:#f5f2eb; --panel:#fcfbf7; --panel2:#f3eee3; --field:#efebe2;
+  --line:#ddd6ca; --line-soft:#eae3d4; --text:#2d2b27; --text2:#4b463e;
+  --muted:#8b8678; --muted2:#b6b0a1;
+  --breath:#4b86c7; --expr:#2d9d8a; --pressure:#d28330; --slide:#a35bbf;
+  --bend:#c39529; --vel:#7a4cff;
+  --ui:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SF Mono,monospace;
+  --r:10px; --r-sm:7px;
+}
+[data-theme="dark"]{
+  --bg:#1a1814; --panel:#221f1a; --panel2:#1d1b16; --field:#14130f;
+  --line:#38332b; --line-soft:#2b2620; --text:#e8e1d2; --text2:#cfc7b5;
+  --muted:#897f6c; --muted2:#5e564a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:var(--ui); background:var(--bg); color:var(--text);
+  font-size:13px; -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.breath{background:var(--breath)} .dot.expr{background:var(--expr)}
+.dot.pressure{background:var(--pressure)} .dot.slide{background:var(--slide)}
+.dot.bend{background:var(--bend)} .dot.vel{background:var(--vel)}
+
+/* ── App shell ─────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100%;padding:10px;gap:10px}
+.header{display:flex;align-items:center;gap:10px;flex:none}
+.brand{display:flex;flex-direction:column;line-height:1.05}
+.brand .h1{font-size:16px;font-weight:700;letter-spacing:-.01em}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);
+  border-radius:999px;background:var(--panel);font-size:11px;font-weight:600;color:var(--text2);white-space:nowrap}
+.chip .dot{width:7px;height:7px}
+.chip.ghost{background:transparent;color:var(--muted)}
+.icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--panel);
+  color:var(--text2);font-size:14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.icon-btn:hover{border-color:var(--muted2)}
+.icon-btn.warn{color:var(--pressure)}
+
+/* preset nav cluster */
+.preset-nav{display:flex;align-items:center;gap:4px;background:var(--panel);border:1px solid var(--line);
+  border-radius:999px;padding:3px 4px}
+.preset-nav button{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;
+  width:24px;height:24px;border-radius:50%}
+.preset-nav button:hover{background:var(--panel2);color:var(--text)}
+.preset-nav .name{font-weight:600;font-size:12px;min-width:130px;text-align:center;padding:0 6px}
+
+/* ── Main grid ─────────────────────────────────────────────── */
+.main{display:grid;grid-template-columns:1.5fr 1fr;gap:10px;flex:1;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-height:0}
+.panel.pad{padding:12px}
+.col{display:flex;flex-direction:column;gap:10px;min-height:0}
+
+/* ── Stage: visualiser + meters ────────────────────────────── */
+.stage{display:flex;flex-direction:column;gap:10px;min-height:0}
+.vis{position:relative;flex:1;min-height:120px;background:var(--field);border-radius:var(--r-sm);overflow:hidden}
+.vis svg{position:absolute;inset:0;width:100%;height:100%}
+.vis-legend{position:absolute;top:8px;left:10px;display:flex;gap:10px;flex-wrap:wrap}
+.vis-legend span{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--muted)}
+.meters{display:flex;flex-direction:column;gap:9px}
+.meter-row{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center}
+.meter-label{display:flex;align-items:center;gap:7px;font-weight:600;font-size:12px}
+.meter{height:7px;border-radius:999px;background:var(--field);overflow:hidden}
+.meter .fill{height:100%;border-radius:999px;transition:width .04s linear}
+.meter-cc{font-size:10px;color:var(--muted)}
+
+/* ── Inspector tabs ────────────────────────────────────────── */
+.inspector{display:flex;flex-direction:column;gap:10px;min-height:0}
+.tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px;flex:none}
+.tabs button{flex:1;border:none;background:transparent;color:var(--muted);font-weight:600;font-size:12px;
+  padding:7px 10px;border-radius:999px;cursor:pointer}
+.tabs button.active{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.tabbody{flex:1;min-height:0;overflow:auto}
+
+/* ── Param sliders (Patch) ─────────────────────────────────── */
+.params{display:flex;flex-direction:column;gap:14px;padding:2px}
+.group .eyebrow{margin-bottom:8px}
+.pslider{margin-bottom:11px}
+.pslider .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.pslider .lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)}
+.pslider .val{font-size:12px;color:var(--text);cursor:text;padding:1px 5px;border-radius:5px}
+.pslider .val:hover{background:var(--panel2)}
+.track{height:8px;border-radius:999px;background:var(--field);position:relative;cursor:pointer}
+.track .fill{position:absolute;top:0;bottom:0;left:0;border-radius:999px}
+.track .thumb{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--panel);
+  border:2px solid var(--breath);transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.seg{display:inline-flex;background:var(--field);border-radius:7px;padding:3px;gap:2px}
+.seg button{border:none;background:transparent;color:var(--muted);font-size:11px;font-weight:600;padding:4px 9px;border-radius:5px;cursor:pointer}
+.seg button.active{background:var(--panel);color:var(--text)}
+.field-num{font-family:var(--mono);font-size:12px;width:70px;border:1px solid var(--breath);border-radius:5px;
+  padding:1px 5px;background:var(--panel);color:var(--text)}
+
+/* ── Mod matrix (free routing, 24 slots) ───────────────────── */
+.mm-toolbar{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--text2);font-weight:600;font-size:12px;
+  padding:6px 12px;border-radius:999px;cursor:pointer}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn:hover{border-color:var(--muted2)}
+.slots{display:flex;flex-direction:column;gap:6px}
+.slot{display:grid;grid-template-columns:auto 118px 16px 100px 1fr 92px 22px;gap:8px;align-items:center;
+  background:var(--panel2);border:1px solid var(--line-soft);border-radius:9px;padding:8px 10px}
+.slot select{appearance:none;border:1px solid var(--line);background:var(--field);color:var(--text);
+  font-family:var(--ui);font-size:12px;font-weight:600;border-radius:6px;padding:5px 7px;cursor:pointer;width:100%}
+.slot .arrow{color:var(--muted);text-align:center}
+.slot .amt{display:flex;flex-direction:column;gap:3px}
+.slot .amt .head{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+.slot .amt .head .v{color:var(--text);font-weight:700;cursor:text;padding:0 3px;border-radius:4px}
+.slot .amt .head .v:hover{background:var(--field)}
+.bipolar{height:7px;border-radius:999px;background:var(--field);position:relative;cursor:pointer}
+.bipolar .center{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted2)}
+.bipolar .fill{position:absolute;top:0;bottom:0;border-radius:999px}
+.srcdot{justify-self:center}
+.del{border:none;background:transparent;color:var(--muted2);cursor:pointer;font-size:15px}
+.del:hover{color:var(--pressure)}
+.slot.off{opacity:.5}
+.empty-add{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--muted2);
+  border-radius:9px;padding:14px;color:var(--muted);background:transparent;cursor:pointer;font-weight:600}
+.hint{font-size:10.5px;color:var(--muted);margin-top:8px}
+
+/* ── Presets ───────────────────────────────────────────────── */
+.preset-grid{display:grid;grid-template-columns:190px 1fr;gap:10px;height:100%;min-height:0}
+.preset-side{display:flex;flex-direction:column;gap:14px;overflow:auto;padding-right:2px}
+.filter-group .eyebrow{margin-bottom:5px}
+.filter{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12px}
+.filter:hover{background:var(--panel2)}
+.filter.on{background:var(--field);font-weight:600}
+.filter .c{color:var(--muted);font-size:11px}
+.preset-list{overflow:auto;display:flex;flex-direction:column;gap:6px}
+.preset-item{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 12px;
+  border:1px solid var(--line-soft);border-radius:9px;background:var(--panel2);cursor:pointer}
+.preset-item:hover{border-color:var(--muted2)}
+.preset-item.sel{border-color:var(--breath);background:var(--panel)}
+.preset-item .nm{font-weight:600}
+.preset-item .tags{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap}
+.tag{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:999px;color:#fff;opacity:.9}
+.fav{font-size:14px;color:var(--bend)}
+.search{border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--text);
+  padding:6px 12px;font-size:12px;width:170px;font-family:var(--ui)}
+
+@media (max-width:760px){
+  .main{grid-template-columns:1fr;overflow:auto}
+  .preset-grid{grid-template-columns:1fr}
+  .slot{grid-template-columns:auto 1fr 16px 1fr;grid-row-gap:8px}
+  .slot .amt,.slot .seg,.slot .del{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Header -->
+  <div class="header">
+    <div class="brand"><span class="eyebrow">Vane · Performance</span><span class="h1">Breath Stage</span></div>
+    <div class="preset-nav">
+      <button onclick="Preset.step(-1)">‹</button>
+      <span class="name" id="presetName">Reedlike · Lyrical</span>
+      <button onclick="Preset.step(1)">›</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip"><span class="dot expr"></span>Sylphyo</span>
+    <span class="chip ghost" id="tuningChip">12-EDO · MTS-ESP</span>
+    <button class="icon-btn" id="monoBtn" onclick="toggleMono()">Mono</button>
+    <button class="icon-btn warn" title="Panic" onclick="Bridge.send('panic')">!</button>
+    <button class="icon-btn" title="Theme" onclick="toggleTheme()">◐</button>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Stage -->
+    <div class="stage">
+      <div class="panel pad" style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:0">
+        <span class="eyebrow">Stage · live</span>
+        <div class="vis">
+          <div class="vis-legend" id="visLegend"></div>
+          <svg id="visSvg" preserveAspectRatio="none" viewBox="0 0 600 200"></svg>
+        </div>
+        <div class="meters" id="meters"></div>
+      </div>
+    </div>
+
+    <!-- Inspector -->
+    <div class="inspector">
+      <div class="tabs">
+        <button class="active" data-tab="patch" onclick="setTab('patch')">Patch</button>
+        <button data-tab="matrix" onclick="setTab('matrix')">Matrix</button>
+        <button data-tab="presets" onclick="setTab('presets')">Presets</button>
+      </div>
+      <div class="panel pad tabbody" id="tabbody"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Model: sources / dests / curves (mirrors ModSlots in the C++ backend) ──────
+const SOURCES = ["Off","Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
+const SRC_DOT = {Breath:"breath",Expression:"expr",Pressure:"pressure",Slide:"slide",Pitchbend:"bend",Velocity:"vel"};
+const SRC_CC  = {Breath:"CC2",Expression:"CC11",Pressure:"MPE Z",Slide:"CC74",Pitchbend:"PB",Velocity:"vel"};
+const SRC_COLOR={Breath:"--breath",Expression:"--expr",Pressure:"--pressure",Slide:"--slide",Pitchbend:"--bend",Velocity:"--vel"};
+const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm"];
+const CURVES  = ["Lin","Exp","S"];
+const NUM_SLOTS = 24;
+
+// ── Mock bridge (swap for JUCE WebBrowserComponent integration) ────────────────
+const Bridge = {
+  send(id, payload){ /* JS → C++: window.__JUCE__?.backend.emitEvent(id,payload) */ },
+  on(id, fn){ (this._h[id] ||= []).push(fn); },
+  _h:{}, _emit(id,p){ (this._h[id]||[]).forEach(f=>f(p)); }
+};
+
+// ── State (seeded; the real bridge sends paramChanged/preset/meters) ───────────
+const state = {
+  meters:{Breath:0,Expression:0,Pressure:0,Slide:0,Pitchbend:0.5,Velocity:0},
+  patch:{ Morph:0.0, PW:0.5, Fold:0.0, Inharm:0.0, Noise:0.0, NoiseType:0, Detune:0,
+          Cutoff:1128, Reso:0.0, Mode:0, Output:0.8, VelVCA:0.0,
+          Glide:0, GlideMode:0, GlideCurve:0, MasterTune:0 },
+  // 24 slots; seed a few to show the factory-ish routing.
+  slots: Array.from({length:NUM_SLOTS},(_,i)=>({src:0,dst:0,amt:0,curve:0})),
+};
+[["Breath","VCA",1.0,0],["Expression","VCA",1.0,0],["Pressure","VCA",0.5,0],
+ ["Slide","Cutoff",0.9,0],["Breath","Cutoff",0.25,1],["Pressure","Cutoff",0.2,1],
+ ["Slide","Fold",1.0,0],["Breath","Inharm",0.30,0]
+].forEach((r,i)=>{ state.slots[i]={src:SOURCES.indexOf(r[0]),dst:DESTS.indexOf(r[1]),amt:r[2],curve:r[3]}; });
+
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+
+// ── Meters + visualiser ────────────────────────────────────────────────────────
+function buildMeters(){
+  const el=document.getElementById('meters'); el.innerHTML='';
+  const leg=document.getElementById('visLegend'); leg.innerHTML='';
+  ["Breath","Expression","Pressure","Slide","Pitchbend","Velocity"].forEach(s=>{
+    el.insertAdjacentHTML('beforeend',
+      `<div class="meter-row"><span class="meter-label"><span class="dot ${SRC_DOT[s]}"></span>${s}</span>
+       <div class="meter"><div class="fill" id="m_${s}" style="background:var(${SRC_COLOR[s]})"></div></div>
+       <span class="meter-cc num">${SRC_CC[s]}</span></div>`);
+    leg.insertAdjacentHTML('beforeend',`<span><span class="dot ${SRC_DOT[s]}"></span>${s}</span>`);
+  });
+}
+const hist={}; ["Breath","Expression","Pressure","Slide","Pitchbend","Velocity"].forEach(s=>hist[s]=new Array(80).fill(0));
+function tickMeters(){
+  for(const s in state.meters){
+    const v=clamp(state.meters[s],0,1);
+    const m=document.getElementById('m_'+s); if(m) m.style.width=(v*100)+'%';
+    hist[s].push(v); hist[s].shift();
+  }
+  const svg=document.getElementById('visSvg'); let p='';
+  for(const s of ["Slide","Pressure","Expression","Breath"]){
+    const h=hist[s], col=cssv(SRC_COLOR[s]); let d='';
+    for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600, y=190-h[i]*170; d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
+    p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" opacity="0.85"/>`;
+  }
+  svg.innerHTML=p;
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────────
+let tab='patch';
+function setTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t)); render(); }
+function render(){ ({patch:renderPatch,matrix:renderMatrix,presets:renderPresets}[tab])(); }
+
+// ── Patch tab ─────────────────────────────────────────────────────────────────
+const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterTune:v=>v.toFixed(0)+' ¢',
+  Glide:v=>Math.round(v)+' ms', Morph:v=>v.toFixed(2), default:v=>v.toFixed(2) };
+const RANGE={ Morph:[0,3], PW:[0.5,0.999], Fold:[0,1], Inharm:[0,1], Noise:[0,1], Detune:[-100,100],
+  Cutoff:[20,20000], Reso:[0,1], Output:[0,1], VelVCA:[0,1], Glide:[0,2000], MasterTune:[-100,100] };
+function pslider(key,label,color="--breath"){
+  const [a,b]=RANGE[key]; const v=state.patch[key]; const norm=clamp((v-a)/(b-a),0,1);
+  const fmt=(FMT[key]||FMT.default)(v);
+  return `<div class="pslider" data-key="${key}">
+    <div class="top"><span class="lbl">${label}</span><span class="val num" ondblclick="typeEdit('${key}',this)">${fmt}</span></div>
+    <div class="track" onclick="trackSet(event,'${key}')">
+      <div class="fill" style="width:${norm*100}%;background:var(${color})"></div>
+      <div class="thumb" style="left:${norm*100}%;border-color:var(${color})"></div>
+    </div></div>`;
+}
+function renderPatch(){
+  document.getElementById('tabbody').innerHTML=`<div class="params">
+    <div class="group"><div class="eyebrow">Oscillator</div>
+      ${pslider('Morph','Morph','--slide')}${pslider('PW','Pulse Width','--slide')}
+      ${pslider('Fold','Wavefold','--slide')}${pslider('Inharm','Inharmonicity','--slide')}
+      ${pslider('Noise','Noise','--slide')}
+      <div class="pslider"><div class="top"><span class="lbl">Noise Type</span></div>
+        <div class="seg">${["White","Pink","Brown"].map((n,i)=>`<button class="${state.patch.NoiseType===i?'active':''}" onclick="setChoice('NoiseType',${i})">${n}</button>`).join('')}</div></div>
+      ${pslider('Detune','Detune','--slide')}
+    </div>
+    <div class="group"><div class="eyebrow">Filter</div>
+      ${pslider('Cutoff','Cutoff','--breath')}${pslider('Reso','Resonance','--breath')}
+      <div class="pslider"><div class="top"><span class="lbl">Mode</span></div>
+        <div class="seg">${["LP","BP","HP"].map((n,i)=>`<button class="${state.patch.Mode===i?'active':''}" onclick="setChoice('Mode',${i})">${n}</button>`).join('')}</div></div>
+    </div>
+    <div class="group"><div class="eyebrow">Performance</div>
+      ${pslider('Output','Output','--pressure')}${pslider('VelVCA','Vel → VCA','--pressure')}
+      ${pslider('Glide','Glide','--pressure')}${pslider('MasterTune','Master Tune','--pressure')}
+      <div class="row2">
+        <div class="pslider"><div class="top"><span class="lbl">Glide Mode</span></div>
+          <div class="seg">${["Time","Rate"].map((n,i)=>`<button class="${state.patch.GlideMode===i?'active':''}" onclick="setChoice('GlideMode',${i})">${n}</button>`).join('')}</div></div>
+        <div class="pslider"><div class="top"><span class="lbl">Glide Curve</span></div>
+          <div class="seg">${["Lin","Exp","RC"].map((n,i)=>`<button class="${state.patch.GlideCurve===i?'active':''}" onclick="setChoice('GlideCurve',${i})">${n}</button>`).join('')}</div></div>
+      </div>
+    </div></div>`;
+}
+function trackSet(ev,key){ const [a,b]=RANGE[key]; const r=ev.currentTarget.getBoundingClientRect();
+  const n=clamp((ev.clientX-r.left)/r.width,0,1); state.patch[key]=a+n*(b-a); Bridge.send('setParam',{id:key,value:state.patch[key]}); renderPatch(); }
+function setChoice(key,i){ state.patch[key]=i; Bridge.send('setParam',{id:key,value:i}); renderPatch(); }
+function typeEdit(key,el){ const cur=state.patch[key];
+  el.innerHTML=`<input class="field-num" value="${(+cur).toFixed(2)}" />`;
+  const inp=el.querySelector('input'); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseFloat(inp.value); if(!isNaN(v)){const[a,b]=RANGE[key]; state.patch[key]=clamp(v,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]});} renderPatch(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderPatch(); });
+}
+
+// ── Matrix tab (free routing) ───────────────────────────────────────────────────
+function renderMatrix(){
+  const active=state.slots.map((s,i)=>({s,i})).filter(x=>x.s.src!==0);
+  const rows=active.map(({s,i})=>slotRow(s,i)).join('');
+  const canAdd=state.slots.some(s=>s.src===0);
+  document.getElementById('tabbody').innerHTML=`
+    <div class="mm-toolbar"><span class="eyebrow" style="flex:1">Routes · ${active.length}/${NUM_SLOTS}</span>
+      ${canAdd?'<button class="btn primary" onclick="addSlot()">+ New route</button>':''}</div>
+    <div class="slots">${rows||''}
+      ${canAdd?`<div class="empty-add" onclick="addSlot()">+ add a route — pick source, destination, amount</div>`:''}
+    </div>
+    <div class="hint">Drag amount for coarse · double-tap the value to type an exact number · −/+ for polarity. Targets are touch-sized (≥44 px) on iPad.</div>`;
+}
+function slotRow(s,i){
+  const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--muted';
+  const pos=s.amt>=0, mag=Math.min(1,Math.abs(s.amt));
+  return `<div class="slot">
+    <span class="dot srcdot ${SRC_DOT[srcName]||''}"></span>
+    <select onchange="slotSet(${i},'src',+this.value)">${SOURCES.map((n,k)=>`<option value="${k}" ${k===s.src?'selected':''}>${n}</option>`).join('')}</select>
+    <span class="arrow">→</span>
+    <select onchange="slotSet(${i},'dst',+this.value)">${DESTS.map((n,k)=>`<option value="${k}" ${k===s.dst?'selected':''}>${n}</option>`).join('')}</select>
+    <div class="amt">
+      <div class="head"><span>−1</span><span class="v num" ondblclick="slotType(${i},this)">${(pos?'+':'−')+mag.toFixed(2)}</span><span>+1</span></div>
+      <div class="bipolar" onclick="slotAmtSet(event,${i})">
+        <div class="fill" style="background:var(${col});left:${pos?50:50-mag*50}%;width:${mag*50}%"></div>
+        <div class="center"></div>
+      </div>
+    </div>
+    <div class="seg">${CURVES.map((c,k)=>`<button class="${s.curve===k?'active':''}" onclick="slotSet(${i},'curve',${k})">${c.toLowerCase()}</button>`).join('')}</div>
+    <button class="del" title="remove" onclick="slotSet(${i},'src',0)">✕</button>
+  </div>`;
+}
+function addSlot(){ const i=state.slots.findIndex(s=>s.src===0); if(i<0)return;
+  state.slots[i]={src:1,dst:1,amt:0.3,curve:0}; pushSlot(i); renderMatrix(); }
+function slotSet(i,field,val){ state.slots[i][field]=val; pushSlot(i); renderMatrix(); }
+function slotAmtSet(ev,i){ const r=ev.currentTarget.getBoundingClientRect();
+  state.slots[i].amt=clamp(((ev.clientX-r.left)/r.width)*2-1,-1,1); pushSlot(i); renderMatrix(); }
+function slotType(i,el){ const cur=state.slots[i].amt;
+  el.innerHTML=`<input class="field-num" style="width:54px" value="${cur.toFixed(2)}" />`;
+  const inp=el.querySelector('input'); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseFloat(inp.value); if(!isNaN(v)){state.slots[i].amt=clamp(v,-1,1); pushSlot(i);} renderMatrix(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderMatrix(); });
+}
+function pushSlot(i){ const s=state.slots[i];
+  Bridge.send('slotEdit',{slot:i,src:s.src,dst:s.dst,amt:s.amt,curve:s.curve}); }
+
+// ── Presets tab ───────────────────────────────────────────────────────────────
+const PRESETS=[
+  {name:"Reedlike · Lyrical",tags:["breath","mono","soft"],ctrl:"Sylphyo",fav:true},
+  {name:"Buzz · Clarinet-ish",tags:["breath","fat","reso"],ctrl:"Sylphyo",fav:false},
+  {name:"Glass Tube",tags:["expr","pure","high"],ctrl:"EWI",fav:true},
+  {name:"Hex Drone",tags:["mpe","drone","wide"],ctrl:"Exquis",fav:false},
+  {name:"Bent Reed",tags:["breath","bend","micro"],ctrl:"Sylphyo",fav:true},
+  {name:"Touch Whisper",tags:["mpe","soft","noise"],ctrl:"Morph",fav:false},
+];
+const TAGC={breath:"--breath",expr:"--expr",mpe:"--pressure",bend:"--bend",slide:"--slide"};
+let selPreset=0;
+const Preset={ step(d){ selPreset=(selPreset+d+PRESETS.length)%PRESETS.length;
+  document.getElementById('presetName').textContent=PRESETS[selPreset].name; if(tab==='presets')renderPresets(); Bridge.send('presetLoad',{id:selPreset}); } };
+function renderPresets(){
+  const side=["Sylphyo","EWI","Exquis","Sensel Morph","Generic MPE"].map(c=>
+    `<div class="filter"><span>${c}</span><span class="c num">${PRESETS.filter(p=>p.ctrl===c).length}</span></div>`).join('');
+  const list=PRESETS.map((p,i)=>`<div class="preset-item ${i===selPreset?'sel':''}" onclick="selPreset=${i};Preset.step(0)">
+    <div><div class="nm">${p.name}</div><div class="tags">${p.tags.map(t=>`<span class="tag" style="background:var(${TAGC[t]||'--muted'})">${t}</span>`).join('')}</div></div>
+    <span class="fav">${p.fav?'★':'☆'}</span></div>`).join('');
+  document.getElementById('tabbody').innerHTML=`<div class="preset-grid">
+    <div class="preset-side">
+      <div><input class="search" placeholder="search…"/></div>
+      <div class="filter-group"><div class="eyebrow">Controller</div>${side}</div>
+      <button class="btn primary" onclick="Bridge.send('presetSave',{})">+ Save current</button>
+    </div>
+    <div class="preset-list">${list}</div>
+  </div>`;
+}
+
+// ── Misc UI ─────────────────────────────────────────────────────────────────────
+let mono=true;
+function toggleMono(){ mono=!mono; document.getElementById('monoBtn').textContent=mono?'Mono':'Poly';
+  Bridge.send('setParam',{id:'monoMode',value:mono?1:0}); }
+function toggleTheme(){ const r=document.documentElement; r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'; }
+
+// ── Wire incoming bridge events (real plugin pushes these) ──────────────────────
+Bridge.on('meters',m=>Object.assign(state.meters,m));
+Bridge.on('paramChanged',({id,value})=>{ if(id in state.patch){state.patch[id]=value; if(tab==='patch')renderPatch();} });
+
+// ── Boot + mock animation loop ──────────────────────────────────────────────────
+buildMeters(); render();
+let t=0;
+setInterval(()=>{
+  t+=0.06;
+  state.meters.Breath     = (Math.sin(t)*0.5+0.5)*0.9;
+  state.meters.Expression = (Math.sin(t*0.7+1)*0.5+0.5)*0.6;
+  state.meters.Pressure   = (Math.sin(t*1.3+2)*0.5+0.5)*0.5;
+  state.meters.Slide      = (Math.sin(t*0.5+0.5)*0.5+0.5);
+  state.meters.Velocity   = 0.4;
+  state.meters.Pitchbend  = Math.sin(t*0.4)*0.4+0.5;
+  tickMeters();
+},40);
+</script>
+</body>
+</html>

@@ -1,0 +1,235 @@
+/* Vane wireframe shared styles
+ * Cream warm base from DrawnQurve, breath-blue accent for Vane.
+ * Wireframe vibe via Caveat for marginalia + dashed placeholders.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root{
+  /* Warm light (DrawnQurve sibling) */
+  --vn-bg:        #f5f2eb;
+  --vn-panel:     #fcfbf7;
+  --vn-panel2:    #f3eee3;
+  --vn-field:     #efebe2;
+  --vn-line:      #ddd6ca;
+  --vn-line-soft: #eae3d4;
+  --vn-text:      #2d2b27;
+  --vn-text-2:    #4b463e;
+  --vn-muted:     #8b8678;
+  --vn-muted-2:   #b6b0a1;
+
+  /* Vane motif: cool breath blue (distinct from DQ purple) */
+  --vn-breath:    #4b86c7;  /* CC2 breath */
+  --vn-breath-tint:#dde8f4;
+  --vn-expr:      #2d9d8a;  /* CC11 expression */
+  --vn-expr-tint: #d6ebe6;
+  --vn-pressure:  #d28330;  /* MPE Z pressure */
+  --vn-pressure-tint:#f4e3cf;
+  --vn-slide:     #a35bbf;  /* CC74 slide */
+  --vn-slide-tint:#ecdcf2;
+  --vn-bend:      #c39529;  /* pitchbend amber */
+  --vn-bend-tint: #f1e6c3;
+  --vn-vel:       #7a4cff;  /* velocity */
+
+  /* Dark variant tokens (only used in .vn-dark) */
+  --vn-d-bg:      #1a1814;
+  --vn-d-panel:   #221f1a;
+  --vn-d-panel2:  #1d1b16;
+  --vn-d-field:   #14130f;
+  --vn-d-line:    #38332b;
+  --vn-d-line-soft:#2b2620;
+  --vn-d-text:    #e8e1d2;
+  --vn-d-muted:   #897f6c;
+
+  --vn-ui:        "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --vn-mono:      "JetBrains Mono", ui-monospace, SF Mono, monospace;
+  --vn-hand:      "Caveat", "Bradley Hand", cursive;
+}
+
+/* Generic wireframe primitives ---------------------------------------- */
+.vn{
+  font-family: var(--vn-ui);
+  color: var(--vn-text);
+  background: var(--vn-bg);
+  font-size: 13px;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+
+.vn *, .vn *::before, .vn *::after{ box-sizing: border-box; }
+
+.vn-eyebrow{
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--vn-muted); font-weight: 600;
+}
+.vn-h1{ font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.vn-h2{ font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.vn-h3{ font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }
+.vn-num{ font-family: var(--vn-mono); font-variant-numeric: tabular-nums; }
+.vn-hand{ font-family: var(--vn-hand); font-weight: 500; }
+
+.vn-panel{
+  background: var(--vn-panel);
+  border: 1px solid var(--vn-line-soft);
+  border-radius: 20px;
+  box-shadow: 0 6px 22px rgba(28,25,20,.05);
+}
+.vn-panel-sub{
+  background: var(--vn-panel2);
+  border: 1px solid var(--vn-line-soft);
+  border-radius: 14px;
+}
+
+.vn-chip{
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 999px;
+  background: #fff; border: 1px solid var(--vn-line);
+  font-size: 12px; font-weight: 500; color: var(--vn-text);
+  cursor: pointer; white-space: nowrap;
+}
+.vn-chip.is-active{ background: var(--vn-breath-tint); border-color: var(--vn-breath); color: #234e7e; }
+.vn-chip.is-ghost{ background: transparent; }
+.vn-chip-dot{ width: 8px; height: 8px; border-radius: 50%; background: var(--vn-muted); }
+
+.vn-pill{
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 12px; border-radius: 12px;
+  background: #fff; border: 1px solid var(--vn-line);
+  font-size: 12px; font-weight: 600; color: var(--vn-text);
+  cursor: pointer; min-height: 32px;
+}
+.vn-pill.is-active{ background: var(--vn-breath-tint); border-color: var(--vn-breath); color: #234e7e; }
+
+.vn-btn{
+  border: 1px solid var(--vn-line); background: #fff; color: var(--vn-text);
+  padding: 6px 10px; border-radius: 10px; font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer;
+}
+.vn-icon-btn{
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--vn-line); background: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--vn-text);
+}
+
+/* segmented control (signature from DrawnQurve) */
+.vn-seg{
+  display: inline-grid; grid-auto-flow: column; gap: 4px;
+  padding: 4px; border-radius: 14px;
+  background: var(--vn-field); border: 1px solid var(--vn-line-soft);
+}
+.vn-seg > button{
+  border: none; background: transparent; padding: 7px 12px;
+  border-radius: 10px; font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--vn-text-2); cursor: pointer; min-width: 36px;
+}
+.vn-seg > button.is-active{
+  background: #fff; color: var(--vn-text);
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+/* slider — no knobs allowed; flat track + bar */
+.vn-slider{ position: relative; height: 8px; border-radius: 999px; background: var(--vn-field); }
+.vn-slider > .vn-slider-fill{ position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--vn-breath); }
+.vn-slider > .vn-slider-thumb{ position: absolute; top: 50%; transform: translate(-50%, -50%); width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--vn-breath); }
+
+/* dashed placeholder block (wireframe vibe) */
+.vn-ph{
+  border: 1.5px dashed var(--vn-muted-2);
+  border-radius: 10px;
+  background: repeating-linear-gradient(135deg, rgba(0,0,0,0.015) 0 6px, transparent 6px 12px);
+  color: var(--vn-muted); font-family: var(--vn-mono); font-size: 11px;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 8px;
+}
+
+/* mod-source meter (a wind ribbon) */
+.vn-meter{
+  position: relative; height: 10px; border-radius: 999px;
+  background: var(--vn-field); overflow: hidden;
+}
+.vn-meter > .vn-meter-fill{
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vn-breath), color-mix(in oklch, var(--vn-breath) 70%, white));
+}
+.vn-meter.is-expr > .vn-meter-fill{ background: linear-gradient(90deg, var(--vn-expr), color-mix(in oklch, var(--vn-expr) 70%, white)); }
+.vn-meter.is-pressure > .vn-meter-fill{ background: linear-gradient(90deg, var(--vn-pressure), color-mix(in oklch, var(--vn-pressure) 70%, white)); }
+.vn-meter.is-slide > .vn-meter-fill{ background: linear-gradient(90deg, var(--vn-slide), color-mix(in oklch, var(--vn-slide) 70%, white)); }
+.vn-meter.is-bend > .vn-meter-fill{ background: linear-gradient(90deg, var(--vn-bend), color-mix(in oklch, var(--vn-bend) 70%, white)); }
+
+/* dot tag */
+.vn-dot{ width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.vn-dot.b{ background: var(--vn-breath); }
+.vn-dot.e{ background: var(--vn-expr); }
+.vn-dot.p{ background: var(--vn-pressure); }
+.vn-dot.s{ background: var(--vn-slide); }
+.vn-dot.bend{ background: var(--vn-bend); }
+.vn-dot.v{ background: var(--vn-vel); }
+
+/* annotation / marginalia (wireframe vibe) */
+.vn-anno{
+  font-family: var(--vn-hand); font-size: 19px; color: #6d6149;
+  line-height: 1.05;
+}
+.vn-anno-arrow{
+  color: #b09b6e;
+  font-size: 22px;
+}
+
+/* full artboard scaffold (used inside every DC artboard) */
+.vn-board{
+  position: absolute; inset: 0; padding: 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  overflow: hidden;
+}
+.vn-board.no-pad{ padding: 0; }
+
+/* dark variant */
+.vn-dark{
+  background: var(--vn-d-bg); color: var(--vn-d-text);
+  --vn-bg: var(--vn-d-bg);
+  --vn-panel: var(--vn-d-panel);
+  --vn-panel2: var(--vn-d-panel2);
+  --vn-field: var(--vn-d-field);
+  --vn-line: var(--vn-d-line);
+  --vn-line-soft: var(--vn-d-line-soft);
+  --vn-text: var(--vn-d-text);
+  --vn-text-2: #cdc3ad;
+  --vn-muted: var(--vn-d-muted);
+  --vn-muted-2: #5a5345;
+}
+.vn-dark .vn-chip{ background: #2a2620; color: var(--vn-d-text); }
+.vn-dark .vn-chip.is-active{ background: rgba(75,134,199,.18); border-color: var(--vn-breath); color: #b8d1ea; }
+.vn-dark .vn-pill{ background: #2a2620; color: var(--vn-d-text); }
+.vn-dark .vn-pill.is-active{ background: rgba(75,134,199,.2); border-color: var(--vn-breath); color: #b8d1ea; }
+.vn-dark .vn-btn{ background: #2a2620; color: var(--vn-d-text); }
+.vn-dark .vn-icon-btn{ background: #2a2620; color: var(--vn-d-text); }
+.vn-dark .vn-seg{ background: #14120e; }
+.vn-dark .vn-seg > button.is-active{ background: #2e2922; color: var(--vn-d-text); }
+.vn-dark .vn-anno{ color: #b6a47e; }
+
+/* tiny waveform / curve placeholder backgrounds */
+.vn-stage-bg{
+  background:
+    repeating-linear-gradient(to right, rgba(0,0,0,0.04) 0 1px, transparent 1px 8.333%),
+    repeating-linear-gradient(to bottom, rgba(0,0,0,0.025) 0 1px, transparent 1px 25%),
+    linear-gradient(180deg, #f6f2e7, #efeadd);
+}
+.vn-dark .vn-stage-bg{
+  background:
+    repeating-linear-gradient(to right, rgba(255,255,255,0.04) 0 1px, transparent 1px 8.333%),
+    repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 25%),
+    linear-gradient(180deg, #1d1a14, #14120e);
+}
+
+/* parameter row used in modmatrix list */
+.vn-row{
+  display: grid; gap: 10px; align-items: center;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--vn-panel2); border: 1px solid var(--vn-line-soft);
+}
+
+/* tight scrollable areas inside artboards: hide scrollbar */
+.vn-board *::-webkit-scrollbar{ display: none; }
+.vn-board *{ scrollbar-width: none; }

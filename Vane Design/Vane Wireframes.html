@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vane · GUI Wireframes</title>
+<link rel="stylesheet" href="wireframe-styles.css" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; }
+  body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  #root { height: 100vh; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#f0eee9">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#f0eee9"/>
+    <!-- five horizontal breath ribbons, increasing thickness, in Vane palette -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M120,200 C320,140 520,280 720,200 S1020,140 1080,200" stroke="#4b86c7" stroke-width="14"/>
+      <path d="M120,320 C320,260 520,400 720,320 S1020,260 1080,320" stroke="#2d9d8a" stroke-width="12" opacity="0.85"/>
+      <path d="M120,440 C320,380 520,520 720,440 S1020,380 1080,440" stroke="#d28330" stroke-width="10" opacity="0.78"/>
+      <path d="M120,560 C320,500 520,640 720,560 S1020,500 1080,560" stroke="#a35bbf" stroke-width="8"  opacity="0.7" stroke-dasharray="20 14"/>
+      <path d="M120,680 C320,620 520,760 720,680 S1020,620 1080,680" stroke="#c39529" stroke-width="6"  opacity="0.6" stroke-dasharray="20 14"/>
+    </g>
+  </svg>
+</template>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="artboards/main-view.jsx"></script>
+<script type="text/babel" src="artboards/mod-matrix.jsx"></script>
+<script type="text/babel" src="artboards/presets.jsx"></script>
+<script type="text/babel" src="artboards/controllers.jsx"></script>
+<script type="text/babel" src="artboards/visualiser.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+function Intro(){
+  return (
+    <div style={{ position: 'absolute', inset: 0, padding: 24, fontFamily: '"Inter", system-ui', color: '#2d2b27', overflow: 'auto', background: '#fcfbf7' }}>
+      <div style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: '#8b8678', fontWeight: 600 }}>Wireframes · v0</div>
+      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.02em', marginTop: 2 }}>Vane · GUI exploration</div>
+      <div className="vn-hand" style={{ fontSize: 19, color: '#6d6149', marginTop: 6, lineHeight: 1.15 }}>
+        five screens · three directions each<br />
+        same DNA as DrawnQurve, breath blue for Vane
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20 }}>
+        <div className="vn-panel-sub" style={{ padding: 12, background: '#f3eee3', borderRadius: 12 }}>
+          <div className="vn-eyebrow">Palette</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+            {[
+              ['#4b86c7', 'breath / CC2'],
+              ['#2d9d8a', 'expression / CC11'],
+              ['#d28330', 'pressure / MPE Z'],
+              ['#a35bbf', 'slide / CC74'],
+              ['#c39529', 'pitchbend'],
+              ['#7a4cff', 'velocity'],
+            ].map(([c, l]) => (
+              <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: c }} />
+                <span>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="vn-panel-sub" style={{ padding: 12, background: '#f3eee3', borderRadius: 12 }}>
+          <div className="vn-eyebrow">Rules</div>
+          <ul style={{ margin: '8px 0 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.4 }}>
+            <li>no knobs, no skeuomorphism</li>
+            <li>mod-source meters always visible</li>
+            <li>wind/breath flow lines as motif</li>
+            <li>one dark variant (Main · C)</li>
+            <li>sources own color, dests neutral</li>
+          </ul>
+        </div>
+        <div className="vn-panel-sub" style={{ padding: 12, background: '#f3eee3', borderRadius: 12 }}>
+          <div className="vn-eyebrow">How to read this</div>
+          <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.4 }}>
+            Each row = one screen. Scroll the canvas, drag artboards, click the <strong>↗</strong> on an artboard to open it full-screen. Inline-rename labels to leave notes for the next pass.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18, fontSize: 11, color: '#8b8678' }}>
+        After picking a direction per screen, I'll build the fully clickable prototype with the chosen pieces wired together as a single Vane GUI.
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  return (
+    <DesignCanvas>
+      <DCSection id="intro" title="Vane · GUI wireframes" subtitle="Five screens × three directions · DrawnQurve sibling with breath-blue motif.">
+        <DCArtboard id="intro" label="Read me first" width={620} height={420}>
+          <Intro />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="main"
+        title="01 · Main performance view"
+        subtitle="Always-visible mod meters · param panel · ModMatrix peek. The one screen that lives on-screen during a session.">
+        <DCArtboard id="main-a" label="A · Stage (DQ sibling)" width={900} height={580}><MainViewA /></DCArtboard>
+        <DCArtboard id="main-b" label="B · Wind tunnel" width={900} height={580}><MainViewB /></DCArtboard>
+        <DCArtboard id="main-c" label="C · Performance / dark" width={900} height={580}><MainViewC /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="modmatrix"
+        title="02 · ModMatrix editor"
+        subtitle="Routing surface for sources × destinations. Grid is dense, stack is familiar, flow is the bet.">
+        <DCArtboard id="mm-grid"  label="A · Grid (spreadsheet)" width={900} height={580}><MMGrid /></DCArtboard>
+        <DCArtboard id="mm-stack" label="B · Stack (Bitwig-ish)" width={900} height={580}><MMStack /></DCArtboard>
+        <DCArtboard id="mm-flow"  label="C · Flow garden (novel)" width={900} height={580}><MMFlow /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="presets"
+        title="03 · Sweet-spot browser"
+        subtitle="Vertical lists with filters. Same idea, three textures: classic / DNA / by-controller.">
+        <DCArtboard id="preset-a" label="A · List + sidebar"  width={900} height={580}><PresetA /></DCArtboard>
+        <DCArtboard id="preset-b" label="B · DNA cards"       width={900} height={580}><PresetB /></DCArtboard>
+        <DCArtboard id="preset-c" label="C · Grouped by ctrl" width={900} height={580}><PresetC /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="ctrl"
+        title="04 · Controller profiles"
+        subtitle="Stylised devices · hotspots · CC mapping. Same source map across all three.">
+        <DCArtboard id="ctrl-a" label="A · Sylphyo profile"      width={900} height={580}><CtrlA /></DCArtboard>
+        <DCArtboard id="ctrl-b" label="B · Exquis hex"           width={900} height={580}><CtrlB /></DCArtboard>
+        <DCArtboard id="ctrl-c" label="C · Multi-controller pick" width={900} height={580}><CtrlC /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="vis"
+        title="05 · Realtime CC / breath visualiser"
+        subtitle="Three flavours of 'see what the player is doing right now'.">
+        <DCArtboard id="vis-a" label="A · Multi-stream tunnel" width={900} height={520}><VisA /></DCArtboard>
+        <DCArtboard id="vis-b" label="B · MPE per-channel"     width={900} height={520}><VisB /></DCArtboard>
+        <DCArtboard id="vis-c" label="C · Intensity dashboard" width={900} height={520}><VisC /></DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
