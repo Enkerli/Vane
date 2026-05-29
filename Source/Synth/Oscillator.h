@@ -149,6 +149,32 @@ public:
         return out;
     }
 
+    // ── Wavefolder ──────────────────────────────────────────────────────────────
+    // Reflective triangle fold applied to an arbitrary input sample (not just this
+    // oscillator's output — SynthVoice folds the post-noise-blend signal pre-filter).
+    //
+    // amount — 0..1.  0 = transparent (returns x unchanged).  As amount rises the
+    //   input is scaled by an increasing drive and the result reflects back inside
+    //   [-1, 1] every time it would exceed the rails, multiplying harmonic content
+    //   ("West-Coast"/Serge-style timbre).  Output is always bounded to [-1, 1].
+    //
+    // Closed-form triangle (no audio-thread loops): for the scaled input s,
+    //   y = ((s − 1) mod 4) ∈ [0,4) ;  fold = |y − 2| − 1
+    // which is exactly the reflective fold and is the identity on [-1, 1] at
+    // drive = 1, so the control is continuous as amount leaves 0.
+    //
+    // Aliasing note: the fold corners are non-differentiable, so high drive can
+    // alias.  The downstream filter tames most of it; a future improvement would
+    // be to 2× oversample just this stage (mirroring the cubic-interp TODO above).
+    static float wavefold(float x, float amount) {
+        if (amount <= 1.0e-4f) return x;              // transparent when off
+        constexpr float kFoldDrive = 5.0f;            // drive spans 1..6
+        const float s = x * (1.0f + amount * kFoldDrive);
+        float y = std::fmod(s - 1.0f, 4.0f);
+        if (y < 0.0f) y += 4.0f;                      // wrap into [0,4)
+        return std::fabs(y - 2.0f) - 1.0f;
+    }
+
     // Returns the phase that will be used on the NEXT call to next() (i.e. the
     // phase after the last advance).  SynthVoice reads this at the dying voice
     // to hand the exact phase to the new legato voice via reset().

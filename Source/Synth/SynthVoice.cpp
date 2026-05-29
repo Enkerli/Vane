@@ -20,7 +20,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    glideMode,
                         std::atomic<float>*    glideCurve,
                         std::atomic<float>*    noiseBlend,
-                        std::atomic<float>*    noiseType)
+                        std::atomic<float>*    noiseType,
+                        std::atomic<float>*    fold)
     : modMatrix(matrix), tuning(t)
     , paramMorphPos(morphPos), paramPW(pw), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -38,7 +39,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramGlideMode(glideMode)
     , paramGlideCurve(glideCurve)
     , paramNoiseBlend(noiseBlend)
-    , paramNoiseType(noiseType) {}
+    , paramNoiseType(noiseType)
+    , paramFold(fold) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -91,6 +93,10 @@ void SynthVoice::prepare(double sr, int blockSize)
     // drives PW to an extreme value before the VCA has opened.  See header.
     smoothedPW.reset(sr, 0.003);
     smoothedPW.setCurrentAndTargetValue(0.5f);
+
+    // Fold smoother: 3 ms ramp prevents zipper on fold-depth changes.
+    smoothedFold.reset(sr, 0.003);
+    smoothedFold.setCurrentAndTargetValue(0.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -491,6 +497,12 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     int noiseTypeNow = paramNoiseType
                        ? static_cast<int>(std::round(paramNoiseType->load())) : 0;
 
+    // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
+    // Fed to the per-sample smoother so UI/mod changes don't zipper.
+    float foldBase   = paramFold ? paramFold->load() : 0.0f;
+    float activeFold = std::clamp(foldBase + mods[ModDestID::OscFold], 0.0f, 1.0f);
+    smoothedFold.setTargetValue(activeFold);
+
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
     // step changes at block boundaries that cause crunchiness during breath sweeps.
@@ -599,7 +611,12 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                        + noiseOut * activeNoiseMix;
         }
 
-        float sample = filter.process(rawSample, filterMode) * gain * tailLevel;
+        // Wavefold (pre-filter): reshapes the osc+noise signal, multiplying
+        // harmonics.  Transparent at depth 0; the filter tames fold-induced
+        // brightness.  wavefold() early-outs when depth is negligible.
+        float folded = Oscillator::wavefold(rawSample, smoothedFold.getNextValue());
+
+        float sample = filter.process(folded, filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
     }

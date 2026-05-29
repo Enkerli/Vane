@@ -34,6 +34,7 @@ VaneProcessor::VaneProcessor()
     auto* pGlideCurve = apvts.getRawParameterValue("glideCurve");
     auto* pNoiseBlend = apvts.getRawParameterValue("noiseBlend");
     auto* pNoiseType  = apvts.getRawParameterValue("noiseType");
+    auto* pFold       = apvts.getRawParameterValue("oscFold");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pMorphPos, pDetune, pPW, pCutoff, pRes, pFilterMode, pVeloMix,
@@ -43,7 +44,7 @@ VaneProcessor::VaneProcessor()
                                       &meterPressure, &meterSlide, &meterPitchbend,
                                       pPBRangeLocal, pNonMPEPBRangeLocal,
                                       pGlideMode, pGlideCurve,
-                                      pNoiseBlend, pNoiseType));
+                                      pNoiseBlend, pNoiseType, pFold));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -161,12 +162,16 @@ VaneProcessor::VaneProcessor()
     auto* pPressPWAmt    = apvts.getRawParameterValue("pressPWAmt");
     auto* pSlideNoiseAmt = apvts.getRawParameterValue("slideNoiseAmt");
     auto* pPressNoiseAmt = apvts.getRawParameterValue("pressNoiseAmt");
+    auto* pSlideFoldAmt  = apvts.getRawParameterValue("slideFoldAmt");
+    auto* pPressFoldAmt  = apvts.getRawParameterValue("pressFoldAmt");
     auto* pSlideMorphCrv = apvts.getRawParameterValue("slideMorphCurve");
     auto* pPressMorphCrv = apvts.getRawParameterValue("pressMorphCurve");
     auto* pSlidePWCrv    = apvts.getRawParameterValue("slidePWCurve");
     auto* pPressPWCrv    = apvts.getRawParameterValue("pressPWCurve");
     auto* pSlideNoiseCrv = apvts.getRawParameterValue("slideNoiseCurve");
     auto* pPressNoiseCrv = apvts.getRawParameterValue("pressNoiseCurve");
+    auto* pSlideFoldCrv  = apvts.getRawParameterValue("slideFoldCurve");
+    auto* pPressFoldCrv  = apvts.getRawParameterValue("pressFoldCurve");
 
     modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscWaveshape,
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideMorphAmt, pSlideMorphCrv);
@@ -180,6 +185,10 @@ VaneProcessor::VaneProcessor()
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideNoiseAmt, pSlideNoiseCrv);
     modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscNoiseMix,
                        0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressNoiseAmt, pPressNoiseCrv);
+    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscFold,
+                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideFoldAmt,  pSlideFoldCrv);
+    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscFold,
+                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressFoldAmt,  pPressFoldCrv);
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
@@ -418,6 +427,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"noiseType", 1}, "Noise Type",
         juce::StringArray{"White", "Pink", "Brown"}, 0));
 
+    // Wavefold depth: 0 = transparent, 1 = heavy folding (pre-filter, drive 1..6).
+    // Reflective triangle fold — multiplies harmonic content for West-Coast timbres.
+    // Modulated by OscFold destination (direct additive offset, clamped 0..1).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"oscFold", 1}, "Wavefold",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.0f));
+
     // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
     //
     // Range [0.5, 0.999] — the PD warp is symmetric around 0.5, so the two halves
@@ -544,6 +560,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"pressNoiseAmt", 1}, "Pressure to Noise",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // Fold mod is added directly to a [0,1] param → range 0..1.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"slideFoldAmt", 1}, "Slide to Fold",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"pressFoldAmt", 1}, "Pressure to Fold",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // ── Modulation route curve shapes ─────────────────────────────────────────
     // One integer-stepped parameter per route (0=lin, 1=exp, 2=S).
@@ -576,6 +599,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     makeCurveParam("pressPWCurve",      "Pressure to PW Curve",       0.0f); // lin
     makeCurveParam("slideNoiseCurve",   "Slide to Noise Curve",       0.0f); // lin
     makeCurveParam("pressNoiseCurve",   "Pressure to Noise Curve",    0.0f); // lin
+    makeCurveParam("slideFoldCurve",    "Slide to Fold Curve",        0.0f); // lin
+    makeCurveParam("pressFoldCurve",    "Pressure to Fold Curve",     0.0f); // lin
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

@@ -50,7 +50,9 @@ public:
                // Noise blend: 0 = pure wavetable, 1 = pure noise (pre-filter).
                std::atomic<float>*    noiseBlend       = nullptr,
                // Noise type: 0 = White, 1 = Pink (~1/f), 2 = Brown (~1/f²).
-               std::atomic<float>*    noiseType        = nullptr);
+               std::atomic<float>*    noiseType        = nullptr,
+               // Wavefold depth: 0 = transparent, 1 = heavy (pre-filter).
+               std::atomic<float>*    fold             = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -100,6 +102,8 @@ private:
     // Noise parameters — read block-rate in renderNextBlock.
     std::atomic<float>*    paramNoiseBlend    = nullptr;
     std::atomic<float>*    paramNoiseType     = nullptr;
+    // Wavefold depth — read block-rate in renderNextBlock.
+    std::atomic<float>*    paramFold          = nullptr;
 
     // ── Glide curve state ─────────────────────────────────────────────────────
     //
@@ -167,6 +171,14 @@ private:
     // instead of ahead of it.  Mono legato notes do NOT reset so the PW is continuous
     // across note boundaries (matching the behaviour of smoothedCutoff / filter state).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedPW;
+
+    // Per-sample wavefold-depth interpolation — prevents zipper when the fold
+    // amount changes block-rate (UI drag or a slewed Slide/Pressure → Fold route).
+    // Folding sharply reshapes the waveform, so a coefficient step at the block
+    // boundary would be audible; the 3 ms ramp matches the other smoothers.
+    // Linear is correct (depth, not frequency).  Not reset at note-on: it simply
+    // continues from the voice's previous value, ramping to the new target.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedFold;
 
     // ── Per-voice noise generation state ────────────────────────────────────────
     // All three generators run independently per voice so simultaneous MPE notes

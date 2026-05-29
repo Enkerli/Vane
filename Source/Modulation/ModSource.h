@@ -59,6 +59,10 @@ struct ModDestID {
     //   activeNoiseMix = clamp(noiseBlend + mods[OscNoiseMix], 0, 1)
     //   so a +1 route at amount 1.0 sweeps from off to full noise.
     static constexpr int OscNoiseMix   = 7;   // oscillator noise blend
+    // OscFold: additive offset to foldAmt (0..1).
+    //   activeFold = clamp(oscFold + mods[OscFold], 0, 1)
+    //   Drives the pre-filter wavefolder; 0 = transparent, 1 = heavy folding.
+    static constexpr int OscFold       = 8;   // wavefold depth
 
-    static constexpr int NumDests = 8;
+    static constexpr int NumDests = 9;
 };
