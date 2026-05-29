@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "WebUI/WebVaneEditor.h"
 
 VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
@@ -352,7 +353,9 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 
 juce::AudioProcessorEditor* VaneProcessor::createEditor()
 {
-    return new VaneEditor(*this);
+    // WebView UI (design_handoff v2).  The legacy native editor (VaneEditor) is
+    // retained in the build for reference/fallback but no longer instantiated.
+    return new WebVaneEditor(*this);
 }
 
 void VaneProcessor::getStateInformation(juce::MemoryBlock& dest)

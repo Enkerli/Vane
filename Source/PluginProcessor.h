@@ -53,6 +53,9 @@ public:
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 
+    // All-notes-off / reset — called from the UI "panic" bridge event.
+    void panic() { synth.turnOffAllVoices (false); }
+
 private:
     juce::MPESynthesiser synth;
 

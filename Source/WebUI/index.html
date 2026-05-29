@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vane — App Prototype v2</title>
+<!-- Fonts: to be bundled via juce_add_binary_data (no network in the AUv3
+     sandbox).  Until @font-face from BinaryData is wired the CSS stacks fall
+     back to system Inter-likes / ui-monospace.  TODO: serve the .ttf assets. -->
+<!--
+  Vane whole-app UI prototype — v2 (implements design_handoff README recommendations A–F).
+  Self-contained validation harness: a MockBridge simulates JUCE param/meter/preset
+  streams so the UI is live with NO plugin build (spec §9).
+
+  To wire to the real plugin, replace MockBridge with the JUCE WebBrowserComponent
+  native-integration bridge (emit / withEventListener), keeping the SAME event names:
+    C→JS : paramChanged, meters, presetList, presetChanged, tuningStatus, controllerLabel
+    JS→C : uiReady, setParam, slotEdit, presetSave, presetLoad, presetDelete, panic, reconnectMts
+
+  What changed from v1 (see README "Recommendations implemented"):
+    A1 real pointer-drag (no click-jump)   A2 fine-drag (Shift/Alt or vertical)
+    A3 ± steppers + arrow-key nudge         B1 44pt touch density scale
+    B2 iPad bottom tab bar + safe areas      B3 no hover-only affordances
+    C1 full MMStack row (atk/rel + enable + live meter + CC)   C2 CC binding field
+    D1 tokens verbatim (20px radii, soft shadow)   D2 visualiser view switch + readout
+    E1 preset browser (filters/fav/rename/delete/import-export)   E2 states (MTS, unsaved, empty)
+    F1 dot+label always, focus rings, keyboard   F2 preset name is the primary title
+-->
+<style>
+/* ── Design tokens — verbatim from wireframe-styles.css (spec §3) ─────────── */
+:root{
+  --vn-bg:#f5f2eb; --vn-panel:#fcfbf7; --vn-panel2:#f3eee3; --vn-field:#efebe2;
+  --vn-line:#ddd6ca; --vn-line-soft:#eae3d4; --vn-text:#2d2b27; --vn-text-2:#4b463e;
+  --vn-muted:#8b8678; --vn-muted-2:#b6b0a1;
+  --vn-breath:#4b86c7; --vn-breath-tint:#dde8f4;
+  --vn-expr:#2d9d8a;   --vn-expr-tint:#d6ebe6;
+  --vn-pressure:#d28330;--vn-pressure-tint:#f4e3cf;
+  --vn-slide:#a35bbf;  --vn-slide-tint:#ecdcf2;
+  --vn-bend:#c39529;   --vn-bend-tint:#f1e6c3;
+  --vn-vel:#7a4cff;
+  --vn-ui:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  --vn-mono:"JetBrains Mono",ui-monospace,SF Mono,monospace;
+  --r:20px; --r-md:14px; --r-sm:10px;
+  --shadow:0 6px 22px rgba(28,25,20,.05);
+  /* Density scale (B1) — bumped to ≥44pt at touch/narrow */
+  --ctl-h:32px; --track-h:8px; --thumb:15px; --tap:32px; --seg-pad:7px 12px; --gap:10px;
+}
+[data-theme="dark"]{
+  --vn-bg:#1a1814; --vn-panel:#221f1a; --vn-panel2:#1d1b16; --vn-field:#14130f;
+  --vn-line:#38332b; --vn-line-soft:#2b2620; --vn-text:#e8e1d2; --vn-text-2:#cfc7b5;
+  --vn-muted:#897f6c; --vn-muted-2:#5e564a;
+  --shadow:0 6px 22px rgba(0,0,0,.28);
+}
+@media (max-width:860px),(pointer:coarse){
+  :root{ --ctl-h:44px; --track-h:14px; --thumb:22px; --tap:44px; --seg-pad:11px 14px; --gap:12px; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:var(--vn-ui); background:var(--vn-bg); color:var(--vn-text);
+  font-size:13px; line-height:1.4; letter-spacing:-.005em;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+.num{font-family:var(--vn-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--vn-muted);font-weight:600}
+:focus-visible{outline:2px solid var(--vn-breath);outline-offset:2px;border-radius:6px}
+
+/* source dots (F1: always paired with a label) */
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.dot.breath{background:var(--vn-breath)} .dot.expr{background:var(--vn-expr)}
+.dot.pressure{background:var(--vn-pressure)} .dot.slide{background:var(--vn-slide)}
+.dot.bend{background:var(--vn-bend)} .dot.vel{background:var(--vn-vel)}
+
+/* ── App shell ──────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100%;padding:12px;gap:12px;
+  padding-bottom:max(12px,env(safe-area-inset-bottom));padding-top:max(12px,env(safe-area-inset-top))}
+.header{display:flex;align-items:center;gap:10px;flex:none;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px}
+.brand .mark{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--vn-muted)}
+/* preset nav — the PRIMARY title (F2) */
+.preset-nav{display:flex;align-items:center;gap:2px;background:var(--vn-panel);border:1px solid var(--vn-line);
+  border-radius:999px;padding:3px 5px}
+.preset-nav button{border:none;background:transparent;color:var(--vn-muted);cursor:pointer;font-size:16px;
+  width:var(--tap);height:var(--tap);max-width:34px;max-height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.preset-nav button:hover{background:var(--vn-panel2);color:var(--vn-text)}
+.preset-nav .name{font-weight:700;font-size:15px;letter-spacing:-.01em;min-width:150px;text-align:center;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:7px}
+.unsaved{width:7px;height:7px;border-radius:50%;background:var(--vn-pressure);flex:none;display:none}
+.unsaved.on{display:inline-block}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:var(--tap);max-height:34px;border:1px solid var(--vn-line);
+  border-radius:999px;background:var(--vn-panel);font-size:12px;font-weight:600;color:var(--vn-text-2);white-space:nowrap;cursor:pointer}
+.chip.ghost{background:transparent;color:var(--vn-muted)}
+.chip.warn-state{color:var(--vn-pressure);border-color:var(--vn-pressure);background:var(--vn-pressure-tint)}
+.chip .dot{width:7px;height:7px}
+.icon-btn{width:var(--tap);height:var(--tap);max-width:34px;max-height:34px;border-radius:9px;border:1px solid var(--vn-line);background:var(--vn-panel);
+  color:var(--vn-text-2);font-size:14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.icon-btn:hover{border-color:var(--vn-muted-2)}
+.icon-btn.warn{color:var(--vn-pressure)}
+
+/* ── Main grid ──────────────────────────────────────────────── */
+.main{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;flex:1;min-height:0}
+.panel{background:var(--vn-panel);border:1px solid var(--vn-line-soft);border-radius:var(--r);box-shadow:var(--shadow);min-height:0}
+.panel.pad{padding:14px}
+.sub{background:var(--vn-panel2);border:1px solid var(--vn-line-soft);border-radius:var(--r-md)}
+
+/* ── Stage ──────────────────────────────────────────────────── */
+.stage{display:flex;flex-direction:column;gap:12px;min-height:0}
+.stage-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.viewseg{display:inline-flex;background:var(--vn-field);border-radius:var(--r-md);padding:4px;gap:3px}
+.viewseg button{border:none;background:transparent;color:var(--vn-muted);font-size:12px;font-weight:600;padding:6px 12px;border-radius:10px;cursor:pointer}
+.viewseg button.active{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.vis{position:relative;flex:1;min-height:140px;background:var(--vn-field);border-radius:var(--r-md);overflow:hidden}
+.vis svg{position:absolute;inset:0;width:100%;height:100%}
+.vis-read{position:absolute;top:10px;right:12px;display:flex;gap:6px}
+.vis-read .chip{height:26px;font-size:11px;background:color-mix(in srgb,var(--vn-panel) 82%,transparent);backdrop-filter:blur(4px)}
+.vis-legend{position:absolute;top:10px;left:12px;display:flex;gap:12px;flex-wrap:wrap}
+.vis-legend span{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--vn-muted)}
+.vis-t{position:absolute;bottom:8px;left:12px;font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted)}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+.meter-row{display:grid;grid-template-columns:104px 1fr auto;gap:10px;align-items:center}
+.meter-label{display:flex;align-items:center;gap:7px;font-weight:600;font-size:12px}
+.meter{height:8px;border-radius:999px;background:var(--vn-field);overflow:hidden}
+.meter .fill{height:100%;border-radius:999px;transition:width .04s linear}
+.meter-cc{font-size:10px;color:var(--vn-muted)}
+
+/* ── Inspector tabs ─────────────────────────────────────────── */
+.inspector{display:flex;flex-direction:column;gap:12px;min-height:0}
+.tabs{display:flex;gap:4px;background:var(--vn-panel2);border:1px solid var(--vn-line);border-radius:999px;padding:4px;flex:none}
+.tabs button{flex:1;border:none;background:transparent;color:var(--vn-muted);font-weight:600;font-size:13px;
+  padding:9px 10px;border-radius:999px;cursor:pointer;min-height:var(--tap);max-height:40px}
+.tabs button.active{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 3px rgba(0,0,0,.07)}
+.tabbody{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;container-type:inline-size}
+
+/* ── Continuous control (shared: patch sliders + amount) ────── */
+.pslider{margin-bottom:13px}
+.pslider .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px}
+.pslider .lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--vn-text-2)}
+.valwrap{display:flex;align-items:center;gap:2px}
+.stepper{width:22px;height:22px;border:1px solid var(--vn-line);background:var(--vn-panel);border-radius:6px;color:var(--vn-text-2);
+  font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;flex:none}
+@media (hover:hover){ .pslider:hover .stepper{display:inline-flex} }
+.stepper.always{display:inline-flex}
+.val{font-size:13px;color:var(--vn-text);cursor:text;padding:2px 6px;border-radius:6px;border-bottom:1px dashed var(--vn-muted-2);min-width:54px;text-align:right}
+.val:hover{background:var(--vn-panel2)}
+.track{height:var(--track-h);border-radius:999px;background:var(--vn-field);position:relative;cursor:ew-resize;touch-action:none}
+.track .fill{position:absolute;top:0;bottom:0;left:0;border-radius:999px}
+.track .thumb{position:absolute;top:50%;width:var(--thumb);height:var(--thumb);border-radius:50%;background:var(--vn-panel);
+  border:2px solid var(--vn-breath);transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.22)}
+.track.dragging .thumb{transform:translate(-50%,-50%) scale(1.12)}
+.track.fine .thumb{border-style:double;border-width:4px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.seg{display:inline-flex;background:var(--vn-field);border-radius:var(--r-md);padding:4px;gap:3px;flex-wrap:wrap}
+.seg button{border:none;background:transparent;color:var(--vn-muted);font-size:12px;font-weight:600;padding:var(--seg-pad);border-radius:10px;cursor:pointer;min-height:var(--tap);max-height:38px}
+.seg button.active{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.group{margin-bottom:18px}
+.group .eyebrow{margin-bottom:10px;display:block}
+.field-num{font-family:var(--vn-mono);font-size:13px;width:78px;border:1px solid var(--vn-breath);border-radius:6px;
+  padding:3px 6px;background:var(--vn-panel);color:var(--vn-text)}
+.fine-hint{font-size:10.5px;color:var(--vn-muted);margin-top:10px;line-height:1.5}
+.fine-hint kbd{font-family:var(--vn-mono);background:var(--vn-field);border:1px solid var(--vn-line);border-radius:4px;padding:0 4px;font-size:10px}
+
+/* ── Mod matrix (full MMStack row, C1) ──────────────────────── */
+.mm-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.mm-filters{display:inline-flex;gap:4px;background:var(--vn-field);border-radius:999px;padding:3px}
+.mm-filters button{border:none;background:transparent;color:var(--vn-muted);font-size:11.5px;font-weight:600;padding:6px 11px;border-radius:999px;cursor:pointer;min-height:32px}
+.mm-filters button.active{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.btn{border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-text-2);font-weight:600;font-size:12px;
+  padding:0 14px;height:var(--tap);max-height:36px;border-radius:999px;cursor:pointer}
+.btn.primary{background:var(--vn-text);color:var(--vn-bg);border-color:var(--vn-text)}
+.btn:hover{border-color:var(--vn-muted-2)}
+.slots{display:flex;flex-direction:column;gap:7px}
+.slot{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;
+  background:var(--vn-panel2);border:1px solid var(--vn-line-soft);border-radius:12px;padding:11px 13px}
+.slot.off{opacity:.5}
+/* default = compact stacked card (fits the docked ~360px inspector) */
+.slot .srccell{grid-column:1/2;grid-row:1}
+.slot .arrow{display:none}
+.slot .destcell{grid-column:2/-1;grid-row:1;align-self:start;min-width:120px}
+.slot .amt{grid-column:1/-1;grid-row:2}
+.slot .miniseg{grid-column:1/2;grid-row:3;justify-self:start}
+.slot .ar{grid-column:2/3;grid-row:3;flex-direction:row !important;gap:10px;align-items:center;justify-self:end}
+.slot .tog{grid-column:3/4;grid-row:3;justify-self:end}
+.slot .del{grid-column:4/5;grid-row:3;justify-self:end}
+.slot .srccell{display:flex;flex-direction:column;gap:5px;min-width:0}
+.slot .srctop{display:flex;align-items:center;gap:7px;min-width:0}
+.slot select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
+  font-family:var(--vn-ui);font-size:12px;font-weight:600;border-radius:7px;padding:0 8px;height:var(--ctl-h);cursor:pointer;max-width:100%}
+.slot .cc{font-family:var(--vn-mono);font-size:10.5px;color:var(--vn-muted);border-bottom:1px dashed transparent;cursor:text;padding:0 2px}
+.slot .cc.bindable{border-bottom-color:var(--vn-muted-2)}
+.slot .rowmeter{height:5px;border-radius:999px;background:var(--vn-field);overflow:hidden}
+.slot .rowmeter .f{height:100%;border-radius:999px;transition:width .05s linear}
+.slot .arrow{color:var(--vn-muted);text-align:center;font-size:15px}
+.slot .destcell{min-width:0}
+.slot .destcell .hint{font-size:10px;color:var(--vn-muted);margin-top:3px}
+.slot .amt .head{display:flex;justify-content:space-between;font-size:10px;color:var(--vn-muted);margin-bottom:4px}
+.slot .amt .head .v{color:var(--vn-text);font-weight:700;cursor:text;padding:0 3px;border-radius:4px;border-bottom:1px dashed var(--vn-muted-2)}
+.bipolar{height:var(--track-h);border-radius:999px;background:var(--vn-field);position:relative;cursor:ew-resize;touch-action:none}
+.bipolar .center{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--vn-muted-2)}
+.bipolar .fill{position:absolute;top:0;bottom:0;border-radius:999px}
+.bipolar .thumb{position:absolute;top:50%;width:var(--thumb);height:var(--thumb);border-radius:50%;background:var(--vn-panel);border:2px solid currentColor;transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.22)}
+.miniseg{display:inline-flex;background:var(--vn-field);border-radius:9px;padding:3px;gap:2px}
+.miniseg button{border:none;background:transparent;color:var(--vn-muted);font-size:11px;font-weight:600;padding:5px 8px;border-radius:6px;cursor:pointer;min-height:30px}
+.miniseg button.active{background:var(--vn-panel);color:var(--vn-text)}
+.ar{display:flex;flex-direction:column;gap:3px;font-family:var(--vn-mono);font-size:10.5px;color:var(--vn-muted)}
+.ar .arf{display:flex;align-items:center;gap:4px}
+.ar .arv{color:var(--vn-text);cursor:text;border-bottom:1px dashed var(--vn-muted-2);padding:0 2px}
+.tog{width:36px;height:20px;border-radius:999px;background:var(--vn-muted-2);position:relative;cursor:pointer;flex:none;border:none;padding:0}
+.tog.on{background:var(--vn-breath)}
+.tog::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .12s}
+.tog.on::after{left:18px}
+.del{border:none;background:transparent;color:var(--vn-muted-2);cursor:pointer;font-size:16px;width:var(--tap);height:var(--tap);max-width:34px;max-height:34px;border-radius:8px}
+.del:hover{color:var(--vn-pressure);background:var(--vn-field)}
+.empty-add{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--vn-muted-2);
+  border-radius:12px;padding:18px;color:var(--vn-muted);background:transparent;cursor:pointer;font-weight:600;min-height:var(--tap)}
+.empty-state{text-align:center;color:var(--vn-muted);padding:40px 20px}
+.empty-state .big{font-size:15px;font-weight:600;color:var(--vn-text-2);margin-bottom:6px}
+
+/* ── Presets (E1) ───────────────────────────────────────────── */
+.preset-grid{display:grid;grid-template-columns:180px 1fr;gap:14px;height:100%;min-height:0}
+.preset-side{display:flex;flex-direction:column;gap:16px;overflow:auto;padding-right:2px;min-width:0}
+.search{border:1px solid var(--vn-line);border-radius:999px;background:var(--vn-panel);color:var(--vn-text);
+  padding:0 14px;height:var(--tap);max-height:38px;font-size:13px;width:100%;font-family:var(--vn-ui)}
+.filter-group .eyebrow{margin-bottom:7px;display:block}
+.filter{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;min-height:var(--tap);max-height:40px}
+.filter:hover{background:var(--vn-panel2)}
+.filter.on{background:var(--vn-field);font-weight:700}
+.filter .c{color:var(--vn-muted);font-size:11px}
+.preset-list{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:8px;min-width:0}
+.preset-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:11px;align-items:center;padding:12px 14px;
+  border:1px solid var(--vn-line-soft);border-radius:12px;background:var(--vn-panel2);cursor:pointer}
+.preset-item>div{min-width:0}
+.preset-item:hover{border-color:var(--vn-muted-2)}
+.preset-item.sel{border-color:var(--vn-breath);background:var(--vn-panel);box-shadow:var(--shadow)}
+.preset-item .glyph{width:46px;height:30px;border-radius:7px;background:var(--vn-field);flex:none}
+.preset-item .nm{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset-item .tags{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
+.tag{font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;opacity:.92}
+.fav{font-size:17px;color:var(--vn-bend);cursor:pointer;width:var(--tap);max-width:34px;height:var(--tap);max-height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px}
+.fav:hover{background:var(--vn-field)}
+.kebab{font-size:17px;color:var(--vn-muted);cursor:pointer;width:var(--tap);max-width:34px;height:var(--tap);max-height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;position:relative}
+.kebab:hover{background:var(--vn-field)}
+.menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--vn-panel);border:1px solid var(--vn-line);border-radius:10px;box-shadow:var(--shadow);z-index:20;min-width:130px;overflow:hidden;display:none}
+.menu.open{display:block}
+.menu button{display:block;width:100%;text-align:left;border:none;background:transparent;padding:9px 14px;font-size:12.5px;color:var(--vn-text);cursor:pointer}
+.menu button:hover{background:var(--vn-panel2)}
+.menu button.danger{color:var(--vn-pressure)}
+
+/* Narrow inspector: stack the preset browser (sidebar above list) */
+@container (max-width:520px){
+  .preset-grid{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .preset-side{max-height:200px}
+}
+
+/* modal (import/export, rename) */
+.scrim{position:fixed;inset:0;background:rgba(20,18,14,.4);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.scrim.open{display:flex}
+.modal{background:var(--vn-panel);border:1px solid var(--vn-line);border-radius:var(--r);box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px;width:min(560px,100%)}
+.modal h3{margin:0 0 4px;font-size:17px;font-weight:700}
+.modal p{margin:0 0 14px;color:var(--vn-muted);font-size:12.5px}
+.modal textarea{width:100%;height:160px;border:1px solid var(--vn-line);border-radius:var(--r-sm);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:12px;padding:10px;resize:vertical}
+.modal input.rn{width:100%;border:1px solid var(--vn-line);border-radius:var(--r-sm);background:var(--vn-field);color:var(--vn-text);font-size:14px;padding:10px 12px}
+.modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+
+/* ── Responsive: single column + bottom tab bar (B2, §7) ────── */
+@media (max-width:860px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100%;padding-bottom:calc(72px + max(12px,env(safe-area-inset-bottom)))}
+  .main{grid-template-columns:1fr}
+  .meters{grid-template-columns:1fr}
+  .preset-grid{grid-template-columns:1fr}
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;border-radius:0;border-left:none;border-right:none;border-bottom:none;
+    padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--vn-panel)}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Header — preset name is the primary title (F2) -->
+  <div class="header">
+    <div class="brand"><span class="mark">Vane</span></div>
+    <div class="preset-nav">
+      <button onclick="Preset.step(-1)" aria-label="Previous preset">‹</button>
+      <span class="name"><span class="unsaved" id="unsaved" title="Unsaved changes"></span><span id="presetName">Reedlike · Lyrical</span></span>
+      <button onclick="Preset.step(1)" aria-label="Next preset">›</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip"><span class="dot expr"></span>Sylphyo</span>
+    <span class="chip ghost" id="tuningChip" onclick="toggleMts()" title="Toggle MTS-ESP connection">12-EDO · MTS-ESP</span>
+    <button class="icon-btn" id="monoBtn" onclick="toggleMono()" style="width:auto;padding:0 12px">Mono</button>
+    <button class="icon-btn warn" title="Panic" onclick="Bridge.send('panic')">!</button>
+    <button class="icon-btn" title="Toggle theme" onclick="toggleTheme()">◐</button>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Stage -->
+    <div class="stage">
+      <div class="panel pad" style="display:flex;flex-direction:column;gap:12px;flex:1;min-height:0">
+        <div class="stage-head">
+          <span class="eyebrow">Stage · live</span>
+          <div class="viewseg" id="viewseg">
+            <button class="active" data-view="breath" onclick="setView('breath')">Breath</button>
+            <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
+            <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
+          </div>
+        </div>
+        <div class="vis">
+          <div class="vis-legend" id="visLegend"></div>
+          <svg id="visSvg" preserveAspectRatio="none" viewBox="0 0 600 200"></svg>
+          <div class="vis-read">
+            <span class="chip num">♪ A3</span>
+            <span class="chip num" id="voiceRead">Saw · LP 1.1k</span>
+          </div>
+          <div class="vis-t num" id="visT">t = 0.000s · ch 1</div>
+        </div>
+        <div class="sub" style="padding:12px">
+          <div class="meters" id="meters"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inspector -->
+    <div class="inspector">
+      <div class="panel pad tabbody" id="tabbody"></div>
+      <div class="tabs">
+        <button class="active" data-tab="patch" onclick="setTab('patch')">Patch</button>
+        <button data-tab="matrix" onclick="setTab('matrix')">Matrix</button>
+        <button data-tab="presets" onclick="setTab('presets')">Presets</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal scrim (import/export + rename) -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+//  Model — mirrors the 24-slot ModSlots backend (spec §2/§5)
+// ════════════════════════════════════════════════════════════════════════
+const SOURCES = ["Off","Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
+const SRC_DOT = {Breath:"breath",Expression:"expr",Pressure:"pressure",Slide:"slide",Pitchbend:"bend",Velocity:"vel"};
+const SRC_CC  = {Breath:"CC2",Expression:"CC11",Pressure:"MPE Z",Slide:"CC74",Pitchbend:"PB",Velocity:"vel"};
+const SRC_COLOR={Breath:"--vn-breath",Expression:"--vn-expr",Pressure:"--vn-pressure",Slide:"--vn-slide",Pitchbend:"--vn-bend",Velocity:"--vn-vel"};
+const BINDABLE = {Breath:true,Expression:true};   // C2: these sources expose a CC# binding
+const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm"];
+const CURVES  = ["Lin","Exp","S"];
+const NUM_SLOTS = 24;
+const METER_SRC = ["Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
+
+// Bridge — JUCE 8 WebBrowserComponent native integration when running inside the
+// plugin; falls back to the mock/demo loop in a plain browser (spec §9 harness).
+//   JS → C++ : window.__JUCE__.backend.emitEvent(id, data)
+//   C++ → JS : window.__JUCE__.backend.addEventListener(id, cb)
+const HAS_JUCE = (typeof window.__JUCE__ !== 'undefined' && !!window.__JUCE__.backend);
+const Bridge = {
+  send(id,p){ if(HAS_JUCE) window.__JUCE__.backend.emitEvent(id, p ?? {}); },
+  on(id,fn){ (this._h[id] ||= []).push(fn);
+             if(HAS_JUCE) window.__JUCE__.backend.addEventListener(id, d=>this._emit(id,d)); },
+  _h:{}, _emit(id,p){ (this._h[id]||[]).forEach(f=>f(p)); }
+};
+// Mirror JS console to C++ stdout (the only way to see logs inside WKWebView).
+if(HAS_JUCE && !window.__juceLog){ window.__juceLog=true;
+  for(const lv of ['log','warn','error']){ const o=console[lv].bind(console);
+    console[lv]=(...a)=>{ o(...a); try{ window.__JUCE__.backend.emitEvent('log',
+      {level:lv,msg:a.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ')}); }catch(e){} }; } }
+
+const state = {
+  meters:{Breath:0,Expression:0,Pressure:0,Slide:0,Pitchbend:0.5,Velocity:0},
+  cc:{Breath:2,Expression:11},
+  patch:{ Morph:0.0,PW:0.5,Fold:0.0,Inharm:0.0,Noise:0.0,NoiseType:0,Detune:0,
+          Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
+          Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0 },
+  slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
+  mts:true, dirty:false, sim:true,
+};
+// seed factory-ish routing
+[["Breath","VCA",1.0,0,5,80],["Expression","VCA",1.0,0,5,80],["Pressure","VCA",0.5,1,3,50],
+ ["Slide","Cutoff",0.9,0,2,20],["Breath","Cutoff",0.25,1,5,80],["Pressure","Cutoff",0.2,1,5,80],
+ ["Slide","Fold",1.0,0,2,30],["Breath","Inharm",0.30,0,5,90]
+].forEach((r,i)=>{ state.slots[i]={src:SOURCES.indexOf(r[0]),dst:DESTS.indexOf(r[1]),amt:r[2],curve:r[3],atk:r[4],rel:r[5],on:true}; });
+
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const $ = (s,r=document)=>r.querySelector(s);
+
+function markDirty(){ state.dirty=true; $('#unsaved').classList.add('on'); }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Reusable drag (A1 real drag · A2 fine-drag · A3 keyboard) — no click-jump
+// ════════════════════════════════════════════════════════════════════════
+function attachDrag(track, cfg){
+  // cfg: {get,set,min,max,step,fineStep,onMove}
+  let active=false, startX=0, startY=0, startV=0;
+  track.tabIndex = 0;
+  const fineNow = e => e.shiftKey || e.altKey;
+  track.addEventListener('pointerdown', e=>{
+    active=true; track.setPointerCapture(e.pointerId);
+    startX=e.clientX; startY=e.clientY; startV=cfg.get();
+    track.classList.add('dragging'); e.preventDefault();
+  });
+  track.addEventListener('pointermove', e=>{
+    if(!active) return;
+    const w=track.getBoundingClientRect().width;
+    const dy=Math.abs(e.clientY-startY), dx=e.clientX-startX;
+    // fine = modifier held, OR a deliberate vertical drag (touch-friendly precision)
+    const fine = fineNow(e) || (dy>26 && dy>Math.abs(dx));
+    track.classList.toggle('fine', fine);
+    const range=cfg.max-cfg.min;
+    const f = fine ? 0.16 : 1;
+    let v = startV + (dx/w)*range*f;
+    v = clamp(v, cfg.min, cfg.max);
+    cfg.set(v); cfg.onMove && cfg.onMove(v);
+  });
+  const end=()=>{ if(active){active=false; track.classList.remove('dragging','fine');} };
+  track.addEventListener('pointerup',end);
+  track.addEventListener('pointercancel',end);
+  track.addEventListener('keydown', e=>{
+    const st = (e.shiftKey ? (cfg.fineStep||cfg.step) : cfg.step);
+    if(e.key==='ArrowRight'||e.key==='ArrowUp'){ cfg.set(clamp(cfg.get()+st,cfg.min,cfg.max)); cfg.onMove&&cfg.onMove(cfg.get()); e.preventDefault(); }
+    if(e.key==='ArrowLeft'||e.key==='ArrowDown'){ cfg.set(clamp(cfg.get()-st,cfg.min,cfg.max)); cfg.onMove&&cfg.onMove(cfg.get()); e.preventDefault(); }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Meters + visualiser (D2)
+// ════════════════════════════════════════════════════════════════════════
+function buildMeters(){
+  const el=$('#meters'); el.innerHTML='';
+  METER_SRC.forEach(s=>{
+    el.insertAdjacentHTML('beforeend',
+      `<div class="meter-row"><span class="meter-label"><span class="dot ${SRC_DOT[s]}"></span>${s}</span>
+       <div class="meter"><div class="fill" id="m_${s}" style="background:var(${SRC_COLOR[s]})"></div></div>
+       <span class="meter-cc num">${SRC_CC[s]}</span></div>`);
+  });
+}
+const hist={}; METER_SRC.forEach(s=>hist[s]=new Array(80).fill(0));
+let view='breath';
+function setView(v){ view=v; document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); }
+let simT=0;
+function tickMeters(){
+  for(const s in state.meters){
+    const v=clamp(state.meters[s],0,1);
+    const m=$('#m_'+s); if(m) m.style.width=(v*100)+'%';
+    hist[s].push(v); hist[s].shift();
+  }
+  // row meters in matrix tab
+  document.querySelectorAll('[data-rowmeter]').forEach(el=>{
+    const s=el.getAttribute('data-rowmeter'); const v=clamp(state.meters[s]||0,0,1);
+    el.style.width=(v*100)+'%';
+  });
+  drawVis();
+  $('#visT').textContent='t = '+simT.toFixed(3)+'s · ch 1';
+}
+function drawVis(){
+  const svg=$('#visSvg'); let p='';
+  if(view==='breath'){
+    for(const s of ["Slide","Pressure","Expression","Breath"]){
+      const h=hist[s], col=cssv(SRC_COLOR[s]); let d='';
+      for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600, y=190-h[i]*170; d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
+      const main=s==='Breath';
+      p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${main?2.6:1.6}" stroke-linecap="round" opacity="${main?0.95:0.45}"/>`;
+    }
+  } else if(view==='spectrum'){
+    const col=cssv('--vn-breath'); const n=28; const br=state.meters.Breath, cut=state.patch.Cutoff;
+    for(let i=0;i<n;i++){
+      const f=i/(n-1); const fall=Math.max(0,1-Math.abs(f-0.12)*1.4); // saw-ish tilt
+      const cutoffRoll=clamp(1-(f - cut/20000)*3,0,1);
+      const mag=(fall*0.8+0.2*Math.random())*cutoffRoll*(0.4+br*0.6);
+      const x=10+f*580, bw=580/n*0.62, bh=mag*170;
+      p+=`<rect x="${x.toFixed(1)}" y="${(190-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${col}" opacity="0.8"/>`;
+    }
+  } else { // pitch
+    const colb=cssv('--vn-bend'), cols=cssv('--vn-slide');
+    const h=hist.Pitchbend, hs=hist.Slide; let d='', d2='';
+    for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600;
+      d+=(i?'L':'M')+x.toFixed(1)+','+(190-h[i]*170).toFixed(1);
+      d2+=(i?'L':'M')+x.toFixed(1)+','+(190-hs[i]*170).toFixed(1);}
+    p+=`<line x1="0" y1="105" x2="600" y2="105" stroke="${cssv('--vn-muted-2')}" stroke-width="1" stroke-dasharray="3 5" opacity="0.5"/>`;
+    p+=`<path d="${d2}" fill="none" stroke="${cols}" stroke-width="1.6" opacity="0.4"/>`;
+    p+=`<path d="${d}" fill="none" stroke="${colb}" stroke-width="2.6" stroke-linecap="round" opacity="0.95"/>`;
+  }
+  svg.innerHTML=p;
+  // voice readout reflects live patch
+  const wave=["Sine","Tri","Sqr","Saw"][Math.min(3,Math.round(state.patch.Morph))];
+  const mode=["LP","BP","HP"][state.patch.Mode];
+  $('#voiceRead').textContent=`${wave} · ${mode} ${(state.patch.Cutoff/1000).toFixed(1)}k`;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Tabs
+// ════════════════════════════════════════════════════════════════════════
+let tab='patch';
+function setTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t)); render(); }
+function render(){ ({patch:renderPatch,matrix:renderMatrix,presets:renderPresets}[tab])(); }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Patch tab — sliders with drag + steppers + typed entry
+// ════════════════════════════════════════════════════════════════════════
+const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterTune:v=>v.toFixed(0)+' ¢',
+  Glide:v=>Math.round(v)+' ms', Morph:v=>v.toFixed(2), PW:v=>v.toFixed(3), default:v=>v.toFixed(2) };
+const RANGE={ Morph:[0,3,.01], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Noise:[0,1,.01], Detune:[-100,100,1],
+  Cutoff:[20,20000,10], Reso:[0,1,.01], Output:[0,1,.01], VelVCA:[0,1,.01], Glide:[0,2000,5], MasterTune:[-100,100,1] };
+
+function pslider(key,label,color="--vn-breath"){
+  return `<div class="pslider" data-pk="${key}">
+    <div class="top"><span class="lbl">${label}</span>
+      <span class="valwrap">
+        <button class="stepper" data-step="-1" aria-label="decrease">−</button>
+        <span class="val num" tabindex="0">…</span>
+        <button class="stepper" data-step="1" aria-label="increase">+</button>
+      </span></div>
+    <div class="track" role="slider" aria-label="${label}">
+      <div class="fill" style="background:var(${color})"></div>
+      <div class="thumb" style="border-color:var(${color})"></div>
+    </div></div>`;
+}
+function renderPatch(){
+  $('#tabbody').innerHTML=`<div class="params">
+    <div class="group"><span class="eyebrow">Oscillator</span>
+      ${pslider('Morph','Morph','--vn-slide')}${pslider('PW','Pulse Width','--vn-slide')}
+      ${pslider('Fold','Wavefold','--vn-slide')}${pslider('Inharm','Inharmonicity','--vn-slide')}
+      ${pslider('Noise','Noise','--vn-slide')}
+      <div class="pslider"><div class="top"><span class="lbl">Noise Type</span></div>
+        <div class="seg">${["White","Pink","Brown"].map((n,i)=>`<button class="${state.patch.NoiseType===i?'active':''}" onclick="setChoice('NoiseType',${i})">${n}</button>`).join('')}</div></div>
+      ${pslider('Detune','Detune','--vn-slide')}
+    </div>
+    <div class="group"><span class="eyebrow">Filter</span>
+      ${pslider('Cutoff','Cutoff','--vn-breath')}${pslider('Reso','Resonance','--vn-breath')}
+      <div class="pslider"><div class="top"><span class="lbl">Mode</span></div>
+        <div class="seg">${["LP","BP","HP"].map((n,i)=>`<button class="${state.patch.Mode===i?'active':''}" onclick="setChoice('Mode',${i})">${n}</button>`).join('')}</div></div>
+    </div>
+    <div class="group"><span class="eyebrow">Performance</span>
+      ${pslider('Output','Output','--vn-pressure')}${pslider('VelVCA','Vel → VCA','--vn-pressure')}
+      ${pslider('Glide','Glide','--vn-pressure')}${pslider('MasterTune','Master Tune','--vn-pressure')}
+      <div class="row2">
+        <div class="pslider"><div class="top"><span class="lbl">Glide Mode</span></div>
+          <div class="seg">${["Time","Rate"].map((n,i)=>`<button class="${state.patch.GlideMode===i?'active':''}" onclick="setChoice('GlideMode',${i})">${n}</button>`).join('')}</div></div>
+        <div class="pslider"><div class="top"><span class="lbl">Glide Curve</span></div>
+          <div class="seg">${["Lin","Exp","RC"].map((n,i)=>`<button class="${state.patch.GlideCurve===i?'active':''}" onclick="setChoice('GlideCurve',${i})">${n}</button>`).join('')}</div></div>
+      </div>
+    </div>
+    <p class="fine-hint">Drag any slider to adjust · hold <kbd>Shift</kbd>/<kbd>Alt</kbd> or drag vertically for fine control · double-click the value to type · <kbd>↑</kbd><kbd>↓</kbd> to nudge · hover for ± steppers.</p>
+  </div>`;
+  document.querySelectorAll('.pslider[data-pk]').forEach(wirePatchSlider);
+}
+function wirePatchSlider(el){
+  const key=el.dataset.pk, [a,b,step]=RANGE[key];
+  const fill=$('.fill',el), thumb=$('.thumb',el), val=$('.val',el), track=$('.track',el);
+  const fmt=()=>{ const v=state.patch[key]; const n=clamp((v-a)/(b-a),0,1);
+    fill.style.width=(n*100)+'%'; thumb.style.left=(n*100)+'%'; val.textContent=(FMT[key]||FMT.default)(v); };
+  attachDrag(track,{get:()=>state.patch[key],set:v=>{state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty();},min:a,max:b,step:step,fineStep:step/5,onMove:fmt});
+  el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ const d=+s.dataset.step*step; state.patch[key]=clamp(state.patch[key]+d,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]}); markDirty(); fmt(); });
+  val.ondblclick=()=>typeEdit(key,val,a,b,fmt);
+  val.onkeydown=e=>{ if(e.key==='Enter')typeEdit(key,val,a,b,fmt); };
+  fmt();
+}
+function typeEdit(key,el,a,b,after){ const cur=state.patch[key];
+  el.innerHTML=`<input class="field-num" value="${(+cur).toFixed(key==='PW'?3:2)}" />`;
+  const inp=$('input',el); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseFloat(inp.value); if(!isNaN(v)){state.patch[key]=clamp(v,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]}); markDirty();} el.textContent=(FMT[key]||FMT.default)(state.patch[key]); after&&after(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape'){el.textContent=(FMT[key]||FMT.default)(state.patch[key]);after&&after();} });
+}
+function setChoice(key,i){ state.patch[key]=i; Bridge.send('setParam',{id:key,value:i}); markDirty(); renderPatch(); }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Matrix tab — full MMStack row (C1)
+// ════════════════════════════════════════════════════════════════════════
+let mmFilter='all';
+function setMmFilter(f){ mmFilter=f; renderMatrix(); }
+function renderMatrix(){
+  const all=state.slots.map((s,i)=>({s,i})).filter(x=>x.s.src!==0);
+  let shown=all;
+  if(mmFilter==='active') shown=all.filter(x=>x.s.on);
+  else if(mmFilter!=='all') shown=all.filter(x=>SOURCES[x.s.src]===mmFilter);
+  const canAdd=state.slots.some(s=>s.src===0);
+  const usedSrc=[...new Set(all.map(x=>SOURCES[x.s.src]))];
+  const filterBtns=['all','active',...usedSrc].map(f=>
+    `<button class="${mmFilter===f?'active':''}" onclick="setMmFilter('${f}')">${f==='all'?'All':f==='active'?'Active':f}</button>`).join('');
+  let body;
+  if(all.length===0){
+    body=`<div class="empty-state"><div class="big">No routes yet</div><div>Add a route to map a source onto a destination.</div></div>
+      <div class="empty-add" onclick="addSlot()">+ add a route — pick source, destination, amount</div>`;
+  } else {
+    body=`<div class="slots">${shown.map(({s,i})=>slotRow(s,i)).join('')||'<div class="empty-state">No routes match this filter.</div>'}
+      ${canAdd?`<div class="empty-add" onclick="addSlot()">+ add a route</div>`:''}</div>`;
+  }
+  $('#tabbody').innerHTML=`
+    <div class="mm-toolbar">
+      <span class="eyebrow" style="flex:1">Routes · ${all.length}/${NUM_SLOTS}</span>
+      <div class="mm-filters">${filterBtns}</div>
+      ${canAdd?'<button class="btn primary" onclick="addSlot()">+ New route</button>':''}
+    </div>
+    ${body}
+    <p class="fine-hint">Drag the amount bar · <kbd>Shift</kbd>/vertical for fine · double-click a number to type · toggle enables a route without deleting its settings.</p>`;
+  shown.forEach(({i})=>wireSlot(i));
+}
+function slotRow(s,i){
+  const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';
+  const pos=s.amt>=0, mag=Math.min(1,Math.abs(s.amt));
+  const ccTxt = BINDABLE[srcName] ? ('CC'+state.cc[srcName]) : (SRC_CC[srcName]||'');
+  return `<div class="slot ${s.on?'':'off'}" data-slot="${i}">
+    <div class="srccell">
+      <div class="srctop">
+        <span class="dot ${SRC_DOT[srcName]||''}"></span>
+        <select onchange="slotSet(${i},'src',+this.value)" aria-label="source">${SOURCES.map((n,k)=>`<option value="${k}" ${k===s.src?'selected':''}>${n}</option>`).join('')}</select>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="cc ${BINDABLE[srcName]?'bindable':''}" ${BINDABLE[srcName]?`ondblclick="ccEdit(${i},'${srcName}',this)" title="double-click to rebind CC#"`:''}>${ccTxt}</span>
+        <span class="rowmeter" style="flex:1"><span class="f" data-rowmeter="${srcName}" style="background:var(${col})"></span></span>
+      </div>
+    </div>
+    <span class="arrow">→</span>
+    <div class="destcell">
+      <select onchange="slotSet(${i},'dst',+this.value)" aria-label="destination" style="width:100%">${DESTS.map((n,k)=>`<option value="${k}" ${k===s.dst?'selected':''}>${n}</option>`).join('')}</select>
+      <div class="hint">amount × source</div>
+    </div>
+    <div class="amt">
+      <div class="head"><span>−1</span><span class="v num" ondblclick="slotType(${i},this)">${(pos?'+':'−')+mag.toFixed(2)}</span><span>+1</span></div>
+      <div class="bipolar" role="slider" aria-label="amount" style="color:var(${col})">
+        <div class="fill" data-bipfill style="background:var(${col})"></div>
+        <div class="center"></div>
+        <div class="thumb" data-bipthumb></div>
+      </div>
+    </div>
+    <div class="miniseg">${CURVES.map((c,k)=>`<button class="${s.curve===k?'active':''}" onclick="slotSet(${i},'curve',${k})">${c.toLowerCase()}</button>`).join('')}</div>
+    <div class="ar">
+      <span class="arf">↑<span class="arv" ondblclick="arEdit(${i},'atk',this)">${s.atk}</span>ms</span>
+      <span class="arf">↓<span class="arv" ondblclick="arEdit(${i},'rel',this)">${s.rel}</span>ms</span>
+    </div>
+    <button class="tog ${s.on?'on':''}" onclick="slotSet(${i},'on',${s.on?0:1})" aria-label="enable route" title="${s.on?'enabled':'disabled'}"></button>
+    <button class="del" title="remove route" onclick="slotDelete(${i})">✕</button>
+  </div>`;
+}
+function wireSlot(i){
+  const row=document.querySelector(`.slot[data-slot="${i}"]`); if(!row)return;
+  const bip=$('.bipolar',row), fill=$('[data-bipfill]',row), thumb=$('[data-bipthumb]',row), v=$('.amt .v',row);
+  const upd=()=>{ const a=state.slots[i].amt, pos=a>=0, mag=Math.min(1,Math.abs(a));
+    fill.style.left=(pos?50:50-mag*50)+'%'; fill.style.width=(mag*50)+'%';
+    thumb.style.left=((a+1)/2*100)+'%'; v.textContent=(pos?'+':'−')+mag.toFixed(2); };
+  attachDrag(bip,{get:()=>state.slots[i].amt,set:val=>{state.slots[i].amt=val; pushSlot(i); markDirty();},min:-1,max:1,step:.01,fineStep:.002,onMove:upd});
+  upd();
+}
+function addSlot(){ const i=state.slots.findIndex(s=>s.src===0); if(i<0)return;
+  state.slots[i]={src:1,dst:1,amt:0.3,curve:0,atk:5,rel:80,on:true}; pushSlot(i); markDirty(); renderMatrix(); }
+function slotDelete(i){ state.slots[i]={src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true}; pushSlot(i); markDirty(); renderMatrix(); }
+function slotSet(i,field,val){ state.slots[i][field]= field==='on'?!!val:val; pushSlot(i); markDirty(); renderMatrix(); }
+function slotType(i,el){ const cur=state.slots[i].amt;
+  el.innerHTML=`<input class="field-num" style="width:60px" value="${cur.toFixed(2)}" />`;
+  const inp=$('input',el); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseFloat(inp.value); if(!isNaN(v)){state.slots[i].amt=clamp(v,-1,1); pushSlot(i); markDirty();} renderMatrix(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderMatrix(); });
+}
+function arEdit(i,field,el){ const cur=state.slots[i][field];
+  el.innerHTML=`<input class="field-num" style="width:46px" value="${cur}" />`;
+  const inp=$('input',el); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseInt(inp.value,10); if(!isNaN(v)){state.slots[i][field]=clamp(v,0,5000); pushSlot(i); markDirty();} renderMatrix(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderMatrix(); });
+}
+function ccEdit(i,src,el){ const cur=state.cc[src];
+  el.innerHTML=`<input class="field-num" style="width:50px" value="${cur}" />`;
+  const inp=$('input',el); inp.focus(); inp.select();
+  const commit=()=>{ const v=parseInt(inp.value,10); if(!isNaN(v)){state.cc[src]=clamp(v,0,127); markDirty();} renderMatrix(); };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderMatrix(); });
+}
+function pushSlot(i){ const s=state.slots[i]; Bridge.send('slotEdit',{slot:i,src:s.src,dst:s.dst,amt:s.amt,curve:s.curve,atk:s.atk,rel:s.rel,on:s.on}); }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Presets tab (E1) — filters, favorites, rename, delete, import/export
+// ════════════════════════════════════════════════════════════════════════
+let PRESETS=[
+  {name:"Reedlike · Lyrical",tags:["breath","mono","soft"],ctrl:"Sylphyo",scale:"12-EDO",fav:true},
+  {name:"Buzz · Clarinet-ish",tags:["breath","fat","reso"],ctrl:"Sylphyo",scale:"12-EDO",fav:false},
+  {name:"Glass Tube",tags:["expr","pure","high"],ctrl:"EWI",scale:"Just",fav:true},
+  {name:"Hex Drone",tags:["mpe","drone","wide"],ctrl:"Exquis",scale:"19-EDO",fav:false},
+  {name:"Bent Reed",tags:["breath","bend","micro"],ctrl:"Sylphyo",scale:"31-EDO",fav:true},
+  {name:"Touch Whisper",tags:["mpe","soft","noise"],ctrl:"Sensel Morph",scale:"Just",fav:false},
+];
+const TAGC={breath:"--vn-breath",expr:"--vn-expr",mpe:"--vn-pressure",bend:"--vn-bend",slide:"--vn-slide"};
+let selPreset=0, pQuery='', pFilter={type:null,value:null};
+const Preset={ step(d){ selPreset=(selPreset+d+PRESETS.length)%PRESETS.length;
+  $('#presetName').textContent=PRESETS[selPreset].name; state.dirty=false; $('#unsaved').classList.remove('on');
+  if(tab==='presets')renderPresets(); Bridge.send('presetLoad',{id:selPreset}); } };
+function pmatch(p){
+  if(pQuery && !(p.name+' '+p.tags.join(' ')).toLowerCase().includes(pQuery.toLowerCase())) return false;
+  if(pFilter.type==='ctrl' && p.ctrl!==pFilter.value) return false;
+  if(pFilter.type==='tag' && !p.tags.includes(pFilter.value)) return false;
+  if(pFilter.type==='scale' && p.scale!==pFilter.value) return false;
+  if(pFilter.type==='fav' && !p.fav) return false;
+  return true;
+}
+function setPFilter(type,value){ if(pFilter.type===type&&pFilter.value===value){pFilter={type:null,value:null};}else{pFilter={type,value};} renderPresets(); }
+function glyphSvg(seed){ let d=''; for(let i=0;i<=20;i++){const x=i/20*46,y=15+Math.sin(i*0.5+seed)*9*Math.sin(i*0.16+seed);d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);} return `<svg width="46" height="30" viewBox="0 0 46 30"><path d="${d}" fill="none" stroke="var(--vn-breath)" stroke-width="1.6" stroke-linecap="round" opacity="0.8"/></svg>`; }
+function renderPresets(){
+  const ctrls=[...new Set(PRESETS.map(p=>p.ctrl))];
+  const tags=[...new Set(PRESETS.flatMap(p=>p.tags))];
+  const scales=[...new Set(PRESETS.map(p=>p.scale))];
+  const f=(type,value,label,count)=>`<div class="filter ${pFilter.type===type&&pFilter.value===value?'on':''}" onclick="setPFilter('${type}','${value}')"><span>${label}</span><span class="c num">${count}</span></div>`;
+  const list=PRESETS.map((p,i)=>({p,i})).filter(x=>pmatch(x.p));
+  const listHtml = list.length? list.map(({p,i})=>`<div class="preset-item ${i===selPreset?'sel':''}" onclick="pickPreset(${i})">
+      <span class="glyph">${glyphSvg(i)}</span>
+      <div><div class="nm">${p.name}</div><div class="tags">${p.tags.map(t=>`<span class="tag" style="background:var(${TAGC[t]||'--vn-muted'})">${t}</span>`).join('')}</div></div>
+      <span class="fav" onclick="event.stopPropagation();toggleFav(${i})">${p.fav?'★':'☆'}</span>
+      <span class="kebab" onclick="event.stopPropagation();toggleMenu(${i},this)">⋯<div class="menu" id="menu_${i}">
+        <button onclick="event.stopPropagation();renamePreset(${i})">Rename</button>
+        <button onclick="event.stopPropagation();duplicatePreset(${i})">Duplicate</button>
+        <button class="danger" onclick="event.stopPropagation();deletePreset(${i})">Delete</button></div></span>
+    </div>`).join('')
+    : `<div class="empty-state"><div class="big">No presets match</div><div>Clear filters or save a new patch.</div></div>`;
+  $('#tabbody').innerHTML=`<div class="preset-grid">
+    <div class="preset-side">
+      <input class="search" placeholder="search presets…" value="${pQuery}" oninput="pQuery=this.value;renderPresets()" />
+      <div class="filter-group"><span class="eyebrow">Favorites</span>${f('fav','1','★ Favorites',PRESETS.filter(p=>p.fav).length)}</div>
+      <div class="filter-group"><span class="eyebrow">Controller</span>${ctrls.map(c=>f('ctrl',c,c,PRESETS.filter(p=>p.ctrl===c).length)).join('')}</div>
+      <div class="filter-group"><span class="eyebrow">Tag</span>${tags.map(t=>f('tag',t,t,PRESETS.filter(p=>p.tags.includes(t)).length)).join('')}</div>
+      <div class="filter-group"><span class="eyebrow">Scale</span>${scales.map(s=>f('scale',s,s,PRESETS.filter(p=>p.scale===s).length)).join('')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" onclick="savePreset()">+ Save current</button>
+        <button class="btn" onclick="importExport()">Import / Export</button>
+      </div>
+    </div>
+    <div class="preset-list">${listHtml}</div>
+  </div>`;
+}
+function pickPreset(i){ selPreset=i; $('#presetName').textContent=PRESETS[i].name; state.dirty=false; $('#unsaved').classList.remove('on'); Bridge.send('presetLoad',{id:i}); renderPresets(); }
+function toggleFav(i){ PRESETS[i].fav=!PRESETS[i].fav; renderPresets(); }
+let openMenu=null;
+function toggleMenu(i,el){ const m=$('#menu_'+i); const willOpen=!m.classList.contains('open');
+  document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open'));
+  if(willOpen)m.classList.add('open'); }
+document.addEventListener('click',e=>{ if(!e.target.closest('.kebab'))document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open')); });
+function savePreset(){ const name='New Patch '+(PRESETS.length+1); PRESETS.push({name,tags:["breath"],ctrl:"Sylphyo",scale:"12-EDO",fav:false}); selPreset=PRESETS.length-1; $('#presetName').textContent=name; state.dirty=false; $('#unsaved').classList.remove('on'); Bridge.send('presetSave',{name}); renderPresets(); }
+function duplicatePreset(i){ const c={...PRESETS[i],name:PRESETS[i].name+' copy',fav:false,tags:[...PRESETS[i].tags]}; PRESETS.splice(i+1,0,c); renderPresets(); }
+function deletePreset(i){ PRESETS.splice(i,1); if(PRESETS.length===0){$('#presetName').textContent='—';} else { selPreset=Math.min(selPreset,PRESETS.length-1); $('#presetName').textContent=PRESETS[selPreset].name; } Bridge.send('presetDelete',{id:i}); renderPresets(); }
+
+// ── Modals ──────────────────────────────────────────────────────────────
+function openModal(html){ $('#modal').innerHTML=html; $('#scrim').classList.add('open'); }
+function closeModal(){ $('#scrim').classList.remove('open'); }
+function renamePreset(i){
+  openModal(`<h3>Rename preset</h3><p>Give this patch a memorable name.</p>
+    <input class="rn" id="rnInp" value="${PRESETS[i].name}" />
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="commitRename(${i})">Save</button></div>`);
+  setTimeout(()=>{const e=$('#rnInp');e.focus();e.select();e.onkeydown=ev=>{if(ev.key==='Enter')commitRename(i);};},30);
+}
+function commitRename(i){ const v=$('#rnInp').value.trim(); if(v){PRESETS[i].name=v; if(i===selPreset)$('#presetName').textContent=v;} closeModal(); renderPresets(); }
+function importExport(){
+  const txt=JSON.stringify(PRESETS,null,2);
+  openModal(`<h3>Import / Export presets</h3><p>Portable text — the escape hatch that keeps presets shareable (replaces the old clipboard workaround).</p>
+    <textarea id="ioTxt">${txt.replace(/</g,'&lt;')}</textarea>
+    <div class="actions"><button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copyIo()">Copy</button><button class="btn primary" onclick="applyIo()">Import</button></div>`);
+}
+function copyIo(){ const t=$('#ioTxt'); t.select(); try{document.execCommand('copy');}catch(e){} }
+function applyIo(){ try{ const v=JSON.parse($('#ioTxt').value); if(Array.isArray(v)&&v.length){PRESETS=v; selPreset=0; $('#presetName').textContent=PRESETS[0].name;} closeModal(); renderPresets(); }catch(e){ alert('Could not parse — expecting a JSON array of presets.'); } }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Misc UI + states (E2)
+// ════════════════════════════════════════════════════════════════════════
+let mono=true;
+function toggleMono(){ mono=!mono; $('#monoBtn').textContent=mono?'Mono':'Poly'; Bridge.send('setParam',{id:'monoMode',value:mono?1:0}); markDirty(); }
+function toggleTheme(){ const r=document.documentElement; r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'; }
+function toggleMts(){ state.mts=!state.mts; const c=$('#tuningChip');
+  if(state.mts){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; Bridge.send('reconnectMts'); }
+  else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } }
+
+// ── Incoming bridge events (real plugin pushes these) ────────────────────
+Bridge.on('meters',m=>{ Object.assign(state.meters,m); if(!state.sim) tickMeters(); });
+Bridge.on('paramChanged',({id,value})=>{
+  if(id==='monoMode'){ mono=value>0.5; const b=$('#monoBtn'); if(b)b.textContent=mono?'Mono':'Poly'; return; }
+  if(id in state.patch){ state.patch[id]=value; if(tab==='patch')renderPatch(); } });
+Bridge.on('tuningStatus',({connected})=>{ state.mts=connected; const c=$('#tuningChip'); if(!c)return;
+  if(connected){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; }
+  else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } });
+Bridge.on('controllerLabel',({name})=>{ const c=document.querySelector('.header .chip:not(.ghost)');
+  if(c) c.innerHTML='<span class="dot expr"></span>'+(name||'Generic MPE'); });
+// Full slot snapshot (on boot + after preset load) → refresh the matrix.
+Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
+  slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
+  if(tab==='matrix')renderMatrix(); });
+// Real preset library from PresetManager.
+Bridge.on('presetList',({presets,selected})=>{ if(!Array.isArray(presets))return;
+  PRESETS = presets.map(p=>typeof p==='string'?{name:p,tags:[],ctrl:'',scale:'',fav:false}:p);
+  if(typeof selected==='number') selPreset=selected;
+  const nm=PRESETS[selPreset]; if(nm)$('#presetName').textContent=nm.name;
+  if(tab==='presets')renderPresets(); });
+
+// ── Boot + mock animation loop ───────────────────────────────────────────
+state.sim = !HAS_JUCE;                 // live data from the plugin when embedded
+buildMeters(); render(); Bridge.send('uiReady');
+setInterval(()=>{
+  if(!state.sim) return;
+  simT+=0.06;
+  state.meters.Breath     = (Math.sin(simT)*0.5+0.5)*0.9;
+  state.meters.Expression = (Math.sin(simT*0.7+1)*0.5+0.5)*0.6;
+  state.meters.Pressure   = (Math.sin(simT*1.3+2)*0.5+0.5)*0.5;
+  state.meters.Slide      = (Math.sin(simT*0.5+0.5)*0.5+0.5);
+  state.meters.Velocity   = 0.4;
+  state.meters.Pitchbend  = Math.sin(simT*0.4)*0.4+0.5;
+  tickMeters();
+},40);
+</script>
+</body>
+</html>

@@ -154,6 +154,7 @@ target_sources(Vane PRIVATE
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
     Source/Preset/PresetManager.cpp
+    Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp
     Source/Tests/StringSafetyTests.cpp
     Source/Tests/TuningTests.cpp
@@ -161,8 +162,19 @@ target_sources(Vane PRIVATE
 
 target_include_directories(Vane PRIVATE Source)
 
+# ── WebUI bundle ──────────────────────────────────────────────────────────────
+# Compile the self-contained UI (Source/WebUI/index.html) into BinaryData; the
+# WebVaneEditor resource provider serves it to the WKWebView (no local server).
+# HEADER_NAME keeps it in its own header so it never clashes with other binary
+# data; linking the target adds its include dir for <BinaryDataWebUI.h>.
+juce_add_binary_data(VaneWebUI
+    HEADER_NAME BinaryDataWebUI.h
+    NAMESPACE   BinaryData
+    SOURCES     Source/WebUI/index.html)
+target_link_libraries(Vane PRIVATE VaneWebUI)
+
 target_compile_definitions(Vane PUBLIC
-    JUCE_WEB_BROWSER=0
+    JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
