@@ -335,6 +335,10 @@ void SynthVoice::noteStarted()
     // voice was using (setResonance then setCutoff), then restore s1/s2.  The coefficient
     // prime MUST come before setState so the states are interpreted correctly.
     if (isMono && isLegato) {
+        // Tell the first render block to snap the timbre smoothers to their
+        // continuous targets rather than ramp from stale per-voice state.
+        legatoHandoffPending = true;
+
         if (sharedOscPhase)
             osc.reset(sharedOscPhase->load());
 
@@ -490,9 +494,6 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                       0.0f, 3.0f);
     float activePW       = std::clamp(basePW   + mods[ModDestID::OscPulseWidth],
                                       0.5f, 0.999f);
-    // Feed activePW into the per-sample smoother so block-rate mod updates
-    // (from BWS Expressions or mod-matrix routes) are also interpolated.
-    smoothedPW.setTargetValue(activePW);
 
     // Noise: blend amount (0=pure wave, 1=pure noise) and character.
     // OscNoiseMix mod is additive — a +1 route sweeps from 0 to full noise.
@@ -509,12 +510,26 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // costly per sample), then ramp the drive per sample to avoid zipper.
     float foldBase   = paramFold ? paramFold->load() : 0.0f;
     float activeFold = std::clamp(foldBase + mods[ModDestID::OscFold], 0.0f, 1.0f);
-    smoothedFoldDrive.setTargetValue(Oscillator::foldDrive(activeFold));
+    float foldDriveTgt = Oscillator::foldDrive(activeFold);
 
     // Inharmonicity: base param + per-voice OscInharm mod, clamped 0..1.
     float inharmBase   = paramInharm ? paramInharm->load() : 0.0f;
     float activeInharm = std::clamp(inharmBase + mods[ModDestID::OscInharm], 0.0f, 1.0f);
-    smoothedInharm.setTargetValue(activeInharm);
+
+    // Timbre smoothers: on a mono-legato handoff snap straight to target (the
+    // previous note's value is continuous with this one), otherwise ramp per
+    // sample.  Snapping avoids an audible 3 ms ramp from this voice's stale
+    // per-voice state at the note boundary when PW / Fold / Inharm are active.
+    if (legatoHandoffPending) {
+        smoothedPW.setCurrentAndTargetValue(activePW);
+        smoothedFoldDrive.setCurrentAndTargetValue(foldDriveTgt);
+        smoothedInharm.setCurrentAndTargetValue(activeInharm);
+        legatoHandoffPending = false;
+    } else {
+        smoothedPW.setTargetValue(activePW);
+        smoothedFoldDrive.setTargetValue(foldDriveTgt);
+        smoothedInharm.setTargetValue(activeInharm);
+    }
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
     // Cutoff is smoothed per-sample via smoothedCutoff to eliminate the coefficient
@@ -553,6 +568,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         }
         // Advance all smoothers one sample each.
         filter.setCutoff(smoothedCutoff.getNextValue());
+        float subGain = 1.0f;
         {
             float hzBase;
             if (useExpGlide) {
@@ -571,7 +587,17 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             } else {
                 hzBase = smoothedHz.getNextValue();
             }
-            osc.setFrequency(hzBase * smoothedPitchMult.getNextValue());
+            const float reqHz = hzBase * smoothedPitchMult.getNextValue();
+            osc.setFrequency(reqHz);
+
+            // Anti-DC-thump: setFrequency() floors hz at 1, so a gesture that
+            // drives the pitch sub-audio (a deep glide or a large pitchbend with
+            // a wide PB range) would freeze the oscillator at a near-constant DC
+            // level and emit a thump rather than a clean low/silent transition.
+            // Fade the output to silence below the audible range.  The ramp
+            // (4 → 12 Hz) is well below any musical note (A0 ≈ 27.5 Hz), so real
+            // low notes are unaffected, and a glide passing through is click-free.
+            subGain = juce::jlimit(0.0f, 1.0f, (reqHz - 4.0f) * (1.0f / 8.0f));
         }
         float gain = smoothedVCA.getNextValue();
 
@@ -628,7 +654,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         // Wavefold (pre-filter): reshapes the osc+noise signal, multiplying
         // harmonics.  Transparent at drive 1; the filter tames fold-induced
         // brightness.  wavefold() early-outs when drive is negligible.
-        float folded = Oscillator::wavefold(rawSample, smoothedFoldDrive.getNextValue());
+        // subGain mutes the pre-filter signal when the pitch is sub-audio, so the
+        // filter settles to zero (no DC charge) instead of holding a thump.
+        float folded = Oscillator::wavefold(rawSample, smoothedFoldDrive.getNextValue())
+                       * subGain;
 
         float sample = filter.process(folded, filterMode) * gain * tailLevel;
         left[i] += sample;

@@ -131,6 +131,14 @@ private:
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 
+    // Set by noteStarted() on a mono-legato attack, consumed by the first
+    // renderNextBlock().  Tells the render loop to SNAP the timbre smoothers
+    // (PW / Fold / Inharm) straight to their first computed target instead of
+    // ramping from this voice's stale per-voice value — so legato transitions
+    // stay smooth when those effects are active (their targets are CC74-driven
+    // and continuous across the note boundary).
+    bool legatoHandoffPending = false;
+
     // Per-voice slewers for voice-source routes — one entry per ModMatrix route,
     // mirroring each route's attack/release config.  Initialised in prepare() via
     // modMatrix.initVoiceSlewers().  Passed to modMatrix.evaluate() so that MPE
