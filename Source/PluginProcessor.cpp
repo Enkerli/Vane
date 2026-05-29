@@ -167,6 +167,11 @@ VaneProcessor::VaneProcessor()
     auto* pPressFoldAmt  = apvts.getRawParameterValue("pressFoldAmt");
     auto* pSlideInhAmt   = apvts.getRawParameterValue("slideInharmAmt");
     auto* pPressInhAmt   = apvts.getRawParameterValue("pressInharmAmt");
+    auto* pBreathMorphAmt = apvts.getRawParameterValue("breathMorphAmt");
+    auto* pBreathPWAmt    = apvts.getRawParameterValue("breathPWAmt");
+    auto* pBreathNoiseAmt = apvts.getRawParameterValue("breathNoiseAmt");
+    auto* pBreathFoldAmt  = apvts.getRawParameterValue("breathFoldAmt");
+    auto* pBreathInhAmt   = apvts.getRawParameterValue("breathInharmAmt");
     auto* pSlideMorphCrv = apvts.getRawParameterValue("slideMorphCurve");
     auto* pPressMorphCrv = apvts.getRawParameterValue("pressMorphCurve");
     auto* pSlidePWCrv    = apvts.getRawParameterValue("slidePWCurve");
@@ -177,6 +182,11 @@ VaneProcessor::VaneProcessor()
     auto* pPressFoldCrv  = apvts.getRawParameterValue("pressFoldCurve");
     auto* pSlideInhCrv   = apvts.getRawParameterValue("slideInharmCurve");
     auto* pPressInhCrv   = apvts.getRawParameterValue("pressInharmCurve");
+    auto* pBreathMorphCrv = apvts.getRawParameterValue("breathMorphCurve");
+    auto* pBreathPWCrv    = apvts.getRawParameterValue("breathPWCurve");
+    auto* pBreathNoiseCrv = apvts.getRawParameterValue("breathNoiseCurve");
+    auto* pBreathFoldCrv  = apvts.getRawParameterValue("breathFoldCurve");
+    auto* pBreathInhCrv   = apvts.getRawParameterValue("breathInharmCurve");
 
     modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscWaveshape,
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideMorphAmt, pSlideMorphCrv);
@@ -198,6 +208,21 @@ VaneProcessor::VaneProcessor()
                        0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideInhAmt,   pSlideInhCrv);
     modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscInharm,
                        0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressInhAmt,   pPressInhCrv);
+
+    // Breath → osc-timbre destinations.  Breath is the wind controller's primary
+    // expression, so route it to every timbre dest (previously only Slide/Pressure
+    // were available — forcing a host-modulator workaround for breath→inharm).
+    // Atk/rel match the breath→cutoff routes (slower than slide).  All default 0.
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscWaveshape,
+                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathMorphAmt, pBreathMorphCrv);
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscPulseWidth,
+                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathPWAmt,    pBreathPWCrv);
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscNoiseMix,
+                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathNoiseAmt, pBreathNoiseCrv);
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscFold,
+                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathFoldAmt,  pBreathFoldCrv);
+    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscInharm,
+                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathInhAmt,   pBreathInhCrv);
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
@@ -609,6 +634,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"pressInharmAmt", 1}, "Pressure to Inharm",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // Breath → osc-timbre amounts (ranges match each destination's scaling).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathMorphAmt", 1}, "Breath to Morph",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathPWAmt", 1}, "Breath to PW",
+        juce::NormalisableRange<float>(0.0f, 0.5f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathNoiseAmt", 1}, "Breath to Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathFoldAmt", 1}, "Breath to Fold",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"breathInharmAmt", 1}, "Breath to Inharm",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // ── Modulation route curve shapes ─────────────────────────────────────────
     // One integer-stepped parameter per route (0=lin, 1=exp, 2=S).
@@ -645,6 +686,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     makeCurveParam("pressFoldCurve",    "Pressure to Fold Curve",     0.0f); // lin
     makeCurveParam("slideInharmCurve",  "Slide to Inharm Curve",      0.0f); // lin
     makeCurveParam("pressInharmCurve",  "Pressure to Inharm Curve",   0.0f); // lin
+    makeCurveParam("breathMorphCurve",  "Breath to Morph Curve",      0.0f); // lin
+    makeCurveParam("breathPWCurve",     "Breath to PW Curve",         0.0f); // lin
+    makeCurveParam("breathNoiseCurve",  "Breath to Noise Curve",      0.0f); // lin
+    makeCurveParam("breathFoldCurve",   "Breath to Fold Curve",       0.0f); // lin
+    makeCurveParam("breathInharmCurve", "Breath to Inharm Curve",     0.0f); // lin
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

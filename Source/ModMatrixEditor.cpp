@@ -144,7 +144,7 @@ void ModMatrixEditor::buildRoutes()
     using D = ModDestID;
     using C = ModRoute::CurveShape;
 
-    // Mirrors the 21 default routes added in VaneProcessor::VaneProcessor().
+    // Mirrors the 26 default routes added in VaneProcessor::VaneProcessor().
     // Index in this table == route index in the ModMatrix (determines which
     // per-voice slewer slot is used).  Keep in sync with PluginProcessor.cpp.
     struct Spec {
@@ -183,6 +183,12 @@ void ModMatrixEditor::buildRoutes()
         { M::MacroPressure, D::OscFold,      "Pressure","Fold",   "pressFoldAmt",    "pressFoldCurve",   C::Linear,      2,  30 },
         { M::MacroSlide,    D::OscInharm,    "Slide",   "Inharm", "slideInharmAmt",  "slideInharmCurve", C::Linear,      2,  20 },
         { M::MacroPressure, D::OscInharm,    "Pressure","Inharm", "pressInharmAmt",  "pressInharmCurve", C::Linear,      2,  30 },
+        // Breath → osc-timbre destinations.
+        { M::MacroBreath,   D::OscWaveshape, "Breath",  "Morph",  "breathMorphAmt",  "breathMorphCurve", C::Linear,      5,  80 },
+        { M::MacroBreath,   D::OscPulseWidth,"Breath",  "PW",     "breathPWAmt",     "breathPWCurve",    C::Linear,      5,  80 },
+        { M::MacroBreath,   D::OscNoiseMix,  "Breath",  "Noise",  "breathNoiseAmt",  "breathNoiseCurve", C::Linear,      5,  80 },
+        { M::MacroBreath,   D::OscFold,      "Breath",  "Fold",   "breathFoldAmt",   "breathFoldCurve",  C::Linear,      5,  80 },
+        { M::MacroBreath,   D::OscInharm,    "Breath",  "Inharm", "breathInharmAmt", "breathInharmCurve",C::Linear,      5,  80 },
     };
 
     routeDescs.reserve(std::size(specs));
