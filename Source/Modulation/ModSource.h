@@ -70,3 +70,76 @@ struct ModDestID {
 
     static constexpr int NumDests = 10;
 };
+
+// ── Generic mod-slot model ──────────────────────────────────────────────────────
+//
+// The fixed-route table is being replaced by a pool of NumSlots identical slots,
+// each configured at runtime through APVTS params: source (choice), dest (choice),
+// amount (float -1..1) and curve (choice).  This namespace holds the single source
+// of truth for the choice lists and the choice→internal-ID mappings, shared by the
+// processor (param layout + defaults), the ModMatrix (evaluate) and the editor.
+namespace ModSlots {
+    static constexpr int NumSlots = 24;
+
+    // Source choice list.  Index 0 = "Off" (slot inactive).  The rest map to the
+    // abstract macro IDs (so the concrete CC/AT/MPE binding stays runtime-swappable)
+    // except Velocity which is a direct voice source.
+    inline const char* const kSourceNames[] = {
+        "Off", "Breath", "Expression", "Pressure", "Slide", "Pitchbend", "Velocity"
+    };
+    static constexpr int NumSourceChoices = 7;
+
+    // Destination choice list.  Maps to ModDestID values.
+    inline const char* const kDestNames[] = {
+        "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm"
+    };
+    static constexpr int NumDestChoices = 9;
+
+    // Curve choice list (matches ModRoute::CurveShape integer order).
+    inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
+    static constexpr int NumCurveChoices = 3;
+
+    // choice index → ModSourceID.  Returns -1 for "Off"/out-of-range.
+    inline int sourceId(int choice) {
+        switch (choice) {
+            case 1: return ModSourceID::MacroBreath;
+            case 2: return ModSourceID::MacroExpr;
+            case 3: return ModSourceID::MacroPressure;
+            case 4: return ModSourceID::MacroSlide;
+            case 5: return ModSourceID::MacroPitchbend;
+            case 6: return ModSourceID::Velocity;
+            default: return -1;   // Off
+        }
+    }
+
+    // choice index → ModDestID.  Returns -1 for out-of-range.
+    inline int destId(int choice) {
+        switch (choice) {
+            case 0: return ModDestID::VCALevel;
+            case 1: return ModDestID::FilterCutoff;
+            case 2: return ModDestID::FilterRes;
+            case 3: return ModDestID::OscPitchFine;
+            case 4: return ModDestID::OscWaveshape;
+            case 5: return ModDestID::OscPulseWidth;
+            case 6: return ModDestID::OscFold;
+            case 7: return ModDestID::OscNoiseMix;
+            case 8: return ModDestID::OscInharm;
+            default: return -1;
+        }
+    }
+
+    // Slew attack/release (ms) derived from the SOURCE's physical behaviour rather
+    // than stored per slot: breath/expression/pressure are smooth and slow; slide
+    // and pitchbend track fast; velocity is effectively instantaneous.  This keeps
+    // the per-slot param count down while matching the old fixed-route feel.
+    // (A future revision can expose per-slot atk/rel once the WebView UI is ready.)
+    inline void slewRates(int sourceChoice, float& atkMs, float& relMs) {
+        switch (sourceChoice) {
+            case 1: case 2: atkMs = 5.0f; relMs = 80.0f; break;  // Breath / Expression
+            case 3:         atkMs = 3.0f; relMs = 50.0f; break;  // Pressure
+            case 4: case 5: atkMs = 2.0f; relMs = 20.0f; break;  // Slide / Pitchbend
+            case 6:         atkMs = 20.0f; relMs = 0.0f; break;  // Velocity
+            default:        atkMs = 5.0f; relMs = 30.0f; break;
+        }
+    }
+}

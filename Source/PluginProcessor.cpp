@@ -224,6 +224,17 @@ VaneProcessor::VaneProcessor()
     modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscInharm,
                        0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathInhAmt,   pBreathInhCrv);
 
+    // ── Generic mod-slot pool ─────────────────────────────────────────────────
+    // 24 configurable slots, evaluated after the legacy routes.  Default Off, so
+    // additive-neutral until driven by the UI / host automation.
+    for (int n = 0; n < ModSlots::NumSlots; ++n) {
+        const juce::String base = "modSlot" + juce::String(n);
+        modMatrix.addSlot(apvts.getRawParameterValue(base + "_src"),
+                          apvts.getRawParameterValue(base + "_dst"),
+                          apvts.getRawParameterValue(base + "_amt"),
+                          apvts.getRawParameterValue(base + "_curve"));
+    }
+
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
     juce::UnitTestRunner runner;
@@ -691,6 +702,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     makeCurveParam("breathNoiseCurve",  "Breath to Noise Curve",      0.0f); // lin
     makeCurveParam("breathFoldCurve",   "Breath to Fold Curve",       0.0f); // lin
     makeCurveParam("breathInharmCurve", "Breath to Inharm Curve",     0.0f); // lin
+
+    // ── Generic mod-slot pool (free routing backend) ──────────────────────────
+    // NumSlots identical configurable slots, each source/dest/amount/curve.
+    // All default to OFF (source choice 0) so they are an additive, behaviour-
+    // neutral layer alongside the legacy fixed routes — the WebView matrix UI and
+    // host automation drive them.  (The legacy factory routes will migrate INTO
+    // these slots in a later step, once the new UI replaces the native editor.)
+    {
+        juce::StringArray srcChoices, dstChoices, curveChoices;
+        for (int i = 0; i < ModSlots::NumSourceChoices; ++i) srcChoices.add(ModSlots::kSourceNames[i]);
+        for (int i = 0; i < ModSlots::NumDestChoices;   ++i) dstChoices.add(ModSlots::kDestNames[i]);
+        for (int i = 0; i < ModSlots::NumCurveChoices;  ++i) curveChoices.add(ModSlots::kCurveNames[i]);
+
+        for (int n = 0; n < ModSlots::NumSlots; ++n) {
+            const juce::String base = "modSlot" + juce::String(n);
+            const juce::String human = "Slot " + juce::String(n) + " ";
+            layout.add(std::make_unique<juce::AudioParameterChoice>(
+                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(
+                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(
+                juce::ParameterID{ base + "_amt", 1 },   human + "Amount",
+                juce::NormalisableRange<float>(-1.0f, 1.0f), 0.0f));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(
+                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, 0));
+        }
+    }
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

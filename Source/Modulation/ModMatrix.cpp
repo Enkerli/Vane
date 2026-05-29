@@ -22,6 +22,20 @@ static float applyCurve(float x, ModRoute::CurveShape curve)
     return x;
 }
 
+// Effective source/dest of a route: a configurable slot reads its live source/
+// dest CHOICE from its params (mapped to internal IDs); a fixed route uses the
+// stored source/dest.  Returns -1 when Off / invalid (caller skips the route).
+static int effSource(const ModRoute& r) {
+    if (r.sourceParam)
+        return ModSlots::sourceId(static_cast<int>(std::lround(r.sourceParam->load())));
+    return r.source;
+}
+static int effDest(const ModRoute& r) {
+    if (r.destParam)
+        return ModSlots::destId(static_cast<int>(std::lround(r.destParam->load())));
+    return r.dest;
+}
+
 void ModMatrix::prepare(double sr, int bs)
 {
     sampleRate = sr;
@@ -91,7 +105,26 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
 
     for (size_t i = 0; i < routes.size(); ++i) {
         auto& route = routes[i];
-        float raw   = getSourceValue(route.source, voiceVals);
+
+        // Live source/dest (slot-aware).  Skip inactive slots (source Off) and
+        // any route whose mapping is out of range.
+        const int src  = effSource(route);
+        const int dest = effDest(route);
+        if (src < 0 || dest < 0)
+            continue;
+
+        // Configurable slots derive their slew rate from the live source and push
+        // it to whichever slewer they will use this block (cheap: 2 exp/block).
+        if (route.sourceParam) {
+            float atk, rel;
+            ModSlots::slewRates(static_cast<int>(std::lround(route.sourceParam->load())),
+                                atk, rel);
+            route.slewer.setRates(atk, rel);
+            if (i < voiceSlewers.size())
+                voiceSlewers[i].setRates(atk, rel);
+        }
+
+        float raw = getSourceValue(src, voiceVals);
 
         // Decide which slewer pool to use for this route.
         //
@@ -106,11 +139,10 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
         // slewer even though MacroBreath is nominally CC-backed.  isMacroVoice
         // catches this case so the per-voice slewer is used whenever a macro
         // resolves to a per-voice dimension, regardless of its default backing.
-        int  macroIdx     = route.source - ModSourceID::Macro;
+        int  macroIdx     = src - ModSourceID::Macro;
         bool isMacroVoice = (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros
                              && macroVoiceBacking[macroIdx] >= 0);
-        bool isVoiceSource = (route.source >= 0
-                              && route.source < ModSourceID::NumVoiceSources)
+        bool isVoiceSource = (src >= 0 && src < ModSourceID::NumVoiceSources)
                           || isMacroVoice;
         float slewed = isVoiceSource
                        ? (i < voiceSlewers.size() ? voiceSlewers[i].process(raw) : raw)
@@ -131,8 +163,7 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
         // Multiple routes pushing the same destination are additive but bounded:
         // two routes each contributing +0.8 → +1.0, not +1.6.
         // This is intentional — destinations are normalised offsets, not voltages.
-        result[route.dest] = std::clamp(
-            result[route.dest] + contribution, -1.0f, 1.0f);
+        result[dest] = std::clamp(result[dest] + contribution, -1.0f, 1.0f);
     }
 
     return result;
@@ -155,7 +186,8 @@ void ModMatrix::resetVoiceSlewers(std::vector<Slewer>& voiceSlewers,
     // noteStarted() would snap the global CC state to the new voice's value,
     // producing a brief discontinuity audible across all simultaneous notes.
     for (size_t i = 0; i < routes.size() && i < voiceSlewers.size(); ++i) {
-        int src = routes[i].source;
+        int src = effSource(routes[i]);   // slot-aware
+        if (src < 0) continue;
 
         // Direct voice source (MPE dims, velocity)
         if (src >= 0 && src < ModSourceID::NumVoiceSources) {
@@ -192,6 +224,22 @@ void ModMatrix::addRoute(int source, int dest, float amount,
     r.curveParam  = curveParam;
     r.slewer.prepare(sampleRate, blockSize);
     r.slewer.setRates(attackMs, releaseMs);
+    routes.push_back(std::move(r));
+}
+
+void ModMatrix::addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
+                         std::atomic<float>* amountParam, std::atomic<float>* curveParam)
+{
+    // Called stopped-only — see addRoute / thread model.
+    ModRoute r;
+    r.sourceParam = sourceParam;
+    r.destParam   = destParam;
+    r.amountParam = amountParam;
+    r.curveParam  = curveParam;
+    // Slew rates are set live per block from the slot's source; init to a sane
+    // default so the first block before evaluate() has valid coefficients.
+    r.slewer.prepare(sampleRate, blockSize);
+    r.slewer.setRates(r.attackMs, r.releaseMs);
     routes.push_back(std::move(r));
 }
 

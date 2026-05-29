@@ -33,6 +33,15 @@ struct ModRoute {
     // this param (0=lin, 1=exp, 2=S) instead of the static `curve` enum.
     // Allows the ModMatrix UI to change curve shape without rebuilding routes.
     std::atomic<float>* curveParam  = nullptr;
+
+    // ── Generic-slot params ───────────────────────────────────────────────────
+    // When non-null these make the route a configurable "slot": evaluate() reads
+    // the live source/destination CHOICE from these params each block (mapped via
+    // ModSlots::sourceId / destId) instead of using the fixed `source`/`dest`.
+    // sourceChoice 0 ("Off") disables the slot.  Slew rates are derived from the
+    // live source via ModSlots::slewRates.
+    std::atomic<float>* sourceParam = nullptr;
+    std::atomic<float>* destParam   = nullptr;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -117,6 +126,13 @@ public:
                   ModRoute::CurveShape curve = ModRoute::CurveShape::Linear,
                   std::atomic<float>* amountParam = nullptr,
                   std::atomic<float>* curveParam  = nullptr);
+
+    // Add a generic configurable slot.  All four params are APVTS raw-value
+    // pointers: source choice, dest choice, amount (-1..1), curve choice.
+    // Stopped-only (mutates the routes vector) — call before audio starts.
+    void addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
+                 std::atomic<float>* amountParam, std::atomic<float>* curveParam);
+
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
 

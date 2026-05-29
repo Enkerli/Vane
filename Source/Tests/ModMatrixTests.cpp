@@ -25,6 +25,7 @@ public:
         slewerResetSnapsCorrectly();
         exponentialCurveShaping();
         amountParamOverridesAmount();
+        genericSlotRouting();
     }
 
 private:
@@ -157,6 +158,43 @@ private:
         liveAmount = 0.5f;
         auto result2 = mm.evaluate(vals, sl);
         expectWithinAbsoluteError(result2[ModDestID::VCALevel], 0.5f, 0.001f);
+    }
+
+    // ── 5. Generic slot routing ───────────────────────────────────────────────
+    // A configurable slot reads source/dest/amount/curve live from APVTS-style
+    // atomics.  Verify: (a) a slot set to Slide→Cutoff routes correctly, (b) the
+    // dest follows the dest choice, and (c) source "Off" (choice 0) disables it.
+    void genericSlotRouting()
+    {
+        beginTest("generic slot routing");
+
+        std::atomic<float> src { (float) 4 };  // 4 = Slide
+        std::atomic<float> dst { (float) 1 };  // 1 = Cutoff
+        std::atomic<float> amt { 1.0f };
+        std::atomic<float> crv { 0.0f };       // Lin
+
+        ModMatrix mm;
+        mm.prepare(44100.0, 512);
+        mm.addSlot(&src, &dst, &amt, &crv);
+
+        std::vector<Slewer> sl;
+        mm.initVoiceSlewers(sl, 44100.0, 512);
+
+        auto vals = makeVoiceVals(0.0f, +1.0f, 0.0f, 0.0f);  // slide fully open
+        std::array<float, ModDestID::NumDests> r {};
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);  // settle slew
+        expectWithinAbsoluteError(r[ModDestID::FilterCutoff], 1.0f, 0.02f);
+
+        // Re-point the destination to Reso; cutoff should fall silent.
+        dst = (float) 2;  // 2 = Reso
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);
+        expectWithinAbsoluteError(r[ModDestID::FilterCutoff], 0.0f, 0.001f);
+        expectWithinAbsoluteError(r[ModDestID::FilterRes],    1.0f, 0.02f);
+
+        // Source Off disables the slot entirely.
+        src = 0.0f;
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);
+        expectWithinAbsoluteError(r[ModDestID::FilterRes], 0.0f, 0.001f);
     }
 };
 
