@@ -53,181 +53,17 @@ VaneProcessor::VaneProcessor()
     zone.setLowerZone(15);
     synth.setZoneLayout(zone);
 
-    // ── Mod-matrix route amount parameters ────────────────────────────────────
-    // These pointers are passed to addRoute() so the synth reads live values
-    // from the APVTS on every audio block — no rebuild required to tweak amounts.
-    auto* pCC74CutAmt   = apvts.getRawParameterValue("cc74CutoffAmt");
-    auto* pBreathCutAmt = apvts.getRawParameterValue("breathCutoffAmt");
-    auto* pPressCutAmt  = apvts.getRawParameterValue("pressCutoffAmt");
-    auto* pVeloCutAmt   = apvts.getRawParameterValue("veloCutoffAmt");
-    auto* pBreathResAmt = apvts.getRawParameterValue("breathResAmt");
-    auto* pCC74ResAmt   = apvts.getRawParameterValue("cc74ResAmt");
-
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
     pMacroExprCC    = apvts.getRawParameterValue("macroExprCC");
 
-    // ── Default modulation routes ─────────────────────────────────────────────
-    //
-    // All routes use abstract macro IDs rather than raw CC numbers so the
-    // concrete MIDI binding (which CC, or Aftertouch, or MPE dim) can be
-    // changed at runtime via the macro-binding parameters without rebuilding routes.
-    //
-    // Route index map (order below = index used by per-voice slewer array):
-    //   0  MacroBreath    → VCALevel       (fixed 1.0)
-    //   1  MacroExpr      → VCALevel       (fixed 1.0)
-    //   2  MacroPressure  → VCALevel       (fixed 0.5)
-    //   3  MacroSlide     → FilterCutoff   (pCC74CutAmt)
-    //   4  MacroBreath    → FilterCutoff   (pBreathCutAmt, Exponential)
-    //   5  MacroExpr      → FilterCutoff   (pBreathCutAmt, Exponential) — shared param
-    //   6  MacroPressure  → FilterCutoff   (pPressCutAmt,  Exponential)
-    //   7  MacroBreath    → FilterRes      (pBreathResAmt, Exponential)
-    //   8  MacroExpr      → FilterRes      (pBreathResAmt, Exponential) — shared param
-    //   9  Velocity       → FilterCutoff   (pVeloCutAmt)
-    //  10  MacroSlide     → FilterRes      (pCC74ResAmt)
 
-    // VCA amounts are now APVTS params so the ModMatrix UI can adjust them live.
-    auto* pBreathVCAAmt = apvts.getRawParameterValue("breathVCAamt");
-    auto* pExprVCAAmt   = apvts.getRawParameterValue("exprVCAamt");
-    auto* pPressVCAAmt  = apvts.getRawParameterValue("pressVCAamt");
-
-    // Curve shape params — one per route.  0=lin, 1=exp, 2=S.
-    // Defaults are set in createParameterLayout() to match the original static curves.
-    auto* pBreathVCACrv    = apvts.getRawParameterValue("breathVCACurve");
-    auto* pExprVCACrv      = apvts.getRawParameterValue("exprVCACurve");
-    auto* pPressVCACrv     = apvts.getRawParameterValue("pressVCACurve");
-    auto* pCC74CutCrv      = apvts.getRawParameterValue("cc74CutoffCurve");
-    auto* pBreathCutCrv    = apvts.getRawParameterValue("breathCutoffCurve");
-    auto* pExprCutCrv      = apvts.getRawParameterValue("exprCutoffCurve");
-    auto* pPressCutCrv     = apvts.getRawParameterValue("pressCutoffCurve");
-    auto* pBreathResCrv    = apvts.getRawParameterValue("breathResCurve");
-    auto* pExprResCrv      = apvts.getRawParameterValue("exprResCurve");
-    auto* pVeloCutCrv      = apvts.getRawParameterValue("veloCutoffCurve");
-    auto* pCC74ResCrv      = apvts.getRawParameterValue("cc74ResCurve");
-
-    // VCA: breath and pressure control amplitude (amounts are calibrated so
-    // MacroBreath and MacroExpr never both output 1.0 simultaneously in practice).
-    modMatrix.addRoute(ModSourceID::MacroBreath,    ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathVCAAmt, pBreathVCACrv);
-    modMatrix.addRoute(ModSourceID::MacroExpr,      ModDestID::VCALevel, 1.0f,  5.0f, 80.0f, ModRoute::CurveShape::Linear, pExprVCAAmt,   pExprVCACrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure,  ModDestID::VCALevel, 0.5f,  3.0f, 50.0f, ModRoute::CurveShape::Linear, pPressVCAAmt,  pPressVCACrv);
-
-    // Slide → FilterCutoff: primary timbre sweep, full audible range.
-    // Slide is bipolar in SynthVoice: neutral=0, up=+1, down=-1.
-    // With default amount 0.9 and 5-oct scale in SynthVoice:
-    //   baseCutoff/32 at slide bottom  (~53 Hz at 1200 Hz base)
-    //   baseCutoff×32 at slide top     (~20 kHz clamped)
-    modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterCutoff,
-                       0.9f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74CutAmt, pCC74CutCrv);
-
-    // Breath → FilterCutoff: secondary brightness accent, exponential curve.
-    // MacroBreath and MacroExpr share the same amount parameter; curve is independent.
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterCutoff,
-                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt, pBreathCutCrv);
-    modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterCutoff,
-                       0.25f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathCutAmt, pExprCutCrv);
-
-    // Pressure → FilterCutoff: per-note brightness, independent of slide.
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::FilterCutoff,
-                       0.2f, 2.0f, 30.0f, ModRoute::CurveShape::Exponential, pPressCutAmt, pPressCutCrv);
-
-    // Breath → FilterRes: more air = more resonant peak (classic wind character).
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::FilterRes,
-                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt, pBreathResCrv);
-    modMatrix.addRoute(ModSourceID::MacroExpr,   ModDestID::FilterRes,
-                       0.15f, 5.0f, 80.0f, ModRoute::CurveShape::Exponential, pBreathResAmt, pExprResCrv);
-
-    // Velocity → FilterCutoff: initial timbre accent, harder attacks are brighter.
-    modMatrix.addRoute(ModSourceID::Velocity, ModDestID::FilterCutoff,
-                       0.15f, 20.0f, 0.0f, ModRoute::CurveShape::Linear, pVeloCutAmt, pVeloCutCrv);
-
-    // Slide → FilterRes: optional resonance sweep via slide.
-    // Default amount 0.0 (off); player dials in the flavour they want.
-    modMatrix.addRoute(ModSourceID::MacroSlide, ModDestID::FilterRes,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pCC74ResAmt, pCC74ResCrv);
-
-    // ── Oscillator-timbre routes (per-voice; opt-in, default amount 0) ──────────
-    //
-    // These give the new oscillator destinations (Morph / PW / Noise) the same
-    // per-voice modulation that FilterCutoff already has.  Source is the per-note
-    // MPE Slide (CC74) and Pressure, so each voice's own expression drives its own
-    // timbre — exactly the "internal routing" path, which is the only way to get
-    // per-voice modulation in a JUCE VST3 (external parameter modulation is global).
-    //
-    // All default to amount 0.0 so loading is behaviour-neutral until the player
-    // dials a route up in the ModMatrix panel.  Route order MUST match the spec
-    // table in ModMatrixEditor::buildRoutes() (index == per-voice slewer slot).
-    auto* pSlideMorphAmt = apvts.getRawParameterValue("slideMorphAmt");
-    auto* pPressMorphAmt = apvts.getRawParameterValue("pressMorphAmt");
-    auto* pSlidePWAmt    = apvts.getRawParameterValue("slidePWAmt");
-    auto* pPressPWAmt    = apvts.getRawParameterValue("pressPWAmt");
-    auto* pSlideNoiseAmt = apvts.getRawParameterValue("slideNoiseAmt");
-    auto* pPressNoiseAmt = apvts.getRawParameterValue("pressNoiseAmt");
-    auto* pSlideFoldAmt  = apvts.getRawParameterValue("slideFoldAmt");
-    auto* pPressFoldAmt  = apvts.getRawParameterValue("pressFoldAmt");
-    auto* pSlideInhAmt   = apvts.getRawParameterValue("slideInharmAmt");
-    auto* pPressInhAmt   = apvts.getRawParameterValue("pressInharmAmt");
-    auto* pBreathMorphAmt = apvts.getRawParameterValue("breathMorphAmt");
-    auto* pBreathPWAmt    = apvts.getRawParameterValue("breathPWAmt");
-    auto* pBreathNoiseAmt = apvts.getRawParameterValue("breathNoiseAmt");
-    auto* pBreathFoldAmt  = apvts.getRawParameterValue("breathFoldAmt");
-    auto* pBreathInhAmt   = apvts.getRawParameterValue("breathInharmAmt");
-    auto* pSlideMorphCrv = apvts.getRawParameterValue("slideMorphCurve");
-    auto* pPressMorphCrv = apvts.getRawParameterValue("pressMorphCurve");
-    auto* pSlidePWCrv    = apvts.getRawParameterValue("slidePWCurve");
-    auto* pPressPWCrv    = apvts.getRawParameterValue("pressPWCurve");
-    auto* pSlideNoiseCrv = apvts.getRawParameterValue("slideNoiseCurve");
-    auto* pPressNoiseCrv = apvts.getRawParameterValue("pressNoiseCurve");
-    auto* pSlideFoldCrv  = apvts.getRawParameterValue("slideFoldCurve");
-    auto* pPressFoldCrv  = apvts.getRawParameterValue("pressFoldCurve");
-    auto* pSlideInhCrv   = apvts.getRawParameterValue("slideInharmCurve");
-    auto* pPressInhCrv   = apvts.getRawParameterValue("pressInharmCurve");
-    auto* pBreathMorphCrv = apvts.getRawParameterValue("breathMorphCurve");
-    auto* pBreathPWCrv    = apvts.getRawParameterValue("breathPWCurve");
-    auto* pBreathNoiseCrv = apvts.getRawParameterValue("breathNoiseCurve");
-    auto* pBreathFoldCrv  = apvts.getRawParameterValue("breathFoldCurve");
-    auto* pBreathInhCrv   = apvts.getRawParameterValue("breathInharmCurve");
-
-    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscWaveshape,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideMorphAmt, pSlideMorphCrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscWaveshape,
-                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressMorphAmt, pPressMorphCrv);
-    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscPulseWidth,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlidePWAmt,    pSlidePWCrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscPulseWidth,
-                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressPWAmt,    pPressPWCrv);
-    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscNoiseMix,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideNoiseAmt, pSlideNoiseCrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscNoiseMix,
-                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressNoiseAmt, pPressNoiseCrv);
-    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscFold,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideFoldAmt,  pSlideFoldCrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscFold,
-                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressFoldAmt,  pPressFoldCrv);
-    modMatrix.addRoute(ModSourceID::MacroSlide,    ModDestID::OscInharm,
-                       0.0f, 2.0f, 20.0f, ModRoute::CurveShape::Linear, pSlideInhAmt,   pSlideInhCrv);
-    modMatrix.addRoute(ModSourceID::MacroPressure, ModDestID::OscInharm,
-                       0.0f, 2.0f, 30.0f, ModRoute::CurveShape::Linear, pPressInhAmt,   pPressInhCrv);
-
-    // Breath → osc-timbre destinations.  Breath is the wind controller's primary
-    // expression, so route it to every timbre dest (previously only Slide/Pressure
-    // were available — forcing a host-modulator workaround for breath→inharm).
-    // Atk/rel match the breath→cutoff routes (slower than slide).  All default 0.
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscWaveshape,
-                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathMorphAmt, pBreathMorphCrv);
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscPulseWidth,
-                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathPWAmt,    pBreathPWCrv);
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscNoiseMix,
-                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathNoiseAmt, pBreathNoiseCrv);
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscFold,
-                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathFoldAmt,  pBreathFoldCrv);
-    modMatrix.addRoute(ModSourceID::MacroBreath, ModDestID::OscInharm,
-                       0.0f, 5.0f, 80.0f, ModRoute::CurveShape::Linear, pBreathInhAmt,   pBreathInhCrv);
-
-    // ── Generic mod-slot pool ─────────────────────────────────────────────────
-    // 24 configurable slots, evaluated after the legacy routes.  Default Off, so
-    // additive-neutral until driven by the UI / host automation.
+    // ── Generic mod-slot pool — the routing source of truth ───────────────────
+    // 24 configurable slots.  Factory routing lives in the slot param DEFAULTS
+    // (see createParameterLayout); the old fixed routes were removed.  Pre-slot
+    // presets are reconstructed into slots on load (see setStateInformation).
     for (int n = 0; n < ModSlots::NumSlots; ++n) {
         const juce::String base = "modSlot" + juce::String(n);
         modMatrix.addSlot(apvts.getRawParameterValue(base + "_src"),
@@ -362,8 +198,66 @@ juce::AudioProcessorEditor* VaneProcessor::createEditor()
 
 void VaneProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
-    auto xml = apvts.copyState().createXml();
+    auto state = apvts.copyState();
+    // Routing-format version tag.  v2 = generic mod slots are the routing source
+    // of truth.  Its absence on load marks a pre-slot preset to migrate.
+    state.setProperty("routingV", 2, nullptr);
+    auto xml = state.createXml();
     copyXmlToBinary(*xml, dest);
+}
+
+// Reconstruct the generic mod slots from a pre-slot preset's legacy fixed-route
+// params (read straight from the loaded XML).  Only runs when routingV < 2.
+void VaneProcessor::migrateLegacyRoutingToSlots(const juce::XmlElement& xml)
+{
+    struct Legacy { int src, dst; const char* amt; const char* curve; };
+    // src: 1=Breath 2=Expr 3=Pressure 4=Slide 6=Velocity (ModSlots source choices)
+    // dst: 0=VCA 1=Cutoff 2=Reso 4=Morph 5=PW 6=Fold 7=Noise 8=Inharm
+    static const Legacy kLegacy[] = {
+        { 1,0,"breathVCAamt","breathVCACurve" }, { 2,0,"exprVCAamt","exprVCACurve" },
+        { 3,0,"pressVCAamt","pressVCACurve" },   { 4,1,"cc74CutoffAmt","cc74CutoffCurve" },
+        { 1,1,"breathCutoffAmt","breathCutoffCurve" }, { 2,1,"breathCutoffAmt","exprCutoffCurve" },
+        { 3,1,"pressCutoffAmt","pressCutoffCurve" },   { 1,2,"breathResAmt","breathResCurve" },
+        { 2,2,"breathResAmt","exprResCurve" },         { 6,1,"veloCutoffAmt","veloCutoffCurve" },
+        { 4,2,"cc74ResAmt","cc74ResCurve" },
+        { 4,4,"slideMorphAmt","slideMorphCurve" }, { 3,4,"pressMorphAmt","pressMorphCurve" },
+        { 1,4,"breathMorphAmt","breathMorphCurve" },
+        { 4,5,"slidePWAmt","slidePWCurve" }, { 3,5,"pressPWAmt","pressPWCurve" }, { 1,5,"breathPWAmt","breathPWCurve" },
+        { 4,6,"slideFoldAmt","slideFoldCurve" }, { 3,6,"pressFoldAmt","pressFoldCurve" }, { 1,6,"breathFoldAmt","breathFoldCurve" },
+        { 4,7,"slideNoiseAmt","slideNoiseCurve" }, { 3,7,"pressNoiseAmt","pressNoiseCurve" }, { 1,7,"breathNoiseAmt","breathNoiseCurve" },
+        { 4,8,"slideInharmAmt","slideInharmCurve" }, { 3,8,"pressInharmAmt","pressInharmCurve" }, { 1,8,"breathInharmAmt","breathInharmCurve" },
+    };
+
+    // Read a legacy param's value from the loaded XML (APVTS stores each param as
+    // a <PARAM id=".." value=".."/> child); fall back to the live default.
+    auto readParam = [&] (const char* id, double fallback) -> double {
+        if (auto* el = xml.getChildByAttribute("id", id))
+            return el->getDoubleAttribute("value", fallback);
+        if (auto* p = apvts.getRawParameterValue(id))
+            return p->load();
+        return fallback;
+    };
+    auto setSlot = [&] (int n, int src, int dst, float amt, int curve) {
+        const juce::String b = "modSlot" + juce::String(n);
+        auto put = [&] (const juce::String& id, float actual) {
+            if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(id)))
+                p->setValueNotifyingHost(p->convertTo0to1(actual));
+        };
+        put(b + "_src",   (float) src);   put(b + "_dst",   (float) dst);
+        put(b + "_amt",   amt);           put(b + "_curve", (float) curve);
+    };
+
+    int slot = 0;
+    for (const auto& L : kLegacy) {
+        if (slot >= ModSlots::NumSlots) break;
+        const double amt = readParam(L.amt, 0.0);
+        if (std::abs(amt) < 1.0e-4) continue;             // skip inactive routes
+        const int curve = (int) std::lround(readParam(L.curve, 0.0));
+        setSlot(slot++, L.src, L.dst, (float) amt, curve);
+    }
+    // Clear any remaining slots so stale (Off-but-leftover) state can't linger.
+    for (; slot < ModSlots::NumSlots; ++slot)
+        setSlot(slot, 0, 0, 0.0f, 0);
 }
 
 void VaneProcessor::setStateInformation(const void* data, int size)
@@ -372,6 +266,13 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     if (!xml || !xml->hasTagName(apvts.state.getType())) return;
 
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
+
+    // ── Routing migration (pre-slot → generic slots) ─────────────────────────
+    // Presets saved before the slot system carry no routingV tag and store the
+    // routing in the old fixed-route params.  Reconstruct it into the slots.
+    // (Runs first — the Phase-2 block below can early-return.)
+    if (xml->getIntAttribute("routingV", 1) < 2)
+        migrateLegacyRoutingToSlots(*xml);
 
     // ── Backward-compat migration for Phase 2 (oscMorphPos / oscPW) ──────────
     //
@@ -708,30 +609,47 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     makeCurveParam("breathFoldCurve",   "Breath to Fold Curve",       0.0f); // lin
     makeCurveParam("breathInharmCurve", "Breath to Inharm Curve",     0.0f); // lin
 
-    // ── Generic mod-slot pool (free routing backend) ──────────────────────────
-    // NumSlots identical configurable slots, each source/dest/amount/curve.
-    // All default to OFF (source choice 0) so they are an additive, behaviour-
-    // neutral layer alongside the legacy fixed routes — the WebView matrix UI and
-    // host automation drive them.  (The legacy factory routes will migrate INTO
-    // these slots in a later step, once the new UI replaces the native editor.)
+    // ── Generic mod-slot pool — the routing source of truth ───────────────────
+    // NumSlots configurable slots (source/dest/amount/curve).  The FACTORY routing
+    // lives in the defaults of slots 0..9 (the old fixed routes, one per slot);
+    // the rest default to OFF.  Source choices: Off/Breath/Expr/Pressure/Slide/
+    // Pitchbend/Velocity; dest: VCA/Cutoff/Reso/Pitch/Morph/PW/Fold/Noise/Inharm;
+    // curve: Lin/Exp/S.
     {
+        struct SlotDef { int src, dst, curve; float amt; };
+        // Mirrors the previous fixed factory routes exactly.
+        static const SlotDef kFactory[] = {
+            { 1, 0, 0, 1.00f },  // 0  Breath     → VCA     lin
+            { 2, 0, 0, 1.00f },  // 1  Expression → VCA     lin
+            { 3, 0, 0, 0.50f },  // 2  Pressure   → VCA     lin
+            { 4, 1, 0, 0.90f },  // 3  Slide      → Cutoff  lin
+            { 1, 1, 1, 0.25f },  // 4  Breath     → Cutoff  exp
+            { 2, 1, 1, 0.25f },  // 5  Expression → Cutoff  exp
+            { 3, 1, 1, 0.20f },  // 6  Pressure   → Cutoff  exp
+            { 1, 2, 1, 0.15f },  // 7  Breath     → Reso    exp
+            { 2, 2, 1, 0.15f },  // 8  Expression → Reso    exp
+            { 6, 1, 0, 0.15f },  // 9  Velocity   → Cutoff  lin
+        };
+        constexpr int kNumFactory = (int) (sizeof (kFactory) / sizeof (kFactory[0]));
+
         juce::StringArray srcChoices, dstChoices, curveChoices;
         for (int i = 0; i < ModSlots::NumSourceChoices; ++i) srcChoices.add(ModSlots::kSourceNames[i]);
         for (int i = 0; i < ModSlots::NumDestChoices;   ++i) dstChoices.add(ModSlots::kDestNames[i]);
         for (int i = 0; i < ModSlots::NumCurveChoices;  ++i) curveChoices.add(ModSlots::kCurveNames[i]);
 
         for (int n = 0; n < ModSlots::NumSlots; ++n) {
+            const SlotDef d = (n < kNumFactory) ? kFactory[n] : SlotDef{ 0, 0, 0, 0.0f };
             const juce::String base = "modSlot" + juce::String(n);
             const juce::String human = "Slot " + juce::String(n) + " ";
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   0));
+                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   d.src));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   0));
+                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   d.dst));
             layout.add(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ base + "_amt", 1 },   human + "Amount",
-                juce::NormalisableRange<float>(-1.0f, 1.0f), 0.0f));
+                juce::NormalisableRange<float>(-1.0f, 1.0f), d.amt));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, 0));
+                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve));
         }
     }
 

@@ -101,6 +101,9 @@ private:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    // Reconstruct generic mod slots from a pre-slot preset's legacy route params.
+    void migrateLegacyRoutingToSlots(const juce::XmlElement& loadedState);
+
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.
     std::atomic<float>* pOutputLevel      = nullptr;
