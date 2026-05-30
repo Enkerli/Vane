@@ -303,7 +303,7 @@ body{
         <div class="stage-head">
           <span class="eyebrow">Stage · live</span>
           <div class="viewseg" id="viewseg">
-            <button class="active" data-view="breath" onclick="setView('breath')">Breath</button>
+            <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
             <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
           </div>
@@ -461,11 +461,13 @@ function tickMeters(){
 function drawVis(){
   const svg=$('#visSvg'); let p='';
   if(view==='breath'){
-    for(const s of ["Slide","Pressure","Expression","Breath"]){
+    // All aggregate source streams (honest "Sources" view) — breath is the
+    // bold primary; pitchbend included. (Per-voice MPE streams come later.)
+    for(const s of ["Pitchbend","Slide","Pressure","Expression","Breath"]){
       const h=hist[s], col=cssv(SRC_COLOR[s]); let d='';
       for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600, y=190-h[i]*170; d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
       const main=s==='Breath';
-      p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${main?2.6:1.6}" stroke-linecap="round" opacity="${main?0.95:0.45}"/>`;
+      p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${main?2.6:1.6}" stroke-linecap="round" opacity="${main?0.95:0.5}"/>`;
     }
   } else if(view==='spectrum'){
     const col=cssv('--vn-breath'); const n=28; const br=state.meters.Breath, cut=state.patch.Cutoff;
@@ -488,7 +490,7 @@ function drawVis(){
   }
   svg.innerHTML=p;
   // voice readout reflects live patch
-  const wave=["Sine","Tri","Sqr","Saw"][Math.min(3,Math.round(state.patch.Morph))];
+  const wave=["Sine","Tri","Pulse","Saw"][Math.min(3,Math.round(state.patch.Morph))];
   const mode=["LP","BP","HP"][state.patch.Mode];
   $('#voiceRead').textContent=`${wave} · ${mode} ${(state.patch.Cutoff/1000).toFixed(1)}k`;
 }
@@ -507,6 +509,10 @@ const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterT
   Glide:v=>Math.round(v)+' ms', Morph:v=>v.toFixed(2), PW:v=>v.toFixed(3), default:v=>v.toFixed(2) };
 const RANGE={ Morph:[0,3,.01], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Noise:[0,1,.01], Detune:[-100,100,1],
   Cutoff:[20,20000,10], Reso:[0,1,.01], Output:[0,1,.01], VelVCA:[0,1,.01], Glide:[0,2000,5], MasterTune:[-100,100,1] };
+// Sliders that map exponentially (log) — most of the musical action is low.
+const LOGK={ Cutoff:true };
+function toNorm(key,v){ const [a,b]=RANGE[key]; if(LOGK[key]&&a>0&&v>0) return clamp(Math.log(v/a)/Math.log(b/a),0,1); return clamp((v-a)/(b-a),0,1); }
+function toVal(key,n){ const [a,b]=RANGE[key]; n=clamp(n,0,1); return (LOGK[key]&&a>0)? a*Math.pow(b/a,n) : a+n*(b-a); }
 
 function pslider(key,label,color="--vn-breath"){
   return `<div class="pslider" data-pk="${key}">
@@ -555,16 +561,17 @@ function renderPatch(){
   $('#tabbody').scrollTop=_sc;
 }
 function wirePatchSlider(el){
-  const key=el.dataset.pk, [a,b,step]=RANGE[key];
+  // Sliders operate in NORMALISED [0,1] position space (via toNorm/toVal) so the
+  // drag/keyboard/fine behaviour is uniform and log params (Cutoff) feel right.
+  const key=el.dataset.pk, [a,b]=RANGE[key];
   const fill=$('.fill',el), thumb=$('.thumb',el), val=$('.val',el), track=$('.track',el);
-  const fmt=()=>{ const v=state.patch[key]; const n=clamp((v-a)/(b-a),0,1);
+  const fmt=()=>{ const v=state.patch[key]; const n=toNorm(key,v);
     fill.style.width=(n*100)+'%'; thumb.style.left=(n*100)+'%'; val.textContent=(FMT[key]||FMT.default)(v); };
   patchUpd[key]=fmt;   // param echo updates this slider in place (no rebuild → drag survives)
-  // Double-click the track/thumb → reset to the param's declared default
-  // (the plugin echoes the new value back, which updates the slider in place).
-  track.ondblclick=()=>{ Bridge.send('resetParam',{id:key}); markDirty(); };
-  attachDrag(track,{get:()=>state.patch[key],set:v=>{state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty();},min:a,max:b,step:step,fineStep:step/5,onMove:fmt});
-  el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ const d=+s.dataset.step*step; state.patch[key]=clamp(state.patch[key]+d,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]}); markDirty(); fmt(); });
+  const setV=v=>{ v=clamp(v,a,b); state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty(); };
+  track.ondblclick=()=>{ Bridge.send('resetParam',{id:key}); markDirty(); };   // reset to default
+  attachDrag(track,{get:()=>toNorm(key,state.patch[key]),set:n=>setV(toVal(key,n)),min:0,max:1,step:0.01,fineStep:0.0025,onMove:fmt});
+  el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ setV(toVal(key,clamp(toNorm(key,state.patch[key])+(+s.dataset.step)*0.02,0,1))); fmt(); });
   val.ondblclick=()=>typeEdit(key,val,a,b,fmt);
   val.onkeydown=e=>{ if(e.key==='Enter')typeEdit(key,val,a,b,fmt); };
   fmt();
@@ -779,13 +786,17 @@ function renamePreset(i){
 }
 function commitRename(i){ const v=$('#rnInp').value.trim(); if(v){PRESETS[i].name=v; if(i===selPreset)$('#presetName').textContent=v;} closeModal(); renderPresets(); }
 function importExport(){
-  const txt=JSON.stringify(PRESETS,null,2);
-  openModal(`<h3>Import / Export presets</h3><p>Portable text — the escape hatch that keeps presets shareable (replaces the old clipboard workaround).</p>
-    <textarea id="ioTxt">${txt.replace(/</g,'&lt;')}</textarea>
+  // Exports the CURRENT patch (full parameter state, not just the name) as
+  // portable text; Import applies a pasted patch. Driven by the real plugin
+  // state via requestExport/exportData/importState.
+  openModal(`<h3>Export / Import patch</h3><p>Portable text of the <b>current patch</b> — every parameter. Copy to share, or paste a patch and Import.</p>
+    <textarea id="ioTxt" placeholder="requesting current patch…"></textarea>
     <div class="actions"><button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copyIo()">Copy</button><button class="btn primary" onclick="applyIo()">Import</button></div>`);
+  Bridge.send('requestExport');
+  if(!HAS_JUCE){ const t=$('#ioTxt'); if(t)t.value='(export reflects the live patch when running inside the plugin)'; }
 }
 function copyIo(){ const t=$('#ioTxt'); t.select(); try{document.execCommand('copy');}catch(e){} }
-function applyIo(){ try{ const v=JSON.parse($('#ioTxt').value); if(Array.isArray(v)&&v.length){PRESETS=v; selPreset=0; $('#presetName').textContent=PRESETS[0].name;} closeModal(); renderPresets(); }catch(e){ alert('Could not parse — expecting a JSON array of presets.'); } }
+function applyIo(){ const t=$('#ioTxt').value.trim(); if(t){ Bridge.send('importState',{text:t}); state.dirty=true; closeModal(); } }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Misc UI + states (E2)
@@ -826,6 +837,8 @@ Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
 Bridge.on('controllerLabel',({name})=>{ const e=$('#ctrlName'); if(e)e.textContent=name||'Generic MPE'; });
 // Live played-note readout (♪) from the engine's last note.
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });
+// Current-patch text for the Export/Import modal.
+Bridge.on('exportData',({text})=>{ const t=$('#ioTxt'); if(t)t.value=text||''; });
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });

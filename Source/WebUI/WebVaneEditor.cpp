@@ -129,6 +129,19 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                 p->setValueNotifyingHost (p->getDefaultValue());
         })
         .withEventListener ("panic",        [owner] (const Array<var>&) { owner->proc.panic(); })
+        // Portable text export/import of the CURRENT patch (full APVTS state).
+        .withEventListener ("requestExport", [owner] (const Array<var>&) {
+            const auto xml = owner->proc.apvts.copyState().toXmlString();
+            owner->webView.emitEventIfBrowserIsVisible ("exportData", makeObj ({ { "text", xml } }));
+        })
+        .withEventListener ("importState", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            if (auto x = juce::parseXML (a[0]["text"].toString()))
+                if (x->hasTagName (owner->proc.apvts.state.getType())) {
+                    owner->proc.apvts.replaceState (juce::ValueTree::fromXml (*x));
+                    juce::MessageManager::callAsync ([owner] { owner->sendInitialState(); });
+                }
+        })
         .withEventListener ("reconnectMts", [owner] (const Array<var>&) {
             owner->proc.reconnectMTS();
             owner->webView.emitEventIfBrowserIsVisible ("tuningStatus",
@@ -195,7 +208,7 @@ void WebVaneEditor::timerCallback()
         { "Pressure",   proc.meterPressure.load() },
         { "Slide",      proc.meterSlide.load() },
         { "Pitchbend",  (proc.meterPitchbend.load() + 1.0f) * 0.5f },
-        { "Velocity",   0.0f },
+        { "Velocity",   proc.meterVelocity.load() },
     }));
 
     // ♪ note readout — emit only when it changes.

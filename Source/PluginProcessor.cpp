@@ -285,6 +285,8 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                                   static_cast<float>(msg.getControllerValue()) / 127.0f);
         else if (msg.isChannelPressure())
             modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+        else if (msg.isNoteOn())
+            meterVelocity.store (msg.getFloatVelocity(), std::memory_order_relaxed);  // held until next note
         // Channel-1 (non-MPE) pitchbend is intentionally NOT captured here.
         //
         // Discovery: for master-channel notes, JUCE's MPEInstrument updates

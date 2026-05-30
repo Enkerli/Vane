@@ -49,6 +49,7 @@ public:
     std::atomic<float> meterPressure  { 0.0f };   // MPE Z channel pressure, 0..1
     std::atomic<float> meterSlide     { 0.0f };   // CC74 / MPE Y timbre, 0..1
     std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
+    std::atomic<float> meterVelocity  { 0.0f };   // last note-on velocity, 0..1 (held)
 
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
