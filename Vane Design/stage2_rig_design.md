@@ -92,10 +92,33 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
 ---
 
 ## Open questions
-1. **Port identity on iPadOS.** AUv3 may not expose input *port* names the way
-   the desktop standalone does. Fallback: match on channel only, or a
-   user-labelled "source slot." Affects how robust the sequencer+wind split is
-   on iPad.
+1. **MIDI source identity per platform** (drives instance `match` + semi-auto
+   pairing). What a plugin can actually know about *which device* sent a message:
+   - **Standalone (JUCE opens devices directly):** full device names via
+     `MidiInput::getAvailableDevices()`, and we can keep per-device callbacks →
+     reliable identity. Semi-automated pairing works here *today*: match a
+     device name against Manifold slugs/aliases → suggest the rig.
+   - **AU / VST3 (desktop, in a DAW):** MIDI usually arrives as one *merged*
+     stream; the plugin does **not** inherently know the source device. VST3 has
+     multiple event input *buses* and AUv3 can expose multiple MIDI input ports
+     (this is what AUM shows / routes), but within a bus the stream is merged.
+     So identity = *which port/bus* the host routed to us, not a device name —
+     only as granular as the host's routing.
+   - **AUv3 (iOS, e.g. AUM):** same as above — AUM lets the user route named
+     sources to specific ports; we'd see the port, not necessarily the device
+     name. Needs an actual probe to confirm what JUCE's AUv3 wrapper surfaces
+     (log the MIDI input bus/port count + any names, run in AUM with two named
+     sources). **TODO: test.**
+   - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
+     announces manufacturer/family/model IDs; that maps directly to a Manifold
+     entry → true semi-automated pairing, cross-platform. Aligns with Manifold's
+     `bidirectional` / MIDI-CI roadmap. Far horizon, but the *right* answer.
+
+   **Practical matching ladder for 2b** (best available wins, manual always
+   works): MIDI-CI model id → device name (standalone / some hosts) → host
+   port/bus → channel filter → manual assignment. Store whatever matched in the
+   instance so it's sticky. Semi-auto pairing is a *suggestion* layer on top:
+   "saw 'Sylphyo Link' → apply the Sylphyo rig?" — never silent.
 2. **Preset ↔ rig.** Presets already store `profileName`; it becomes `rigName`.
    The suggest-banner logic carries over unchanged.
 3. **Where does mono live** — rig-level default vs patch param? Current auto-mono

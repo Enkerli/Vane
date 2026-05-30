@@ -920,8 +920,9 @@ const PERNOTE=[
 //   mono: true → picking it engages Mono mode (wind controllers play one line).
 const CATALOG = {
   'Generic MPE':         { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'Bare MPE: per-note pitch/slide/pressure. Add your controller for tailored sources.' },
-  'Sylphyo (MPE)':       { mpe:true,  breathCC:2,    mono:true, sources:['Breath','Pressure','Pitchbend','Velocity'], aux:[], note:'MPE lower zone. Breath on CC2, bite = channel pressure. Set pitch-bend range to 48 to match the Sylphyo app.' },
-  'Sylphyo (Standard)':  { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pressure','Pitchbend','Velocity'], aux:[], note:'Single channel. Breath on CC2 (CC11 can mirror it — keep one routed to avoid doubling).' },
+  'Sylphyo (MPE)':       { mpe:true,  breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'MPE lower zone. Breath on CC2, bite = channel pressure. Set pitch-bend range to 48 to match the Sylphyo app.' },
+  'Sylphyo (Standard)':  { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Single channel. Breath on CC2 (CC11 can mirror it — keep one routed to avoid doubling).' },
+  'LinnStrument':        { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'MPE grid. Per-pad pressure (Z), slide (Y/CC74), pitch (X). No breath.' },
   'EWI-USB':             { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Breath on CC2. No per-note expression — single channel wind controller.' },
   'Zefiro Pro':          { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[{label:'Accel X',cc:0},{label:'Accel Y',cc:0},{label:'Accel Z',cc:0}], note:'Breath on CC2. Pro 3-axis accelerometer → 3 aux; CCs not yet documented in Manifold, so assign via Learn.' },
   'Exquis':              { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[{label:'Encoder 1',cc:0},{label:'Encoder 2',cc:0},{label:'Encoder 3',cc:0},{label:'Encoder 4',cc:0}], note:'MPE surface. Four push-encoders → 4 aux; CC numbers depend on your Exquis / BWS config — assign via Learn.' },
@@ -930,8 +931,20 @@ const CATALOG = {
   'Keystep':             { mpe:false, breathCC:null, sources:['Pitchbend','Velocity'], aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard + touch strips. Mod wheel on CC1, sustain on CC64.' },
   'MicroFreak':          { mpe:false, breathCC:null, sources:['Pressure','Pitchbend','Velocity'], aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard synth that also sends: aftertouch + mod wheel (CC1). (Not yet in Manifold — a good addition.)' },
 };
+// Legacy / bare controller names → catalog keys (older saved profiles stored
+// "Sylphyo", "EWI", "Zefiro" before the catalog gained variant suffixes).
+const CTRL_ALIAS = { 'Sylphyo':'Sylphyo (MPE)', 'EWI':'EWI-USB', 'Zefiro':'Zefiro Pro', 'Generic':'Generic MPE' };
+function resolveCtrlKey(name){
+  if(!name) return 'Generic MPE';
+  if(CATALOG[name]) return name;
+  if(CTRL_ALIAS[name] && CATALOG[CTRL_ALIAS[name]]) return CTRL_ALIAS[name];
+  // prefix match: "Sylphyo" → "Sylphyo (MPE)", "Sensel Morph" → "Sensel Morph · Thunder"
+  const pre = Object.keys(CATALOG).find(k=>k.startsWith(name+' (')||k.startsWith(name+' ·'));
+  return pre || name;
+}
+function catEntry(name){ return CATALOG[resolveCtrlKey(name)]; }
 // Canonical sources active for the current controller (drives meters + vis).
-function ctrlSources(){ const c=CATALOG[state.controller]; return (c&&c.sources)||METER_SRC; }
+function ctrlSources(){ const c=catEntry(state.controller); return (c&&c.sources)||METER_SRC; }
 function openControllers(){
   ctrlOpen=true; Bridge.send('requestControllerState'); Bridge.send('requestProfileList'); renderControllers();
 }
@@ -950,9 +963,9 @@ function renderControllers(){
   const perNote=PERNOTE.map(([n,b,d])=>`<div class="ctrl-row">
       <span class="meter-label"><span class="dot ${d}"></span>${n}</span>
       <span class="num" style="color:var(--vn-muted);grid-column:2/-1">${b}</span></div>`).join('');
-  const cur=state.controller||(($('#ctrlName')||{}).textContent)||'Generic MPE';
-  const cat=CATALOG[cur]||{};
-  const hasBreath = cat.breathCC!==null;   // unknown controllers: assume yes
+  const cur=state.controller||'Generic MPE';
+  const curKey=resolveCtrlKey(cur);
+  const cat=CATALOG[curKey]||{};
   const breathRow = (cat.breathCC===null) ? '' : `<div class="ctrl-row">
       <span class="meter-label"><span class="dot breath"></span>Breath</span>
       <span class="num" style="color:var(--vn-muted)">CC <input class="ctrl-cc num" type="number" min="0" max="127" value="${state.cc.Breath??2}" onchange="breathCCedit(this.value)" /></span>
@@ -965,9 +978,11 @@ function renderControllers(){
       <button class="btn ${learning?'primary':''}" onclick="auxLearnToggle(${i})">${learning?'Listening… move a control':'Learn'}</button>
     </div>`;
   }).join('');
-  if(!CATALOG[cur]) { /* custom/loaded name not in catalog — list it too */ }
-  const opts=Object.keys(CATALOG).concat(CATALOG[cur]?[]:[cur])
-    .map(c=>`<option ${c===cur?'selected':''}>${c}</option>`).join('');
+  // List catalog entries; if the active name resolved to a catalog key, select
+  // that key — otherwise append the raw (unknown/custom) name as its own option.
+  const known=!!CATALOG[curKey];
+  const opts=Object.keys(CATALOG).concat(known?[]:[cur])
+    .map(c=>`<option ${c===(known?curKey:cur)?'selected':''}>${c}</option>`).join('');
   const pOpts=`<option value="">— unsaved —</option>`+state.profiles.map(n=>`<option ${n===state.profileName?'selected':''}>${n}</option>`).join('');
   const noteHtml = cat.note ? `<p class="fine-hint" style="margin-top:6px">${cat.note}</p>` : '';
   openModal(`<h3>Controller setup</h3>
