@@ -65,6 +65,13 @@ public:
     static constexpr int kNumVoices = 15;
     std::array<VoiceMeter, kNumVoices> voiceMeters;
 
+    // ── Aux-source MIDI-learn ──────────────────────────────────────────────────
+    // The editor arms an aux index (ccLearnArm = 0..NumAux-1); the audio thread
+    // captures the next incoming CC number into ccLearnResult and disarms.  The
+    // editor polls the result, writes the aux{g}_cc param, and clears it.
+    std::atomic<int> ccLearnArm    { -1 };
+    std::atomic<int> ccLearnResult { -1 };
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 

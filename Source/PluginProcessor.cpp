@@ -122,9 +122,15 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     // into the mod matrix / shared state before rendering voices.
     for (const auto meta : midi) {
         auto msg = meta.getMessage();
-        if (msg.isController())
-            modMatrix.setCCValue(msg.getControllerNumber(),
-                                  static_cast<float>(msg.getControllerValue()) / 127.0f);
+        if (msg.isController()) {
+            const int cc = msg.getControllerNumber();
+            modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
+            // MIDI-learn: capture the first CC seen while armed.
+            if (ccLearnArm.load(std::memory_order_relaxed) >= 0) {
+                ccLearnResult.store(cc, std::memory_order_relaxed);
+                ccLearnArm.store(-1, std::memory_order_relaxed);
+            }
+        }
         else if (msg.isChannelPressure())
             modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
         else if (msg.isNoteOn())

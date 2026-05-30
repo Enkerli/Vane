@@ -262,6 +262,11 @@ body{
 .modal textarea{width:100%;height:160px;border:1px solid var(--vn-line);border-radius:var(--r-sm);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:12px;padding:10px;resize:vertical}
 .modal input.rn{width:100%;border:1px solid var(--vn-line);border-radius:var(--r-sm);background:var(--vn-field);color:var(--vn-text);font-size:14px;padding:10px 12px}
 .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.ctrl-sec{margin-top:16px}
+.ctrl-sec .eyebrow{display:block;margin-bottom:8px}
+.ctrl-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--vn-line-soft)}
+.ctrl-lbl{border:1px solid var(--vn-line);border-radius:6px;background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-ui);font-size:13px;font-weight:600;padding:5px 8px;width:150px}
+.ctrl-cc{width:50px;border:1px solid var(--vn-line);border-radius:5px;background:var(--vn-panel);color:var(--vn-text);font-family:var(--vn-mono);padding:2px 4px;margin-left:4px}
 
 /* ── Responsive: single column + bottom tab bar (B2, §7) ────── */
 @media (max-width:860px){
@@ -384,6 +389,7 @@ const state = {
           Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0 },
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
+  aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   mts:true, dirty:false, sim:true,
 };
 // seed factory-ish routing
@@ -653,16 +659,18 @@ function renderMatrix(){
 }
 function slotRow(s,i){
   const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';
+  const isAux = s.src>=7;
   const pos=s.amt>=0, mag=Math.min(1,Math.abs(s.amt));
-  const ccTxt = BINDABLE[srcName] ? ('CC'+state.cc[srcName]) : (SRC_CC[srcName]||'');
+  const ccTxt = isAux ? ('CC'+((state.aux[s.src-7]||{}).cc??'?'))
+              : BINDABLE[srcName] ? ('CC'+state.cc[srcName]) : (SRC_CC[srcName]||'');
   return `<div class="slot ${s.on?'':'off'}" data-slot="${i}">
     <div class="srccell">
       <div class="srctop">
         <span class="dot ${SRC_DOT[srcName]||''}"></span>
-        <select onchange="slotSet(${i},'src',+this.value)" aria-label="source">${SOURCES.map((n,k)=>`<option value="${k}" ${k===s.src?'selected':''}>${n}</option>`).join('')}</select>
+        <select onchange="slotSet(${i},'src',+this.value)" aria-label="source">${SOURCES.map((n,k)=>`<option value="${k}" ${k===s.src?'selected':''}>${srcLabel(k)}</option>`).join('')}</select>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="cc ${BINDABLE[srcName]?'bindable':''}" ${BINDABLE[srcName]?`ondblclick="ccEdit(${i},'${srcName}',this)" title="double-click to rebind CC#"`:''}>${ccTxt}</span>
+        <span class="cc ${BINDABLE[srcName]?'bindable':''}" ${BINDABLE[srcName]?`ondblclick="ccEdit(${i},'${srcName}',this)" title="double-click to rebind CC#"`:isAux?'title="bind in Controller setup"':''}>${ccTxt}</span>
         <span class="rowmeter" style="flex:1"><span class="f" data-rowmeter="${srcName}" style="background:var(${col})"></span></span>
       </div>
     </div>
@@ -846,13 +854,45 @@ function openPresetMenu(e){ if(e)e.stopPropagation(); const m=$('#presetMenu'); 
     ? PRESETS.map((p,i)=>`<button onclick="event.stopPropagation();pickPreset(${i});closeMenus()">${i===selPreset?'● ':'&nbsp;&nbsp;&nbsp;'}${p.name}</button>`).join('')
     : '<button disabled>No presets</button>';
   m.classList.add('open'); }
-// Controller chip picker (display-only for now; no backend controller model yet).
-function openCtrlMenu(e){ if(e)e.stopPropagation(); const m=$('#ctrlMenu'); const willOpen=!m.classList.contains('open');
-  closeMenus(); if(!willOpen) return;
-  m.innerHTML=["Sylphyo","EWI","Exquis","Sensel Morph","LinnStrument","Generic MPE"]
-    .map(c=>`<button onclick="event.stopPropagation();setCtrl('${c}')">${c}</button>`).join('');
-  m.classList.add('open'); }
+// Controller chip → opens the Controllers / profile setup (binding + MIDI-learn).
+function openCtrlMenu(e){ if(e)e.stopPropagation(); closeMenus(); openControllers(); }
 function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; closeMenus(); }
+
+// ── Controllers panel: source profile (per-note fixed + global aux, learnable) ──
+let learnAux=-1, ctrlOpen=false;
+const FIXED_SRC=[
+  ['Pressure','MPE Z','pressure'],['Slide','CC74 (MPE Y)','slide'],
+  ['Pitchbend','PB (MPE X)','bend'],['Velocity','note-on','vel'],
+  ['Breath','CC2','breath'],['Expression','CC11','expr'],
+];
+function openControllers(){
+  ctrlOpen=true; Bridge.send('requestControllerState'); renderControllers();
+}
+function renderControllers(){
+  const fixed=FIXED_SRC.map(([n,b,d])=>`<div class="ctrl-row">
+      <span class="meter-label"><span class="dot ${d}"></span>${n}</span>
+      <span class="num" style="color:var(--vn-muted);grid-column:2/-1">${b}</span></div>`).join('');
+  const auxRows=state.aux.map((a,i)=>{
+    const learning=learnAux===i;
+    return `<div class="ctrl-row">
+      <input class="ctrl-lbl" value="${(a.label||('Aux '+(i+1))).replace(/"/g,'&quot;')}" onchange="auxLabel(${i},this.value)" />
+      <span class="num" style="color:var(--vn-muted)">CC <input class="ctrl-cc num" type="number" min="0" max="127" value="${a.cc||0}" onchange="auxCC(${i},this.value)" /></span>
+      <button class="btn ${learning?'primary':''}" onclick="auxLearnToggle(${i})">${learning?'Listening… move a control':'Learn'}</button>
+    </div>`;
+  }).join('');
+  openModal(`<h3>Controller setup</h3>
+    <p>Per-note expression is fixed (MPE). Assign your controller's extra controls — encoders, accelerometer, second breath — to the global <b>Aux</b> sources, then route them in the Matrix.</p>
+    <div class="ctrl-sec"><span class="eyebrow">Per-note &amp; standard</span>${fixed}</div>
+    <div class="ctrl-sec"><span class="eyebrow">Aux — assignable global sources</span>${auxRows}</div>
+    <div class="actions"><button class="btn primary" onclick="closeControllers()">Done</button></div>`);
+}
+function closeControllers(){ ctrlOpen=false; if(learnAux>=0){Bridge.send('auxLearnCancel');learnAux=-1;} closeModal(); }
+function auxLearnToggle(i){ if(learnAux===i){ Bridge.send('auxLearnCancel'); learnAux=-1; }
+  else { if(learnAux>=0)Bridge.send('auxLearnCancel'); learnAux=i; Bridge.send('auxLearn',{aux:i}); } renderControllers(); }
+function auxCC(i,v){ const cc=clamp(parseInt(v,10)||0,0,127); if(state.aux[i])state.aux[i].cc=cc; Bridge.send('setAuxCC',{aux:i,cc}); markDirty(); }
+function auxLabel(i,v){ v=(v||'').trim()||('Aux '+(i+1)); if(state.aux[i])state.aux[i].label=v; Bridge.send('setAuxLabel',{aux:i,label:v}); if(tab==='matrix')renderMatrix(); }
+// Source label for the matrix picker: aux choices (7..) show their profile label.
+function srcLabel(k){ if(k>=7 && state.aux[k-7]) return state.aux[k-7].label||SOURCES[k]; return SOURCES[k]; }
 // Clicking the chip only REQUESTS a reconnect; the real connection state is
 // pushed back by the plugin via tuningStatus and drives the label. The UI never
 // fakes the state (it previously toggled a fictional 12-EDO/disconnected label).
@@ -875,6 +915,12 @@ Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+
 Bridge.on('exportData',({text})=>{ const t=$('#ioTxt'); if(t)t.value=text||''; });
 // Live per-note MPE expression (one entry per sounding voice) → "Notes" view.
 Bridge.on('voices',({v})=>{ state.voices = Array.isArray(v)?v:[]; });
+// Controller profile: aux source bindings + labels.
+Bridge.on('controllerState',({aux})=>{ state.aux = Array.isArray(aux)?aux:[];
+  if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
+// MIDI-learn captured a CC for an aux source.
+Bridge.on('auxLearned',({aux,cc})=>{ if(state.aux[aux])state.aux[aux].cc=cc; if(learnAux===aux)learnAux=-1;
+  if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
@@ -892,6 +938,7 @@ Bridge.on('presetList',({presets,selected})=>{ if(!Array.isArray(presets))return
 
 // ── Boot + mock animation loop ───────────────────────────────────────────
 state.sim = !HAS_JUCE;                 // live data from the plugin when embedded
+state.aux = AUX.map((a,i)=>({label:a,cc:0}));   // default until controllerState arrives
 buildMeters(); render(); Bridge.send('uiReady');
 setInterval(()=>{
   if(!state.sim) return;

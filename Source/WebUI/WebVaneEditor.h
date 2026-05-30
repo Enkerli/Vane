@@ -54,6 +54,9 @@ private:
     juce::StringArray          listenedParams;
     juce::String               lastNoteSent;   // dedupe the ♪ note readout
     bool                       lastMtsState { false };   // dedupe tuningStatus pushes
+    int                        armedAux { -1 };          // aux index being MIDI-learned
+
+    void sendControllerState();   // aux source bindings + labels → controllerState
     std::atomic<bool>          pageReady   { false };
     bool                       pageNavigated { false };
 

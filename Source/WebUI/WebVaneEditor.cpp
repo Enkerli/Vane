@@ -146,6 +146,38 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             owner->proc.reconnectMTS();
             owner->webView.emitEventIfBrowserIsVisible ("tuningStatus",
                 makeObj ({ { "connected", owner->proc.mtsConnected() } }));
+        })
+        // ── Controller profile: aux source binding + MIDI-learn ────────────────
+        .withEventListener ("requestControllerState", [owner] (const Array<var>&) {
+            owner->sendControllerState();
+        })
+        .withEventListener ("auxLearn", [owner] (const Array<var>& a) {       // arm learn
+            if (a.isEmpty()) return;
+            const int aux = static_cast<int> (a[0]["aux"]);
+            if (aux < 0 || aux >= ModSlots::NumAux) return;
+            owner->armedAux = aux;
+            owner->proc.ccLearnResult.store (-1, std::memory_order_relaxed);
+            owner->proc.ccLearnArm.store (aux, std::memory_order_relaxed);
+        })
+        .withEventListener ("auxLearnCancel", [owner] (const Array<var>&) {
+            owner->proc.ccLearnArm.store (-1, std::memory_order_relaxed);
+            owner->armedAux = -1;
+        })
+        .withEventListener ("setAuxCC", [owner] (const Array<var>& a) {       // typed bind
+            if (a.isEmpty()) return;
+            const int aux = static_cast<int> (a[0]["aux"]);
+            const int cc  = juce::jlimit (0, 127, static_cast<int> (a[0]["cc"]));
+            if (aux < 0 || aux >= ModSlots::NumAux) return;
+            if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (
+                              owner->proc.apvts.getParameter ("aux" + juce::String (aux) + "_cc")))
+                p->setValueNotifyingHost (p->convertTo0to1 ((float) cc));
+        })
+        .withEventListener ("setAuxLabel", [owner] (const Array<var>& a) {    // rename
+            if (a.isEmpty()) return;
+            const int aux = static_cast<int> (a[0]["aux"]);
+            if (aux < 0 || aux >= ModSlots::NumAux) return;
+            owner->proc.apvts.state.setProperty ("auxLabel" + juce::String (aux),
+                                                 a[0]["label"].toString(), nullptr);
         });
 }
 
@@ -249,6 +281,31 @@ void WebVaneEditor::timerCallback()
         lastMtsState = mts;
         webView.emitEventIfBrowserIsVisible ("tuningStatus", makeObj ({ { "connected", mts } }));
     }
+
+    // MIDI-learn result: the audio thread captured a CC while armed → bind it.
+    const int learned = proc.ccLearnResult.exchange (-1, std::memory_order_relaxed);
+    if (learned >= 0 && armedAux >= 0) {
+        const int aux = armedAux; armedAux = -1;
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (
+                          proc.apvts.getParameter ("aux" + juce::String (aux) + "_cc")))
+            p->setValueNotifyingHost (p->convertTo0to1 ((float) learned));
+        webView.emitEventIfBrowserIsVisible ("auxLearned",
+            makeObj ({ { "aux", aux }, { "cc", learned } }));
+    }
+}
+
+void WebVaneEditor::sendControllerState()
+{
+    juce::Array<juce::var> aux;
+    for (int g = 0; g < ModSlots::NumAux; ++g) {
+        int cc = 0;
+        if (auto* p = proc.apvts.getRawParameterValue ("aux" + juce::String (g) + "_cc"))
+            cc = static_cast<int> (p->load());
+        const auto label = proc.apvts.state.getProperty (
+                               "auxLabel" + juce::String (g), "Aux " + juce::String (g + 1)).toString();
+        aux.add (makeObj ({ { "cc", cc }, { "label", label } }));
+    }
+    webView.emitEventIfBrowserIsVisible ("controllerState", makeObj ({ { "aux", juce::var (aux) } }));
 }
 
 // ── Outbound: param echo ──────────────────────────────────────────────────────
@@ -307,6 +364,7 @@ void WebVaneEditor::sendInitialState()
     for (auto& p : kParamMap) emitParam (p.apvts);
     sendSlotState();
     sendPresetList();
+    sendControllerState();
     webView.emitEventIfBrowserIsVisible ("tuningStatus",
         makeObj ({ { "connected", proc.mtsConnected() } }));
 }
