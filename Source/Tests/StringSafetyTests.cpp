@@ -47,7 +47,7 @@ private:
         expect(juce::CharPointer_ASCII::isValidString(
                    PresetManager::fileExtension,
                    std::numeric_limits<int>::max()),
-               "fileExtension contains non-ASCII bytes — "
+               "fileExtension contains non-ASCII bytes - "
                "use String::fromUTF8() or keep it pure ASCII");
     }
 
@@ -107,7 +107,7 @@ private:
         for (auto* name : safeNames) {
             expect(juce::CharPointer_ASCII::isValidString(
                        name, static_cast<int>(std::strlen(name))),
-                   juce::String("Param name is not ASCII-safe: use 'to' not arrow — ")
+                   juce::String("Param name is not ASCII-safe: use 'to' not arrow - ")
                        + juce::String(name));
         }
     }

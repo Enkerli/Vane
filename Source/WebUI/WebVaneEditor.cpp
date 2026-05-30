@@ -193,7 +193,10 @@ void WebVaneEditor::navigateIfNeeded()
 // ── Outbound: meters at 30 Hz ─────────────────────────────────────────────────
 static juce::String hzToNote (float hz)
 {
-    if (hz < 20.0f) return "—";
+    // Empty when no note — never a non-ASCII char* (juce::String(const char*)
+    // asserts on bytes > 127, which traps/aborts on iOS).  The JS shows "—" as
+    // the placeholder for an empty note.
+    if (hz < 20.0f) return {};
     const int midi = static_cast<int> (std::lround (69.0 + 12.0 * std::log2 (hz / 440.0)));
     static const char* names[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
     return juce::String (names[((midi % 12) + 12) % 12]) + juce::String (midi / 12 - 1);

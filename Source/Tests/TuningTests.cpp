@@ -139,7 +139,7 @@ private:
                 break;
             }
         }
-        expect(bounded, "phase escaped [0, 1) — floor-wrap is not working");
+        expect(bounded, "phase escaped [0, 1) - floor-wrap is not working");
     }
 
     // ── 6. Oscillator: edge case — freq exactly equals sample rate ────────────
