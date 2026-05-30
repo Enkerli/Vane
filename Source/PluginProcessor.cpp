@@ -125,10 +125,17 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         if (msg.isController()) {
             const int cc = msg.getControllerNumber();
             modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
-            // MIDI-learn: capture the first CC seen while armed.
+            // MIDI-learn: capture the first CC seen while armed — but EXCLUDE the
+            // CCs already used by the fixed sources (CC74 = MPE timbre/slide, and
+            // the breath/expression CCs), so just playing a note (which streams
+            // CC74) doesn't false-capture. Aux controls are some other CC.
             if (ccLearnArm.load(std::memory_order_relaxed) >= 0) {
-                ccLearnResult.store(cc, std::memory_order_relaxed);
-                ccLearnArm.store(-1, std::memory_order_relaxed);
+                const int breathCC = pMacroBreathCC ? (int) std::lround(pMacroBreathCC->load()) : 2;
+                const int exprCC   = pMacroExprCC   ? (int) std::lround(pMacroExprCC->load())   : 11;
+                if (cc != 74 && cc != breathCC && cc != exprCC) {
+                    ccLearnResult.store(cc, std::memory_order_relaxed);
+                    ccLearnArm.store(-1, std::memory_order_relaxed);
+                }
             }
         }
         else if (msg.isChannelPressure())
