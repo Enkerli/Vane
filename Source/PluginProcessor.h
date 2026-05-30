@@ -74,6 +74,22 @@ public:
     std::atomic<int> ccLearnArm    { -1 };
     std::atomic<int> ccLearnResult { -1 };
 
+    // ── MIDI probe (diagnostics) ───────────────────────────────────────────────
+    // Measures what the HOST routes to us in processBlock: how many events, and
+    // which channels they arrive on.  Pairs with the editor's CoreMIDI source
+    // enumeration to answer "can a rig instance be matched to a device, or only
+    // to a channel?" on each platform (esp. AUv3 in AUM).  Audio-thread writes
+    // are relaxed atomics; the editor reads + resets from the message thread.
+    struct MidiProbe {
+        std::atomic<uint64_t> events     { 0 };   // total channel-voice events seen
+        std::atomic<uint32_t> channelMask { 0 };  // bit (ch-1) set if channel ch seen
+    };
+    MidiProbe midiProbe;
+    void resetMidiProbe() {
+        midiProbe.events.store (0, std::memory_order_relaxed);
+        midiProbe.channelMask.store (0, std::memory_order_relaxed);
+    }
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 

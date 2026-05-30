@@ -407,6 +407,7 @@ const state = {
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo (MPE)',    // active controller (catalog key)
+  probe:{events:0,channels:[],sources:[],prevEvents:0,prevT:0,rate:0},  // MIDI probe
   mts:true, dirty:false, sim:true,
 };
 // seed factory-ish routing
@@ -899,7 +900,7 @@ function setCtrl(c){ state.controller=c;
   updateCtrlPill(); closeMenus(); if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); }
 
 // ── Controllers panel: source profile (per-note MPE + global aux, learnable) ──
-let learnAux=-1, ctrlOpen=false;
+let learnAux=-1, ctrlOpen=false, probeRunning=false;
 // Per-note dimensions come from MPE — informational, never reassigned here.
 const PERNOTE=[
   ['Pressure','MPE channel pressure','pressure'],
@@ -1000,9 +1001,29 @@ function renderControllers(){
     ${breathRow?`<div class="ctrl-sec"><span class="eyebrow">Global</span>${breathRow}</div>`:''}
     <div class="ctrl-sec"><span class="eyebrow">Aux — assignable global sources</span>${auxRows}
       <p class="fine-hint">Click <b>Learn</b>, then move the control. CC74 and the breath CC are ignored (they're fixed sources), so a played note won't be captured.</p></div>
+    <div class="ctrl-sec"><span class="eyebrow">Diagnostics · MIDI probe</span>
+      <p class="fine-hint">What can Vane actually see about incoming MIDI here? — the channels the host routes to us, and the named MIDI sources the system exposes. Run it (e.g. in AUM with two sources) to test whether a rig can match a <b>device</b> or only a <b>channel</b>.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn ${probeRunning?'primary':''}" onclick="toggleProbe()">${probeRunning?'Stop probe':'Start MIDI probe'}</button>
+        <button class="btn" onclick="resetProbe()">Reset counts</button>
+      </div>
+      <div id="probeOut" class="num" style="font-size:12px;line-height:1.7;color:var(--vn-muted)">${probeReadout()}</div></div>
     <div class="actions"><button class="btn primary" onclick="closeControllers()">Done</button></div>`);
 }
-function closeControllers(){ ctrlOpen=false; if(learnAux>=0){Bridge.send('auxLearnCancel');learnAux=-1;} closeModal(); }
+function probeReadout(){
+  const p=state.probe;
+  if(!probeRunning && !p.events) return 'Not running.';
+  const chans = p.channels.length? p.channels.join(', ') : '— none yet —';
+  const srcs  = p.sources.length? p.sources.map(s=>'• '+(s.name||'(unnamed)')).join('<br>') : '— none visible —';
+  return `Host events: <b>${Math.round(p.events)}</b>&nbsp;&nbsp;(~${(p.rate||0).toFixed(0)}/s)<br>`
+       + `Channels seen: <b>${chans}</b><br>`
+       + `MIDI sources visible (<b>${p.sources.length}</b>):<br>${srcs}`;
+}
+function toggleProbe(){ probeRunning=!probeRunning;
+  Bridge.send(probeRunning?'requestMidiProbe':'stopMidiProbe'); renderControllers(); }
+function resetProbe(){ state.probe.events=0; state.probe.prevEvents=0; state.probe.rate=0; Bridge.send('resetMidiProbe'); }
+function closeControllers(){ ctrlOpen=false; if(learnAux>=0){Bridge.send('auxLearnCancel');learnAux=-1;}
+  if(probeRunning){ probeRunning=false; Bridge.send('stopMidiProbe'); } closeModal(); }
 function auxLearnToggle(i){ if(learnAux===i){ Bridge.send('auxLearnCancel'); learnAux=-1; }
   else { if(learnAux>=0)Bridge.send('auxLearnCancel'); learnAux=i; Bridge.send('auxLearn',{aux:i}); } renderControllers(); }
 function auxCC(i,v){ const cc=clamp(parseInt(v,10)||0,0,127); if(state.aux[i])state.aux[i].cc=cc; Bridge.send('setAuxCC',{aux:i,cc}); markDirty(); }
@@ -1038,6 +1059,12 @@ Bridge.on('controllerState',({aux,breathCC,exprCC,controller})=>{ state.aux = Ar
   if(controller){ state.controller=controller; }
   updateCtrlPill(); buildMeters();
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
+// MIDI probe (diagnostics): host MIDI stats + visible CoreMIDI sources.
+Bridge.on('midiProbe',({events,channels,sources})=>{ const p=state.probe; const now=performance.now();
+  if(p.prevT){ const dt=(now-p.prevT)/1000; if(dt>0) p.rate=Math.max(0,(events-p.prevEvents)/dt); }
+  p.prevT=now; p.prevEvents=events;
+  p.events=events||0; p.channels=Array.isArray(channels)?channels:[]; p.sources=Array.isArray(sources)?sources:[];
+  const out=$('#probeOut'); if(out) out.innerHTML=probeReadout(); });
 // MIDI-learn captured a CC for an aux source.
 Bridge.on('auxLearned',({aux,cc})=>{ if(state.aux[aux])state.aux[aux].cc=cc; if(learnAux===aux)learnAux=-1;
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });

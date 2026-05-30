@@ -58,6 +58,9 @@ private:
 
     void sendControllerState();   // aux source bindings + labels → controllerState
     void sendProfileList();       // saved controller profiles → profileList
+    void sendMidiProbe();         // diagnostics: host MIDI stats + CoreMIDI sources
+    bool                       probeOn { false };   // diagnostics panel active
+    int                        probeTick { 0 };     // throttle source enum to ~2 Hz
     std::atomic<bool>          pageReady   { false };
     bool                       pageNavigated { false };
 

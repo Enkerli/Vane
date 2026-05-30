@@ -156,6 +156,18 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             owner->webView.emitEventIfBrowserIsVisible ("tuningStatus",
                 makeObj ({ { "connected", owner->proc.mtsConnected() } }));
         })
+        // ── MIDI probe (diagnostics) ───────────────────────────────────────────
+        .withEventListener ("requestMidiProbe", [owner] (const Array<var>&) {
+            owner->probeOn = true;          // start including the probe in timer emits
+            owner->sendMidiProbe();
+        })
+        .withEventListener ("stopMidiProbe", [owner] (const Array<var>&) {
+            owner->probeOn = false;
+        })
+        .withEventListener ("resetMidiProbe", [owner] (const Array<var>&) {
+            owner->proc.resetMidiProbe();
+            owner->sendMidiProbe();
+        })
         // ── Controller profile: aux source binding + MIDI-learn ────────────────
         .withEventListener ("requestControllerState", [owner] (const Array<var>&) {
             owner->sendControllerState();
@@ -327,6 +339,10 @@ void WebVaneEditor::timerCallback()
         webView.emitEventIfBrowserIsVisible ("tuningStatus", makeObj ({ { "connected", mts } }));
     }
 
+    // MIDI probe (diagnostics): ~2 Hz while the panel is open.
+    if (probeOn && (++probeTick % 15 == 0))
+        sendMidiProbe();
+
     // MIDI-learn result: the audio thread captured a CC while armed → bind it.
     const int learned = proc.ccLearnResult.exchange (-1, std::memory_order_relaxed);
     if (learned >= 0 && armedAux >= 0) {
@@ -358,6 +374,29 @@ void WebVaneEditor::sendControllerState()
         { "breathCC",   ccOf ("macroBreathCC", 2) },
         { "exprCC",     ccOf ("macroExprCC", 11) },
         { "controller", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() },
+    }));
+}
+
+void WebVaneEditor::sendMidiProbe()
+{
+    // Path A — what the HOST routed to us (counted on the audio thread).
+    const auto events = (double) proc.midiProbe.events.load (std::memory_order_relaxed);
+    const auto mask   = proc.midiProbe.channelMask.load (std::memory_order_relaxed);
+    juce::Array<juce::var> channels;
+    for (int c = 0; c < 16; ++c)
+        if (mask & (1u << c)) channels.add (c + 1);
+
+    // Path B — what the SYSTEM exposes: enumerate MIDI input sources by name.
+    // This is the actual test of whether device identity is visible to us (esp.
+    // inside the AUv3 sandbox).  juce::MidiInput wraps CoreMIDI on Apple.
+    juce::Array<juce::var> sources;
+    for (const auto& d : juce::MidiInput::getAvailableDevices())
+        sources.add (makeObj ({ { "name", d.name }, { "id", d.identifier } }));
+
+    webView.emitEventIfBrowserIsVisible ("midiProbe", makeObj ({
+        { "events",   events },
+        { "channels", juce::var (channels) },
+        { "sources",  juce::var (sources) },
     }));
 }
 

@@ -108,7 +108,9 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
      sources to specific ports; we'd see the port, not necessarily the device
      name. Needs an actual probe to confirm what JUCE's AUv3 wrapper surfaces
      (log the MIDI input bus/port count + any names, run in AUM with two named
-     sources). **TODO: test.**
+     sources). **Probe built** (Controller setup → Diagnostics · MIDI probe):
+     reports host events + channels seen (Path A) and `MidiInput`-visible source
+     names (Path B). Awaiting an AUM run to read back. Standalone is the control.
    - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
      announces manufacturer/family/model IDs; that maps directly to a Manifold
      entry → true semi-automated pairing, cross-platform. Aligns with Manifold's

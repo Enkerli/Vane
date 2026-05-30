@@ -123,6 +123,11 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     // into the mod matrix / shared state before rendering voices.
     for (const auto meta : midi) {
         auto msg = meta.getMessage();
+        // MIDI probe (diagnostics): count host-routed events + record channels.
+        if (const int ch = msg.getChannel(); ch >= 1 && ch <= 16) {
+            midiProbe.events.fetch_add (1, std::memory_order_relaxed);
+            midiProbe.channelMask.fetch_or (1u << (ch - 1), std::memory_order_relaxed);
+        }
         if (msg.isController()) {
             const int cc = msg.getControllerNumber();
             modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
