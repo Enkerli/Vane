@@ -268,6 +268,13 @@ body{
 .ctrl-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--vn-line-soft)}
 .ctrl-lbl{border:1px solid var(--vn-line);border-radius:6px;background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-ui);font-size:13px;font-weight:600;padding:5px 8px;width:150px}
 .ctrl-cc{width:50px;border:1px solid var(--vn-line);border-radius:5px;background:var(--vn-panel);color:var(--vn-text);font-family:var(--vn-mono);padding:2px 4px;margin-left:4px}
+.profile-banner{display:none;align-items:center;gap:10px;flex:none;flex-wrap:wrap;
+  background:var(--vn-pressure-tint);border:1px solid var(--vn-pressure);color:var(--vn-text-2);
+  border-radius:var(--r-md);padding:9px 14px;font-size:12.5px}
+.profile-banner.on{display:flex}
+.profile-banner b{color:var(--vn-pressure)}
+.profile-banner .btn{margin-left:auto}
+.profile-banner .btn+.btn{margin-left:0}
 
 /* ── Responsive: single column + bottom tab bar (B2, §7) ────── */
 @media (max-width:860px){
@@ -299,6 +306,13 @@ body{
     <button class="icon-btn" id="monoBtn" onclick="toggleMono()" style="width:auto;max-width:none;min-width:62px;padding:0 16px">Mono</button>
     <button class="icon-btn warn" title="Panic" onclick="Bridge.send('panic')">!</button>
     <button class="icon-btn" title="Toggle theme" onclick="toggleTheme()">◐</button>
+  </div>
+
+  <!-- Preset↔profile association notice -->
+  <div id="profileBanner" class="profile-banner">
+    <span>This patch was built for controller profile <b class="pb-name"></b>.</span>
+    <button class="btn primary" onclick="applySuggestedProfile()">Apply profile</button>
+    <button class="btn" onclick="dismissProfileBanner()">Keep current</button>
   </div>
 
   <!-- Main -->
@@ -949,6 +963,13 @@ Bridge.on('auxLearned',({aux,cc})=>{ if(state.aux[aux])state.aux[aux].cc=cc; if(
 // Saved controller profiles list.
 Bridge.on('profileList',({profiles,current})=>{ state.profiles=Array.isArray(profiles)?profiles:[];
   if(typeof current==='string') state.profileName=current; if(ctrlOpen)renderControllers(); });
+// Preset↔profile association: a loaded patch references a saved profile.
+Bridge.on('profileSuggest',({name})=>{ const b=$('#profileBanner'); if(!b)return;
+  if(name){ b.querySelector('.pb-name').textContent=name; b.dataset.profile=name; b.classList.add('on'); }
+  else b.classList.remove('on'); });
+function applySuggestedProfile(){ const b=$('#profileBanner'); const n=b.dataset.profile;
+  if(n){ state.profileName=n; Bridge.send('loadProfile',{name:n}); } b.classList.remove('on'); }
+function dismissProfileBanner(){ $('#profileBanner').classList.remove('on'); }
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });

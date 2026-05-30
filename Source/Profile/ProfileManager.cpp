@@ -39,8 +39,11 @@ void ProfileManager::saveProfile(const juce::String& name)
     }
 
     if (auto xml = t.createXml())
-        if (xml->writeTo(dir.getChildFile(name + fileExtension)))
+        if (xml->writeTo(dir.getChildFile(name + fileExtension))) {
             currentName = name;
+            // Record the active profile in plugin state so presets remember it.
+            apvts.state.setProperty("profileName", name, nullptr);
+        }
 }
 
 void ProfileManager::loadProfile(const juce::String& name)
@@ -70,6 +73,7 @@ void ProfileManager::loadProfile(const juce::String& name)
     }
 
     currentName = name;
+    apvts.state.setProperty("profileName", name, nullptr);
 }
 
 void ProfileManager::deleteProfile(const juce::String& name)

@@ -104,7 +104,16 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             auto names = owner->proc.presetManager.getPresetNames();
             if (id >= 0 && id < names.size()) {
                 owner->proc.presetManager.loadPreset (names[id]);
-                owner->sendSlotState();     // patch params echo via parameterChanged
+                owner->sendSlotState();      // patch params echo via parameterChanged
+                owner->sendControllerState(); // the preset carries its own bindings
+                // Preset↔profile association: if the patch was built for a saved
+                // profile that isn't the active one, offer to apply it.
+                const auto pp = owner->proc.apvts.state.getProperty ("profileName", "").toString();
+                const bool suggest = pp.isNotEmpty()
+                                  && pp != owner->proc.profileManager.getCurrentProfileName()
+                                  && owner->proc.profileManager.getProfileNames().contains (pp);
+                owner->webView.emitEventIfBrowserIsVisible ("profileSuggest",
+                    makeObj ({ { "name", suggest ? juce::var (pp) : juce::var() } }));
             }
         })
         .withEventListener ("presetSave", [owner] (const Array<var>& a) {
