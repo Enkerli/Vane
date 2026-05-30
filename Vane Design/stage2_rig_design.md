@@ -104,23 +104,39 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
      (this is what AUM shows / routes), but within a bus the stream is merged.
      So identity = *which port/bus* the host routed to us, not a device name —
      only as granular as the host's routing.
-   - **AUv3 (iOS, e.g. AUM):** same as above — AUM lets the user route named
-     sources to specific ports; we'd see the port, not necessarily the device
-     name. Needs an actual probe to confirm what JUCE's AUv3 wrapper surfaces
-     (log the MIDI input bus/port count + any names, run in AUM with two named
-     sources). **Probe built** (Controller setup → Diagnostics · MIDI probe):
-     reports host events + channels seen (Path A) and `MidiInput`-visible source
-     names (Path B). Awaiting an AUM run to read back. Standalone is the control.
+   - **AUv3 (iOS, AUM) — MEASURED.** Ran the probe in AUM with a Sylphyo (MPE):
+     - Path A: channels came through cleanly — idle = ch 1; playing = ch 1, 5–10
+       (manager + MPE member channels), ~165 events/s. **Channel/zone
+       discrimination is reliable.**
+     - Path B: `MidiInput::getAvailableDevices()` returned exactly **one** source,
+       `"AUM"`. The host owns the hardware and re-presents itself as the single
+       MIDI source — **device names are NOT visible to us inside the AUv3
+       sandbox.** So on iOS, identity bottoms out at channel.
+     - **Implication:** true per-source identity on iOS needs Vane to publish its
+       own **named CoreMIDI virtual input ports** ("Vane Notes" / "Vane Mod");
+       the user routes each source to a port in AUM and we read them tagged by
+       port. That's the v2 experiment (Path-B *creation* + double-delivery check).
    - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
      announces manufacturer/family/model IDs; that maps directly to a Manifold
      entry → true semi-automated pairing, cross-platform. Aligns with Manifold's
      `bidirectional` / MIDI-CI roadmap. Far horizon, but the *right* answer.
 
-   **Practical matching ladder for 2b** (best available wins, manual always
-   works): MIDI-CI model id → device name (standalone / some hosts) → host
-   port/bus → channel filter → manual assignment. Store whatever matched in the
-   instance so it's sticky. Semi-auto pairing is a *suggestion* layer on top:
-   "saw 'Sylphyo Link' → apply the Sylphyo rig?" — never silent.
+   **Matching ladder for 2b** (best available wins, manual always works), now
+   evidence-backed:
+   - **Channel / MPE zone** — the cross-platform floor. Works everywhere incl.
+     AUv3/AUM (measured). This is what 2a's instance `match` is built on.
+   - **Device name** — desktop standalone bonus (JUCE opens devices directly);
+     enables semi-auto pairing *there*. Not available under AUv3.
+   - **Vane-owned virtual ports** — the iOS route to per-source identity (v2).
+   - **MIDI-CI model id** — the future, cross-platform, true auto-pairing.
+   Store whatever matched so it's sticky. Pairing is always a *suggestion*
+   ("saw 'Sylphyo Link' → apply the Sylphyo rig?"), never silent.
+
+   **Net for 2a:** build instance `match` on **channel / zone**. On iPad, the
+   sequencer+wind split means putting them on distinct channels (or the wind on
+   its MPE zone, the sequencer on a single channel outside it) — which is how
+   MPE rigs are wired anyway. Device-name and virtual-port matching layer on
+   later without changing the schema (they just populate the same `match`).
 2. **Preset ↔ rig.** Presets already store `profileName`; it becomes `rigName`.
    The suggest-banner logic carries over unchanged.
 3. **Where does mono live** — rig-level default vs patch param? Current auto-mono
