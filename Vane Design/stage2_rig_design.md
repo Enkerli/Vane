@@ -128,40 +128,52 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
        desktop is expected to succeed (createNewDevice works there) — untested
        control. The port==role *model* is still attractive; the *mechanism*
        isn't available to us as an AUv3.
-     - **Direct-open — the other route (experiment built).** Since enumeration
-       works (we see `Sylphyo`, `Zefiro`, even `Zefiro App Virtual MIDI`), Vane
-       now opens every visible source itself via `MidiInput::openDevice` and
-       counts per-source. If that succeeds in the AUv3, we get **per-source
-       attribution** without the host's merged stream — Vane reads each device
-       directly, tagged. Tradeoff: **double-delivery** (the same source also
-       arrives in the host stream), so real use reads *either* direct *or* host,
-       not both; and it's Vane grabbing devices rather than the user expressing
-       routing intent. **Awaiting an AUM run to see if openDevice works.**
+     - **Direct-open — WORKS (measured).** `MidiInput::openDevice` from inside the
+       AUv3 opened the Sylphyo and counted `direct 1655` while playing. So an AUv3
+       **can open named CoreMIDI sources directly and read them, tagged.**
+       Per-device identity on iPad is real — for *CoreMIDI endpoints*. (AUM,
+       Network, other apps' virtual ports opened too but read 0 — nothing was
+       flowing through them, not a failure.)
+     - **The CoreMIDI-endpoint vs AU-port distinction (the crux).** Vane's source
+       list sees hardware (Sylphyo/Zefiro), Network, and other apps' *virtual*
+       ports — but NOT AU-declared MIDI ports (Progressions' Bass/Block/Arp/Strum
+       Out = Port 1–5; PolyPipe A..MS; Polythemus 1–8). Those exist only inside
+       the host's routing graph and reach us via the merged AU-input stream.
+       How those plugins expose them: multiple MIDI *outputs* via the AUv3
+       `midiOutputNames` property + `MIDIOutputEventBlock` (cable-tagged) — NOT
+       CoreMIDI virtual endpoints, and **not surfaced by JUCE** (wrapper-level
+       work). Multiple named *inputs* are typically container-app CoreMIDI
+       virtual destinations (not the extension) or UMP groups.
    - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
      announces manufacturer/family/model IDs; that maps directly to a Manifold
      entry → true semi-automated pairing, cross-platform. Aligns with Manifold's
      `bidirectional` / MIDI-CI roadmap. Far horizon, but the *right* answer.
 
-   **Matching ladder for 2b** (best available wins, manual always works), now
-   evidence-backed:
-   - **Channel / MPE zone** — the cross-platform floor. Works everywhere incl.
-     AUv3/AUM (measured). This is what 2a's instance `match` is built on.
-   - **Virtual port (port == role)** — works under AUv3 in matrix hosts (AUM,
-     apeMatrix); the *strongest* signal because it's the user's explicit routing
-     intent, not an inference. Likely the headline mechanism on iOS.
-   - **Device name** — enumerable for hardware on *both* desktop and AUv3
-     (measured: Exquis/Sylphyo). Enables pairing *suggestions*; for per-message
-     attribution it needs us to open the source directly (desktop) — under a
-     merged host stream the name alone doesn't tag messages.
+   **Matching ladder for 2b** — settled, evidence-backed:
+   - **Channel / MPE zone** — the cross-platform floor; works everywhere incl.
+     AUv3/AUM (measured). What 2a's instance `match` is built on.
+   - **Device name via enumeration/direct-open** — works on desktop AND AUv3 for
+     CoreMIDI endpoints (hardware). Measured: Sylphyo opened, `direct 1655`.
+     Use for **identity / pairing suggestions, NOT the audio path** — consuming
+     the direct stream double-delivers (the host also routes it). So enumeration
+     says "Sylphyo is here → suggest the Sylphyo rig"; the notes still arrive via
+     the host stream on their channel. No double notes.
    - **MIDI-CI model id** — the future, cross-platform, true auto-pairing.
-   Store whatever matched so it's sticky. Pairing is always a *suggestion*
-   ("saw 'Sylphyo' → apply the Sylphyo rig?"), never silent.
+   - **NOT available to us:** Vane-published virtual ports (AUv3 `createNewDevice`
+     fails); receiving AU-declared ports like "Progressions Bass Out" directly
+     (not CoreMIDI endpoints — only the host's merged stream + channel).
 
-   **Net for 2a:** build instance `match` on **channel / zone**. On iPad, the
-   sequencer+wind split means putting them on distinct channels (or the wind on
-   its MPE zone, the sequencer on a single channel outside it) — which is how
-   MPE rigs are wired anyway. Device-name and virtual-port matching layer on
-   later without changing the schema (they just populate the same `match`).
+   **Net for 2a:** build instance `match` on **channel / zone** (universal). A
+   **device-identity layer** (enumeration/direct-open; desktop + iPad hardware)
+   drives *pairing suggestions* on top — never the note path. Host-routed AU
+   generators are distinguished by channel. On iPad the sequencer+wind split
+   means distinct channels (wind on its MPE zone, sequencer outside it) — how
+   MPE rigs are wired anyway. This fully specifies 2a; nothing here blocks it.
+
+   **Flagged (deeper, optional):** letting a user route "Progressions Bass Out →
+   Vane's Bass input" by intent needs multiple named *input* ports — no clean
+   JUCE/AUv3 path (container-app virtual ports, or AUv3 wrapper work to expose
+   `midiOutputNames`-style multi-port). Park it; channel/zone covers it today.
 2. **Preset ↔ rig.** Presets already store `profileName`; it becomes `rigName`.
    The suggest-banner logic carries over unchanged.
 3. **Where does mono live** — rig-level default vs patch param? Current auto-mono
