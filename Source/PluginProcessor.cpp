@@ -96,7 +96,7 @@ VaneProcessor::VaneProcessor()
 #endif
 }
 
-VaneProcessor::~VaneProcessor() = default;
+VaneProcessor::~VaneProcessor() { stopVirtualPorts(); }
 
 void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {

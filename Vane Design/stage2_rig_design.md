@@ -104,18 +104,30 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
      (this is what AUM shows / routes), but within a bus the stream is merged.
      So identity = *which port/bus* the host routed to us, not a device name —
      only as granular as the host's routing.
-   - **AUv3 (iOS, AUM) — MEASURED.** Ran the probe in AUM with a Sylphyo (MPE):
-     - Path A: channels came through cleanly — idle = ch 1; playing = ch 1, 5–10
-       (manager + MPE member channels), ~165 events/s. **Channel/zone
+   - **AUv3 (iOS, AUM) — MEASURED (corrected).** Ran the probe in AUM:
+     - Path A: channels come through cleanly — playing a Sylphyo (MPE) shows
+       ch 1–14 (manager + members), ~130–165 events/s. **Channel/zone
        discrimination is reliable.**
-     - Path B: `MidiInput::getAvailableDevices()` returned exactly **one** source,
-       `"AUM"`. The host owns the hardware and re-presents itself as the single
-       MIDI source — **device names are NOT visible to us inside the AUv3
-       sandbox.** So on iOS, identity bottoms out at channel.
-     - **Implication:** true per-source identity on iOS needs Vane to publish its
-       own **named CoreMIDI virtual input ports** ("Vane Notes" / "Vane Mod");
-       the user routes each source to a port in AUM and we read them tagged by
-       port. That's the v2 experiment (Path-B *creation* + double-delivery check).
+     - Path B: `getAvailableDevices()` **does** list real hardware by name —
+       `"Exquis"`, `"Sylphyo"` appeared alongside `"AUM"`. (An earlier run showed
+       only `"AUM"` because the routed sources were *virtual/in-host*
+       — DrawnQurve + AUM's keyboard — which collapse to the host name.) So:
+       **hardware MIDI endpoints ARE enumerable by name from inside the AUv3.**
+       In-host/virtual sources appear as the host.
+     - **But enumeration ≠ attribution.** Seeing `"Exquis"` in the list doesn't
+       tag the *host's merged stream* — those messages still arrive channel-only.
+       Per-message device identity on iOS needs either (a) opening the named
+       source directly via CoreMIDI, or (b) virtual ports (below).
+     - **Virtual ports — the compelling model (experiment built).** Vane
+       publishes named CoreMIDI virtual inputs ("Vane Notes" / "Vane Mod"); the
+       host's routing matrix (AUM, apeMatrix) sends specific generators to
+       specific ports. **Port == role**, expressed by the user's routing intent
+       rather than inferred. A melody generator → "Vane Notes", a bass plugin
+       with a dedicated bass-MIDI port (e.g. 4Pockets Progressions) → a "bass"
+       port, a DrawnQurve instance → "Vane Mod". The probe now creates two test
+       ports and counts what arrives on each (feeding the synth = 2b). Caveats:
+       host/format support varies; double-delivery if also routed to the AU's
+       main input; CoreMIDI-thread → audio-thread handoff needed for real use.
    - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
      announces manufacturer/family/model IDs; that maps directly to a Manifold
      entry → true semi-automated pairing, cross-platform. Aligns with Manifold's
@@ -125,12 +137,16 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
    evidence-backed:
    - **Channel / MPE zone** — the cross-platform floor. Works everywhere incl.
      AUv3/AUM (measured). This is what 2a's instance `match` is built on.
-   - **Device name** — desktop standalone bonus (JUCE opens devices directly);
-     enables semi-auto pairing *there*. Not available under AUv3.
-   - **Vane-owned virtual ports** — the iOS route to per-source identity (v2).
+   - **Virtual port (port == role)** — works under AUv3 in matrix hosts (AUM,
+     apeMatrix); the *strongest* signal because it's the user's explicit routing
+     intent, not an inference. Likely the headline mechanism on iOS.
+   - **Device name** — enumerable for hardware on *both* desktop and AUv3
+     (measured: Exquis/Sylphyo). Enables pairing *suggestions*; for per-message
+     attribution it needs us to open the source directly (desktop) — under a
+     merged host stream the name alone doesn't tag messages.
    - **MIDI-CI model id** — the future, cross-platform, true auto-pairing.
    Store whatever matched so it's sticky. Pairing is always a *suggestion*
-   ("saw 'Sylphyo Link' → apply the Sylphyo rig?"), never silent.
+   ("saw 'Sylphyo' → apply the Sylphyo rig?"), never silent.
 
    **Net for 2a:** build instance `match` on **channel / zone**. On iPad, the
    sequencer+wind split means putting them on distinct channels (or the wind on

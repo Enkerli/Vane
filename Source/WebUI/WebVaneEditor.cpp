@@ -159,13 +159,16 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         // ── MIDI probe (diagnostics) ───────────────────────────────────────────
         .withEventListener ("requestMidiProbe", [owner] (const Array<var>&) {
             owner->probeOn = true;          // start including the probe in timer emits
+            owner->proc.startVirtualPorts(); // publish "Vane Notes"/"Vane Mod" to route to
             owner->sendMidiProbe();
         })
         .withEventListener ("stopMidiProbe", [owner] (const Array<var>&) {
             owner->probeOn = false;
+            owner->proc.stopVirtualPorts();
         })
         .withEventListener ("resetMidiProbe", [owner] (const Array<var>&) {
             owner->proc.resetMidiProbe();
+            owner->proc.resetVirtualPorts();
             owner->sendMidiProbe();
         })
         // ── Controller profile: aux source binding + MIDI-learn ────────────────
@@ -393,10 +396,25 @@ void WebVaneEditor::sendMidiProbe()
     for (const auto& d : juce::MidiInput::getAvailableDevices())
         sources.add (makeObj ({ { "name", d.name }, { "id", d.identifier } }));
 
+    // Virtual ports we publish — did creation succeed, and what arrives on each?
+    juce::Array<juce::var> vps;
+    for (auto& v : proc.vports) {
+        juce::Array<juce::var> vch;
+        const auto vm = v.channelMask.load (std::memory_order_relaxed);
+        for (int c = 0; c < 16; ++c) if (vm & (1u << c)) vch.add (c + 1);
+        vps.add (makeObj ({
+            { "name",     v.name.isNotEmpty() ? juce::var (v.name) : juce::var ("(uncreated)") },
+            { "created",  v.created() },
+            { "events",   (double) v.events.load (std::memory_order_relaxed) },
+            { "channels", juce::var (vch) },
+        }));
+    }
+
     webView.emitEventIfBrowserIsVisible ("midiProbe", makeObj ({
         { "events",   events },
         { "channels", juce::var (channels) },
         { "sources",  juce::var (sources) },
+        { "vports",   juce::var (vps) },
     }));
 }
 

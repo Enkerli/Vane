@@ -90,6 +90,44 @@ public:
         midiProbe.channelMask.store (0, std::memory_order_relaxed);
     }
 
+    // ── Virtual MIDI input ports (experiment) ──────────────────────────────────
+    // Vane publishes named CoreMIDI virtual inputs ("Vane Notes", "Vane Mod") so a
+    // host's routing matrix (AUM, apeMatrix…) can send specific sources to specific
+    // ports — port == role.  Tests whether an AUv3 can create virtual ports and
+    // receive MIDI tagged by port (vs the host's merged, channel-only stream).
+    // Counts only; feeding the synth is 2b.  ASCII names only — non-ASCII through
+    // juce::String(const char*) traps on iOS.
+    struct VPort : juce::MidiInputCallback {
+        std::atomic<uint64_t> events      { 0 };
+        std::atomic<uint32_t> channelMask { 0 };
+        std::unique_ptr<juce::MidiInput> dev;
+        juce::String name;
+        bool created() const { return dev != nullptr; }
+        void open (const juce::String& n) {
+            name = n;
+            dev = juce::MidiInput::createNewDevice (n, this);
+            if (dev) dev->start();
+        }
+        void close() { if (dev) { dev->stop(); dev.reset(); } }
+        void reset() { events.store (0, std::memory_order_relaxed);
+                       channelMask.store (0, std::memory_order_relaxed); }
+        void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m) override {
+            events.fetch_add (1, std::memory_order_relaxed);
+            const int ch = m.getChannel();
+            if (ch >= 1 && ch <= 16) channelMask.fetch_or (1u << (ch - 1), std::memory_order_relaxed);
+        }
+    };
+    std::array<VPort, 2> vports;
+    bool vportsOpen { false };
+    void startVirtualPorts() {
+        if (vportsOpen) return;
+        const char* names[] = { "Vane Notes", "Vane Mod" };
+        for (int i = 0; i < 2; ++i) vports[(size_t) i].open (names[i]);
+        vportsOpen = true;
+    }
+    void stopVirtualPorts() { for (auto& v : vports) v.close(); vportsOpen = false; }
+    void resetVirtualPorts() { for (auto& v : vports) v.reset(); }
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 
