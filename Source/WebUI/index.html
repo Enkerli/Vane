@@ -1014,7 +1014,11 @@ function probeReadout(){
   const p=state.probe;
   if(!probeRunning && !p.events) return 'Not running.';
   const chans = p.channels.length? p.channels.join(', ') : '— none yet —';
-  const srcs  = p.sources.length? p.sources.map(s=>'• '+(s.name||'(unnamed)')).join('<br>') : '— none visible —';
+  const srcs  = p.sources.length? p.sources.map(s=>{
+    const tag = s.opened===true ? `opened · direct <b>${Math.round(s.events||0)}</b>`
+              : s.opened===false ? '<b>could not open</b>' : 'visible';
+    return `&nbsp;&nbsp;• ${s.name||'(unnamed)'} — ${tag}`;
+  }).join('<br>') : '— none visible —';
   const vps = (p.vports||[]).map(v=>{
     const vch = (v.channels&&v.channels.length)? v.channels.join(', ') : '—';
     return `&nbsp;&nbsp;"${v.name}": ${v.created?'created':'<b>NOT created</b>'}, received <b>${Math.round(v.events||0)}</b> (ch ${vch})`;

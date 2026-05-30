@@ -128,6 +128,40 @@ public:
     void stopVirtualPorts() { for (auto& v : vports) v.close(); vportsOpen = false; }
     void resetVirtualPorts() { for (auto& v : vports) v.reset(); }
 
+    // ── Direct-open experiment ─────────────────────────────────────────────────
+    // The OTHER route to per-message identity on iOS: since enumeration works,
+    // open every visible source ourselves and count per-source.  Tests whether an
+    // AUv3 may open named sources directly, and exposes double-delivery (a source
+    // also arrives in the host's merged stream).  Counts only; feeding = 2b.
+    struct OpenedSrc : juce::MidiInputCallback {
+        std::atomic<uint64_t> events { 0 };
+        std::unique_ptr<juce::MidiInput> dev;
+        juce::String name;
+        bool ok { false };
+        void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override {
+            events.fetch_add (1, std::memory_order_relaxed);
+        }
+    };
+    std::vector<std::unique_ptr<OpenedSrc>> openedSrcs;
+    bool srcsOpen { false };
+    void openAllSources() { srcsOpen = true; refreshOpenSources(); }
+    void refreshOpenSources() {   // open any visible source we haven't yet (~2 Hz)
+        if (! srcsOpen) return;
+        for (const auto& d : juce::MidiInput::getAvailableDevices()) {
+            bool have = false;
+            for (auto& s : openedSrcs) if (s->name == d.name) { have = true; break; }
+            if (have) continue;
+            auto s = std::make_unique<OpenedSrc>();
+            s->name = d.name;
+            s->dev  = juce::MidiInput::openDevice (d.identifier, s.get());
+            if (s->dev) { s->dev->start(); s->ok = true; }
+            openedSrcs.push_back (std::move (s));
+        }
+    }
+    void closeAllSources() { for (auto& s : openedSrcs) if (s->dev) s->dev->stop();
+                             openedSrcs.clear(); srcsOpen = false; }
+    void resetOpenedSources() { for (auto& s : openedSrcs) s->events.store (0, std::memory_order_relaxed); }
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 

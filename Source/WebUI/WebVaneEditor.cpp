@@ -160,15 +160,18 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withEventListener ("requestMidiProbe", [owner] (const Array<var>&) {
             owner->probeOn = true;          // start including the probe in timer emits
             owner->proc.startVirtualPorts(); // publish "Vane Notes"/"Vane Mod" to route to
+            owner->proc.openAllSources();    // direct-open every visible source
             owner->sendMidiProbe();
         })
         .withEventListener ("stopMidiProbe", [owner] (const Array<var>&) {
             owner->probeOn = false;
             owner->proc.stopVirtualPorts();
+            owner->proc.closeAllSources();
         })
         .withEventListener ("resetMidiProbe", [owner] (const Array<var>&) {
             owner->proc.resetMidiProbe();
             owner->proc.resetVirtualPorts();
+            owner->proc.resetOpenedSources();
             owner->sendMidiProbe();
         })
         // ── Controller profile: aux source binding + MIDI-learn ────────────────
@@ -389,12 +392,18 @@ void WebVaneEditor::sendMidiProbe()
     for (int c = 0; c < 16; ++c)
         if (mask & (1u << c)) channels.add (c + 1);
 
-    // Path B — what the SYSTEM exposes: enumerate MIDI input sources by name.
-    // This is the actual test of whether device identity is visible to us (esp.
-    // inside the AUv3 sandbox).  juce::MidiInput wraps CoreMIDI on Apple.
+    // Path B — what the SYSTEM exposes, and whether we can OPEN each source
+    // directly (per-source event counts).  juce::MidiInput wraps CoreMIDI.
+    proc.refreshOpenSources();   // catch sources connected after probe start
     juce::Array<juce::var> sources;
-    for (const auto& d : juce::MidiInput::getAvailableDevices())
-        sources.add (makeObj ({ { "name", d.name }, { "id", d.identifier } }));
+    if (proc.srcsOpen) {
+        for (auto& s : proc.openedSrcs)
+            sources.add (makeObj ({ { "name", s->name }, { "opened", s->ok },
+                                    { "events", (double) s->events.load (std::memory_order_relaxed) } }));
+    } else {
+        for (const auto& d : juce::MidiInput::getAvailableDevices())
+            sources.add (makeObj ({ { "name", d.name } }));
+    }
 
     // Virtual ports we publish — did creation succeed, and what arrives on each?
     juce::Array<juce::var> vps;

@@ -118,16 +118,25 @@ The role mask is in the schema from 2a (stored), enforced in 2b.
        tag the *host's merged stream* — those messages still arrive channel-only.
        Per-message device identity on iOS needs either (a) opening the named
        source directly via CoreMIDI, or (b) virtual ports (below).
-     - **Virtual ports — the compelling model (experiment built).** Vane
-       publishes named CoreMIDI virtual inputs ("Vane Notes" / "Vane Mod"); the
-       host's routing matrix (AUM, apeMatrix) sends specific generators to
-       specific ports. **Port == role**, expressed by the user's routing intent
-       rather than inferred. A melody generator → "Vane Notes", a bass plugin
-       with a dedicated bass-MIDI port (e.g. 4Pockets Progressions) → a "bass"
-       port, a DrawnQurve instance → "Vane Mod". The probe now creates two test
-       ports and counts what arrives on each (feeding the synth = 2b). Caveats:
-       host/format support varies; double-delivery if also routed to the AU's
-       main input; CoreMIDI-thread → audio-thread handoff needed for real use.
+     - **Virtual ports — tested, FAILED under AUv3.** Vane tried to publish
+       "Vane Notes" / "Vane Mod" via `MidiInput::createNewDevice`; both came back
+       **`NOT created`** (createNewDevice returned null) inside the AUv3 extension
+       in AUM. So an AUv3 extension can *enumerate* sources but **cannot create
+       CoreMIDI virtual endpoints** here (sandbox). The "multi-port" AUv3 plugins
+       likely declare AU MIDI *outputs* (`MIDIOutputNames`) or create ports from
+       their container app, not extension-created virtual inputs. Standalone /
+       desktop is expected to succeed (createNewDevice works there) — untested
+       control. The port==role *model* is still attractive; the *mechanism*
+       isn't available to us as an AUv3.
+     - **Direct-open — the other route (experiment built).** Since enumeration
+       works (we see `Sylphyo`, `Zefiro`, even `Zefiro App Virtual MIDI`), Vane
+       now opens every visible source itself via `MidiInput::openDevice` and
+       counts per-source. If that succeeds in the AUv3, we get **per-source
+       attribution** without the host's merged stream — Vane reads each device
+       directly, tagged. Tradeoff: **double-delivery** (the same source also
+       arrives in the host stream), so real use reads *either* direct *or* host,
+       not both; and it's Vane grabbing devices rather than the user expressing
+       routing intent. **Awaiting an AUM run to see if openDevice works.**
    - **The clean long-term mechanism: MIDI-CI Discovery (MIDI 2.0).** A device
      announces manufacturer/family/model IDs; that maps directly to a Manifold
      entry → true semi-automated pairing, cross-platform. Aligns with Manifold's
