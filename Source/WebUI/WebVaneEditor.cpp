@@ -192,6 +192,14 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (a.isEmpty()) return;
             owner->proc.apvts.state.setProperty ("controllerName", a[0]["name"].toString(), nullptr);
         })
+        .withEventListener ("setMacroCC", [owner] (const Array<var>& a) {     // breath/expr CC# bind
+            if (a.isEmpty()) return;
+            const auto which = a[0]["which"].toString();
+            const int  cc    = juce::jlimit (0, 127, static_cast<int> (a[0]["cc"]));
+            const char* id   = which == "expr" ? "macroExprCC" : "macroBreathCC";
+            if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (owner->proc.apvts.getParameter (id)))
+                p->setValueNotifyingHost (p->convertTo0to1 ((float) cc));
+        })
         // ── Controller profiles (save/load named binding sets) ─────────────────
         .withEventListener ("requestProfileList", [owner] (const Array<var>&) {
             owner->sendProfileList();
@@ -342,7 +350,15 @@ void WebVaneEditor::sendControllerState()
                                "auxLabel" + juce::String (g), "Aux " + juce::String (g + 1)).toString();
         aux.add (makeObj ({ { "cc", cc }, { "label", label } }));
     }
-    webView.emitEventIfBrowserIsVisible ("controllerState", makeObj ({ { "aux", juce::var (aux) } }));
+    auto ccOf = [this] (const char* id, int dflt) {
+        if (auto* p = proc.apvts.getRawParameterValue (id)) return (int) std::lround (p->load());
+        return dflt; };
+    webView.emitEventIfBrowserIsVisible ("controllerState", makeObj ({
+        { "aux",        juce::var (aux) },
+        { "breathCC",   ccOf ("macroBreathCC", 2) },
+        { "exprCC",     ccOf ("macroExprCC", 11) },
+        { "controller", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() },
+    }));
 }
 
 void WebVaneEditor::sendProfileList()
