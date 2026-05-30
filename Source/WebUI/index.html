@@ -304,7 +304,6 @@ body{
           <span class="eyebrow">Stage · live</span>
           <div class="viewseg" id="viewseg">
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
-            <button data-view="notes" onclick="setView('notes')">Notes</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
             <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
           </div>
@@ -446,12 +445,34 @@ const hist={}; METER_SRC.forEach(s=>hist[s]=new Array(80).fill(0));
 let view='breath';
 function setView(v){ view=v; document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); }
 let simT=0;
+// Per-VOICE scrolling history so simultaneous notes don't collapse into one
+// aggregate (the "breaks apart on several channels" problem). Keyed by note;
+// each entry scrolls pressure(p)/slide(s)/bend(b) and fades out after release.
+const VN=80; let voiceTrace={};
+function pushVoices(){
+  const seen={};
+  for(const v of (state.voices||[])){
+    const id=v.note||('h'+Math.round(v.hz||0)); seen[id]=1;
+    let t=voiceTrace[id];
+    if(!t) t=voiceTrace[id]={p:new Array(VN).fill(0),s:new Array(VN).fill(v.slide??0.5),b:new Array(VN).fill(((v.bend||0)+1)/2),fade:0};
+    t.p.push(clamp(v.pressure||0,0,1)); t.p.shift();
+    t.s.push(clamp(v.slide??0.5,0,1));   t.s.shift();
+    t.b.push(clamp(((v.bend||0)+1)/2,0,1)); t.b.shift();
+    t.fade=0;
+  }
+  for(const id in voiceTrace){ if(seen[id]) continue;
+    const t=voiceTrace[id]; t.fade++;
+    t.p.push(0); t.p.shift(); t.s.push(t.s[VN-1]); t.s.shift(); t.b.push(t.b[VN-1]); t.b.shift();
+    if(t.fade>VN) delete voiceTrace[id];
+  }
+}
 function tickMeters(){
   for(const s in state.meters){
     const v=clamp(state.meters[s],0,1);
     const m=$('#m_'+s); if(m) m.style.width=(v*100)+'%';
     hist[s].push(v); hist[s].shift();
   }
+  pushVoices();
   // row meters in matrix tab
   document.querySelectorAll('[data-rowmeter]').forEach(el=>{
     const s=el.getAttribute('data-rowmeter'); const v=clamp(state.meters[s]||0,0,1);
@@ -463,33 +484,19 @@ function tickMeters(){
 function drawVis(){
   const svg=$('#visSvg'); let p='';
   if(view==='breath'){
-    // All aggregate source streams (honest "Sources" view) — breath is the
-    // bold primary; pitchbend included. (Per-voice MPE streams come later.)
-    for(const s of ["Pitchbend","Slide","Pressure","Expression","Breath"]){
-      const h=hist[s], col=cssv(SRC_COLOR[s]); let d='';
-      for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600, y=190-h[i]*170; d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
-      const main=s==='Breath';
-      p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${main?2.6:1.6}" stroke-linecap="round" opacity="${main?0.95:0.5}"/>`;
-    }
-  } else if(view==='notes'){
-    // Per-note MPE field: each sounding voice is a mark on the pitch axis.
-    //   x = pitch (log Hz) + pitchbend(X)   y = pressure(Z) height
-    //   radius = velocity   ring thickness = slide/timbre(Y)   opacity = level
-    const lo=Math.log(28), hi=Math.log(2200);
-    const xOf=hz=>clamp((Math.log(Math.max(20,hz))-lo)/(hi-lo),0,1)*580+10;
-    const colP=cssv('--vn-pressure'), colS=cssv('--vn-slide'), colMut=cssv('--vn-muted');
-    for(let f=32; f<2200; f*=2){ const x=xOf(f); p+=`<line x1="${x.toFixed(1)}" y1="14" x2="${x.toFixed(1)}" y2="194" stroke="${cssv('--vn-muted-2')}" stroke-width="1" opacity="0.16"/>`; }
-    if(!state.voices.length){
-      p+=`<text x="300" y="104" font-size="12" fill="${colMut}" text-anchor="middle">play notes — each note's pressure · slide · bend shown live</text>`;
-    }
-    for(const v of state.voices){
-      const x=xOf(v.hz)+(v.bend||0)*42;
-      const y=190-(v.pressure||0)*156;
-      const r=5+(v.vel||0)*15;
-      const op=clamp(v.level||1,0.15,1);
-      p+=`<line x1="${x.toFixed(1)}" y1="190" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${colP}" stroke-width="2" opacity="${(op*0.3).toFixed(2)}"/>`;
-      p+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${colP}" fill-opacity="${(op*0.5).toFixed(2)}" stroke="${colS}" stroke-width="${(1+(v.slide||0)*4).toFixed(1)}" stroke-opacity="${op.toFixed(2)}"/>`;
-      p+=`<text x="${x.toFixed(1)}" y="${(y-r-4).toFixed(1)}" font-size="9" fill="${colMut}" text-anchor="middle" font-family="monospace" opacity="${op.toFixed(2)}">${v.note||''}</text>`;
+    const W=600, yOf=v=>188-clamp(v,0,1)*172;
+    const line=(h,col,w,op)=>{ let d=''; for(let i=0;i<h.length;i++){const x=i/(h.length-1)*W; d+=(i?'L':'M')+x.toFixed(1)+','+yOf(h[i]).toFixed(1);}
+      return `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${op}"/>`; };
+    // Global CC streams (one value each): Breath bold, Expression secondary.
+    p+=line(hist.Expression, cssv('--vn-expr'),   1.6, 0.45);
+    p+=line(hist.Breath,     cssv('--vn-breath'), 2.6, 0.9);
+    // Per-NOTE (per-channel) streams: one line PER VOICE for each MPE dimension,
+    // coloured by dimension. Simultaneous notes fan out instead of collapsing
+    // into a single fighting aggregate. Released notes fade out.
+    const dims=[['s',cssv('--vn-slide')],['p',cssv('--vn-pressure')],['b',cssv('--vn-bend')]];
+    for(const id in voiceTrace){ const t=voiceTrace[id]; const op=clamp(1-t.fade/VN,0,1)*0.7;
+      if(op<=0.02) continue;
+      for(const [k,col] of dims) p+=line(t[k], col, 1.6, op.toFixed(2));
     }
   } else if(view==='spectrum'){
     const col=cssv('--vn-breath'); const n=28; const br=state.meters.Breath, cut=state.patch.Cutoff;
