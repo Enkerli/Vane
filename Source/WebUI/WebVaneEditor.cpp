@@ -121,6 +121,13 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                 owner->proc.presetManager.deletePreset (names[id]);
             owner->sendPresetList();
         })
+        // Double-click a patch thumb → reset that param to its declared default.
+        .withEventListener ("resetParam", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto id = uiToApvts (a[0]["id"].toString());
+            if (auto* p = owner->proc.apvts.getParameter (id))
+                p->setValueNotifyingHost (p->getDefaultValue());
+        })
         .withEventListener ("panic",        [owner] (const Array<var>&) { owner->proc.panic(); })
         .withEventListener ("reconnectMts", [owner] (const Array<var>&) {
             owner->proc.reconnectMTS();
@@ -196,6 +203,14 @@ void WebVaneEditor::timerCallback()
     if (note != lastNoteSent) {
         lastNoteSent = note;
         webView.emitEventIfBrowserIsVisible ("voice", makeObj ({ { "note", note } }));
+    }
+
+    // Real MTS-ESP connection state — push on change (the chip reflects this,
+    // never a faked UI toggle).
+    const bool mts = proc.mtsConnected();
+    if (mts != lastMtsState) {
+        lastMtsState = mts;
+        webView.emitEventIfBrowserIsVisible ("tuningStatus", makeObj ({ { "connected", mts } }));
     }
 }
 

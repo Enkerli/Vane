@@ -242,7 +242,8 @@ body{
 .kebab:hover{background:var(--vn-field)}
 .menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--vn-panel);border:1px solid var(--vn-line);border-radius:10px;box-shadow:var(--shadow);z-index:20;min-width:130px;overflow:hidden;display:none}
 .menu.open{display:block}
-.menu button{display:block;width:100%;text-align:left;border:none;background:transparent;padding:9px 14px;font-size:12.5px;color:var(--vn-text);cursor:pointer}
+.menu button{display:block;width:100%;max-width:none;height:auto;min-height:0;max-height:none;border-radius:0;
+  text-align:left;border:none;background:transparent;padding:9px 14px;font-size:12.5px;color:var(--vn-text);cursor:pointer;white-space:normal;line-height:1.25}
 .menu button:hover{background:var(--vn-panel2)}
 .menu button.danger{color:var(--vn-pressure)}
 
@@ -288,7 +289,7 @@ body{
     <div class="spacer"></div>
     <span class="chip" id="ctrlChip" onclick="openCtrlMenu(event)" style="position:relative;cursor:pointer" title="Select controller"><span class="dot expr"></span><span id="ctrlName">Sylphyo</span><span style="opacity:.45;margin-left:3px">▾</span>
       <div class="menu" id="ctrlMenu" style="left:0;right:auto"></div></span>
-    <span class="chip ghost" id="tuningChip" onclick="toggleMts()" title="Toggle MTS-ESP connection">12-EDO · MTS-ESP</span>
+    <span class="chip ghost" id="tuningChip" onclick="toggleMts()" title="MTS-ESP — click to (re)connect">MTS-ESP</span>
     <button class="icon-btn" id="monoBtn" onclick="toggleMono()" style="width:auto;max-width:none;min-width:62px;padding:0 16px">Mono</button>
     <button class="icon-btn warn" title="Panic" onclick="Bridge.send('panic')">!</button>
     <button class="icon-btn" title="Toggle theme" onclick="toggleTheme()">◐</button>
@@ -559,6 +560,9 @@ function wirePatchSlider(el){
   const fmt=()=>{ const v=state.patch[key]; const n=clamp((v-a)/(b-a),0,1);
     fill.style.width=(n*100)+'%'; thumb.style.left=(n*100)+'%'; val.textContent=(FMT[key]||FMT.default)(v); };
   patchUpd[key]=fmt;   // param echo updates this slider in place (no rebuild → drag survives)
+  // Double-click the track/thumb → reset to the param's declared default
+  // (the plugin echoes the new value back, which updates the slider in place).
+  track.ondblclick=()=>{ Bridge.send('resetParam',{id:key}); markDirty(); };
   attachDrag(track,{get:()=>state.patch[key],set:v=>{state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty();},min:a,max:b,step:step,fineStep:step/5,onMove:fmt});
   el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ const d=+s.dataset.step*step; state.patch[key]=clamp(state.patch[key]+d,a,b); Bridge.send('setParam',{id:key,value:state.patch[key]}); markDirty(); fmt(); });
   val.ondblclick=()=>typeEdit(key,val,a,b,fmt);
@@ -650,6 +654,7 @@ function wireSlot(i){
     fill.style.left=(pos?50:50-mag*50)+'%'; fill.style.width=(mag*50)+'%';
     thumb.style.left=((a+1)/2*100)+'%'; v.textContent=(pos?'+':'−')+mag.toFixed(2); };
   attachDrag(bip,{get:()=>state.slots[i].amt,set:val=>{state.slots[i].amt=val; pushSlot(i); markDirty();},min:-1,max:1,step:.01,fineStep:.002,onMove:upd});
+  bip.ondblclick=()=>{ state.slots[i].amt=0; pushSlot(i); markDirty(); upd(); };  // dbl-click → reset to 0
   upd();
 }
 function addSlot(){ const i=state.slots.findIndex(s=>s.src===0); if(i<0)return;
@@ -706,10 +711,13 @@ function pmatch(p){
 function setPFilter(type,value){ if(pFilter.type===type&&pFilter.value===value){pFilter={type:null,value:null};}else{pFilter={type,value};} renderPresets(); }
 function glyphSvg(seed){ let d=''; for(let i=0;i<=20;i++){const x=i/20*46,y=15+Math.sin(i*0.5+seed)*9*Math.sin(i*0.16+seed);d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);} return `<svg width="46" height="30" viewBox="0 0 46 30"><path d="${d}" fill="none" stroke="var(--vn-breath)" stroke-width="1.6" stroke-linecap="round" opacity="0.8"/></svg>`; }
 function renderPresets(){
-  const ctrls=[...new Set(PRESETS.map(p=>p.ctrl))];
-  const tags=[...new Set(PRESETS.flatMap(p=>p.tags))];
-  const scales=[...new Set(PRESETS.map(p=>p.scale))];
+  // Drop empty metadata so the sidebar doesn't show blank Controller/Tag/Scale
+  // rows (PresetManager stores only names until preset metadata exists).
+  const ctrls=[...new Set(PRESETS.map(p=>p.ctrl).filter(Boolean))];
+  const tags=[...new Set(PRESETS.flatMap(p=>p.tags||[]).filter(Boolean))];
+  const scales=[...new Set(PRESETS.map(p=>p.scale).filter(Boolean))];
   const f=(type,value,label,count)=>`<div class="filter ${pFilter.type===type&&pFilter.value===value?'on':''}" onclick="setPFilter('${type}','${value}')"><span>${label}</span><span class="c num">${count}</span></div>`;
+  const grp=(title,items)=> items.length?`<div class="filter-group"><span class="eyebrow">${title}</span>${items}</div>`:'';
   const list=PRESETS.map((p,i)=>({p,i})).filter(x=>pmatch(x.p));
   const listHtml = list.length? list.map(({p,i})=>`<div class="preset-item ${i===selPreset?'sel':''}" onclick="pickPreset(${i})">
       <span class="glyph">${glyphSvg(i)}</span>
@@ -724,10 +732,10 @@ function renderPresets(){
   $('#tabbody').innerHTML=`<div class="preset-grid">
     <div class="preset-side">
       <input class="search" placeholder="search presets…" value="${pQuery}" oninput="pQuery=this.value;renderPresets()" />
-      <div class="filter-group"><span class="eyebrow">Favorites</span>${f('fav','1','★ Favorites',PRESETS.filter(p=>p.fav).length)}</div>
-      <div class="filter-group"><span class="eyebrow">Controller</span>${ctrls.map(c=>f('ctrl',c,c,PRESETS.filter(p=>p.ctrl===c).length)).join('')}</div>
-      <div class="filter-group"><span class="eyebrow">Tag</span>${tags.map(t=>f('tag',t,t,PRESETS.filter(p=>p.tags.includes(t)).length)).join('')}</div>
-      <div class="filter-group"><span class="eyebrow">Scale</span>${scales.map(s=>f('scale',s,s,PRESETS.filter(p=>p.scale===s).length)).join('')}</div>
+      ${PRESETS.some(p=>p.fav)?grp('Favorites',f('fav','1','★ Favorites',PRESETS.filter(p=>p.fav).length)):''}
+      ${grp('Controller',ctrls.map(c=>f('ctrl',c,c,PRESETS.filter(p=>p.ctrl===c).length)).join(''))}
+      ${grp('Tag',tags.map(t=>f('tag',t,t,PRESETS.filter(p=>(p.tags||[]).includes(t)).length)).join(''))}
+      ${grp('Scale',scales.map(s=>f('scale',s,s,PRESETS.filter(p=>p.scale===s).length)).join(''))}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" onclick="savePreset()">+ Save current</button>
         <button class="btn" onclick="importExport()">Import / Export</button>
@@ -743,7 +751,20 @@ function toggleMenu(i,el){ const m=$('#menu_'+i); const willOpen=!m.classList.co
   document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open'));
   if(willOpen)m.classList.add('open'); }
 document.addEventListener('click',e=>{ if(!e.target.closest('.kebab'))document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open')); });
-function savePreset(){ const name='New Patch '+(PRESETS.length+1); PRESETS.push({name,tags:["breath"],ctrl:"Sylphyo",scale:"12-EDO",fav:false}); selPreset=PRESETS.length-1; $('#presetName').textContent=name; state.dirty=false; $('#unsaved').classList.remove('on'); Bridge.send('presetSave',{name}); renderPresets(); }
+function savePreset(){
+  const suggested = (PRESETS[selPreset] && PRESETS[selPreset].name) || '';
+  openModal(`<h3>Save preset</h3><p>Name this patch — it is written to disk and shows up in the browser.</p>
+    <input class="rn" id="spInp" placeholder="My Patch" value="${suggested.replace(/"/g,'&quot;')}" />
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="commitSave()">Save</button></div>`);
+  setTimeout(()=>{ const e=$('#spInp'); if(e){ e.focus(); e.select(); e.onkeydown=ev=>{ if(ev.key==='Enter')commitSave(); }; } },30);
+}
+function commitSave(){ const v=$('#spInp').value.trim(); if(!v){ $('#spInp').focus(); return; }
+  Bridge.send('presetSave',{name:v});
+  state.dirty=false; $('#unsaved').classList.remove('on'); $('#presetName').textContent=v;
+  closeModal();
+  if(!HAS_JUCE){ PRESETS.push({name:v,tags:[],ctrl:'',scale:'',fav:false}); selPreset=PRESETS.length-1; renderPresets(); }
+  // With the plugin, presetSave triggers a presetList push that refreshes the browser.
+}
 function duplicatePreset(i){ const c={...PRESETS[i],name:PRESETS[i].name+' copy',fav:false,tags:[...PRESETS[i].tags]}; PRESETS.splice(i+1,0,c); renderPresets(); }
 function deletePreset(i){ PRESETS.splice(i,1); if(PRESETS.length===0){$('#presetName').textContent='—';} else { selPreset=Math.min(selPreset,PRESETS.length-1); $('#presetName').textContent=PRESETS[selPreset].name; } Bridge.send('presetDelete',{id:i}); renderPresets(); }
 
@@ -787,9 +808,13 @@ function openCtrlMenu(e){ if(e)e.stopPropagation(); const m=$('#ctrlMenu'); cons
     .map(c=>`<button onclick="event.stopPropagation();setCtrl('${c}')">${c}</button>`).join('');
   m.classList.add('open'); }
 function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; closeMenus(); }
-function toggleMts(){ state.mts=!state.mts; const c=$('#tuningChip');
-  if(state.mts){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; Bridge.send('reconnectMts'); }
-  else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } }
+// Clicking the chip only REQUESTS a reconnect; the real connection state is
+// pushed back by the plugin via tuningStatus and drives the label. The UI never
+// fakes the state (it previously toggled a fictional 12-EDO/disconnected label).
+function toggleMts(){ Bridge.send('reconnectMts'); }
+function setMtsLabel(connected){ const c=$('#tuningChip'); if(!c)return; state.mts=connected;
+  c.classList.toggle('warn-state', !connected);
+  c.textContent = connected ? 'MTS-ESP · on' : '⚠ MTS-ESP off · click to retry'; }
 
 // ── Incoming bridge events (real plugin pushes these) ────────────────────
 Bridge.on('meters',m=>{ Object.assign(state.meters,m); if(!state.sim) tickMeters(); });
@@ -797,9 +822,7 @@ Bridge.on('paramChanged',({id,value})=>{
   if(id==='monoMode'){ mono=value>0.5; const b=$('#monoBtn'); if(b)b.textContent=mono?'Mono':'Poly'; return; }
   if(id in state.patch){ state.patch[id]=value;
     if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
-Bridge.on('tuningStatus',({connected})=>{ state.mts=connected; const c=$('#tuningChip'); if(!c)return;
-  if(connected){ c.classList.remove('warn-state'); c.textContent='12-EDO · MTS-ESP'; }
-  else { c.classList.add('warn-state'); c.textContent='⚠ MTS-ESP disconnected'; } });
+Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
 Bridge.on('controllerLabel',({name})=>{ const e=$('#ctrlName'); if(e)e.textContent=name||'Generic MPE'; });
 // Live played-note readout (♪) from the engine's last note.
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });
