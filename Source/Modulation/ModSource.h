@@ -81,13 +81,24 @@ struct ModDestID {
 namespace ModSlots {
     static constexpr int NumSlots = 24;
 
-    // Source choice list.  Index 0 = "Off" (slot inactive).  The rest map to the
-    // abstract macro IDs (so the concrete CC/AT/MPE binding stays runtime-swappable)
-    // except Velocity which is a direct voice source.
+    // ── Configurable global "aux" sources (controller-profile foundation) ──────
+    // Beyond the fixed per-note MPE set + breath/expr, NumAux global CC sources let
+    // a profile expose extra controls — encoders (Exquis), accelerometer CCs
+    // (Sylphyo/Zefiro), a second breath, etc.  Each is bound to a CC# at runtime
+    // (aux{g}_cc param); the ModMatrix resolves it as a global CC source.
+    // Combining controllers = one profile listing both devices' sources.
+    static constexpr int NumAux         = 8;
+    static constexpr int FirstAuxChoice = 7;   // source choices 7 .. 7+NumAux-1
+
+    // Source choice list.  Index 0 = "Off" (slot inactive).  1..6 = the fixed
+    // per-note MPE set + breath/expr; 7.. = configurable global aux sources.
+    // IMPORTANT: only ever APPEND — APVTS stores the actual index, so appending
+    // keeps existing presets' slot sources valid (no migration).
     inline const char* const kSourceNames[] = {
-        "Off", "Breath", "Expression", "Pressure", "Slide", "Pitchbend", "Velocity"
+        "Off", "Breath", "Expression", "Pressure", "Slide", "Pitchbend", "Velocity",
+        "Aux 1", "Aux 2", "Aux 3", "Aux 4", "Aux 5", "Aux 6", "Aux 7", "Aux 8"
     };
-    static constexpr int NumSourceChoices = 7;
+    static constexpr int NumSourceChoices = 7 + NumAux;
 
     // Destination choice list.  Maps to ModDestID values.
     inline const char* const kDestNames[] = {
@@ -134,6 +145,7 @@ namespace ModSlots {
     // the per-slot param count down while matching the old fixed-route feel.
     // (A future revision can expose per-slot atk/rel once the WebView UI is ready.)
     inline void slewRates(int sourceChoice, float& atkMs, float& relMs) {
+        if (sourceChoice >= FirstAuxChoice) { atkMs = 5.0f; relMs = 80.0f; return; }  // aux: smooth global
         switch (sourceChoice) {
             case 1: case 2: atkMs = 5.0f; relMs = 80.0f; break;  // Breath / Expression
             case 3:         atkMs = 3.0f; relMs = 50.0f; break;  // Pressure

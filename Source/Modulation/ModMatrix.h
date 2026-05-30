@@ -99,6 +99,11 @@ public:
     void  setMacroSlot(int macroIdx, float value, int voiceBacking);
     float getMacroValue(int macroIdx) const;  // last-set value (CC/AT macros)
 
+    // Bind a configurable global "aux" source (0..NumAux-1) to a CC number.
+    // Set each block by the processor from the aux{g}_cc params; the matrix then
+    // resolves slot source choices 7.. as global CC sources.  See ModSlots.
+    void  setAuxCC(int auxIdx, int ccNumber);
+
     // Evaluate all routes for one voice.
     // voiceVals:   [MPE_Pressure, MPE_Slide, MPE_Pitchbend, Velocity] — per-voice MPE state.
     // voiceSlewers: per-route slewers owned by this voice (see initVoiceSlewers).
@@ -140,8 +145,13 @@ private:
     float getSourceValue(int sourceID,
                          const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const;
 
+    // Resolve a route's live source ID (slot-aware: handles Off, per-note dims,
+    // and configurable aux global CC sources).  -1 = inactive.
+    int effSource(const ModRoute& r) const;
+
     std::array<float, 128> ccValues {};   // CC 0..127, normalised 0..1
     float aftertouchValue = 0.0f;         // MIDI channel pressure (global, not MPE)
+    std::array<int, ModSlots::NumAux> auxCC {};   // aux source g → CC number
 
     // Macro slot state — written each block by setMacroSlot(), read in evaluate().
     float macroValues   [ModSourceID::NumMacros] {};

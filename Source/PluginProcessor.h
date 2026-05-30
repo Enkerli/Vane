@@ -134,6 +134,10 @@ private:
     std::atomic<float>* pMacroExprSrc     = nullptr;
     std::atomic<float>* pMacroExprCC      = nullptr;
 
+    // Aux global-source CC bindings (controller profiles) — cached pointers,
+    // pushed to the ModMatrix each processBlock.
+    std::array<std::atomic<float>*, ModSlots::NumAux> pAuxCC {};
+
     // Per-block smoothed output gain to avoid clicks during automation.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterGain;
 

@@ -22,18 +22,26 @@ static float applyCurve(float x, ModRoute::CurveShape curve)
     return x;
 }
 
-// Effective source/dest of a route: a configurable slot reads its live source/
-// dest CHOICE from its params (mapped to internal IDs); a fixed route uses the
-// stored source/dest.  Returns -1 when Off / invalid (caller skips the route).
-static int effSource(const ModRoute& r) {
-    if (r.sourceParam)
-        return ModSlots::sourceId(static_cast<int>(std::lround(r.sourceParam->load())));
-    return r.source;
-}
+// Effective destination of a route (slot-aware).  -1 = invalid.
 static int effDest(const ModRoute& r) {
     if (r.destParam)
         return ModSlots::destId(static_cast<int>(std::lround(r.destParam->load())));
     return r.dest;
+}
+
+// Effective SOURCE of a route.  A configurable slot reads its live source choice;
+// choices 7.. are aux global sources resolved to their bound CC.  -1 = Off/invalid.
+int ModMatrix::effSource(const ModRoute& r) const {
+    if (! r.sourceParam) return r.source;   // fixed route
+    const int choice = static_cast<int>(std::lround(r.sourceParam->load()));
+    if (choice >= ModSlots::FirstAuxChoice && choice < ModSlots::FirstAuxChoice + ModSlots::NumAux)
+        return ModSourceID::CC + auxCC[static_cast<size_t>(choice - ModSlots::FirstAuxChoice)];
+    return ModSlots::sourceId(choice);
+}
+
+void ModMatrix::setAuxCC(int auxIdx, int ccNumber) {
+    if (auxIdx >= 0 && auxIdx < ModSlots::NumAux)
+        auxCC[static_cast<size_t>(auxIdx)] = std::clamp(ccNumber, 0, 127);
 }
 
 void ModMatrix::prepare(double sr, int bs)

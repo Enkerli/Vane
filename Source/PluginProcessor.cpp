@@ -62,6 +62,8 @@ VaneProcessor::VaneProcessor()
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
     pMacroExprCC    = apvts.getRawParameterValue("macroExprCC");
+    for (int g = 0; g < ModSlots::NumAux; ++g)
+        pAuxCC[(size_t) g] = apvts.getRawParameterValue("aux" + juce::String(g) + "_cc");
 
 
     // ── Generic mod-slot pool — the routing source of truth ───────────────────
@@ -173,6 +175,11 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         // MacroPressure (2), MacroSlide (3), MacroPitchbend (4) are always per-voice;
         // their macroVoiceBacking is set correctly in ModMatrix's defaults — no action needed.
     }
+
+    // Push aux global-source CC bindings to the matrix (controller profiles).
+    for (int g = 0; g < ModSlots::NumAux; ++g)
+        if (pAuxCC[(size_t) g])
+            modMatrix.setAuxCC(g, static_cast<int>(std::lround(pAuxCC[(size_t) g]->load())));
 
     synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
 
@@ -672,6 +679,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
                 juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve));
         }
     }
+
+    // ── Configurable global aux source bindings (controller profiles) ──────────
+    // Each aux source (selectable in the matrix as "Aux N") reads the CC# bound
+    // here.  0 = unbound (reads CC0 ≈ 0).  A controller profile sets these; the
+    // Controllers UI / MIDI-learn lands in a later phase.
+    for (int g = 0; g < ModSlots::NumAux; ++g)
+        layout.add(std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID{ "aux" + juce::String(g) + "_cc", 1 },
+            "Aux " + juce::String(g + 1) + " CC", 0, 127, 0));
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

@@ -344,11 +344,16 @@ body{
 // ════════════════════════════════════════════════════════════════════════
 //  Model — mirrors the 24-slot ModSlots backend (spec §2/§5)
 // ════════════════════════════════════════════════════════════════════════
-const SOURCES = ["Off","Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
+// Keep in sync with ModSlots::kSourceNames (indices must match the slot src param).
+// 0-6 = fixed per-note MPE set + breath/expr; 7-14 = configurable global aux
+// sources (controller profiles — encoders, accelerometers, second breath…).
+const AUX = ["Aux 1","Aux 2","Aux 3","Aux 4","Aux 5","Aux 6","Aux 7","Aux 8"];
+const SOURCES = ["Off","Breath","Expression","Pressure","Slide","Pitchbend","Velocity",...AUX];
 const SRC_DOT = {Breath:"breath",Expression:"expr",Pressure:"pressure",Slide:"slide",Pitchbend:"bend",Velocity:"vel"};
 const SRC_CC  = {Breath:"CC2",Expression:"CC11",Pressure:"MPE Z",Slide:"CC74",Pitchbend:"PB",Velocity:"vel"};
 const SRC_COLOR={Breath:"--vn-breath",Expression:"--vn-expr",Pressure:"--vn-pressure",Slide:"--vn-slide",Pitchbend:"--vn-bend",Velocity:"--vn-vel"};
-const BINDABLE = {Breath:true,Expression:true};   // C2: these sources expose a CC# binding
+AUX.forEach(a=>{ SRC_COLOR[a]="--vn-muted"; SRC_CC[a]="CC?"; });   // bound via the Controllers profile (next phase)
+const BINDABLE = {Breath:true,Expression:true};   // these sources expose a CC# binding
 const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm"];
 const CURVES  = ["Lin","Exp","S"];
 const NUM_SLOTS = 24;
