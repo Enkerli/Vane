@@ -123,14 +123,19 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     // into the mod matrix / shared state before rendering voices.
     for (const auto meta : midi) {
         auto msg = meta.getMessage();
+        const int  ch      = msg.getChannel();              // 1..16, or 0 if none
+        const bool chValid = ch >= 1 && ch <= 16;
         // MIDI probe (diagnostics): count host-routed events + record channels.
-        if (const int ch = msg.getChannel(); ch >= 1 && ch <= 16) {
+        if (chValid) {
             midiProbe.events.fetch_add (1, std::memory_order_relaxed);
             midiProbe.channelMask.fetch_or (1u << (ch - 1), std::memory_order_relaxed);
         }
+        // Rig routing: a channel only feeds the mod matrix if its "mod" role is on.
+        const bool modOK = ! chValid
+                        || (routeModMask.load (std::memory_order_relaxed) & (1u << (ch - 1)));
         if (msg.isController()) {
             const int cc = msg.getControllerNumber();
-            modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
+            if (modOK) modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
             // MIDI-learn: capture the first CC seen while armed — but EXCLUDE the
             // CCs already used by the fixed sources (CC74 = MPE timbre/slide, and
             // the breath/expression CCs), so just playing a note (which streams
@@ -144,8 +149,9 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                 }
             }
         }
-        else if (msg.isChannelPressure())
-            modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+        else if (msg.isChannelPressure()) {
+            if (modOK) modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+        }
         else if (msg.isNoteOn())
             meterVelocity.store (msg.getFloatVelocity(), std::memory_order_relaxed);  // held until next note
         // Channel-1 (non-MPE) pitchbend is intentionally NOT captured here.
@@ -200,7 +206,23 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         if (pAuxCC[(size_t) g])
             modMatrix.setAuxCC(g, static_cast<int>(std::lround(pAuxCC[(size_t) g]->load())));
 
-    synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
+    // Rig routing: a channel's note-ons sound only if its "notes" role is on.
+    // Default mask 0xFFFF passes everything through unchanged (no extra copy).
+    const uint16_t nmask = routeNotesMask.load (std::memory_order_relaxed);
+    if (nmask == 0xFFFF) {
+        synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
+    } else {
+        juce::MidiBuffer forSynth;
+        for (const auto meta : midi) {
+            const auto m = meta.getMessage();
+            if (m.isNoteOnOrOff()) {
+                const int c = m.getChannel();
+                if (c >= 1 && c <= 16 && ! (nmask & (1u << (c - 1)))) continue;  // drop note
+            }
+            forSynth.addEvent (m, meta.samplePosition);
+        }
+        synth.renderNextBlock(buffer, forSynth, 0, buffer.getNumSamples());
+    }
 
     // ── Per-voice MPE snapshot for the per-note visualiser ─────────────────────
     for (int i = 0; i < (int) voicePtrs.size() && i < kNumVoices; ++i) {

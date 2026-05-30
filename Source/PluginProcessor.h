@@ -74,6 +74,19 @@ public:
     std::atomic<int> ccLearnArm    { -1 };
     std::atomic<int> ccLearnResult { -1 };
 
+    // ── Rig routing (Stage 2b) ─────────────────────────────────────────────────
+    // Per-channel role masks compiled from the rig by the UI.  A channel's bit in
+    // routeNotesMask gates whether its note-ons sound; in routeModMask whether its
+    // CC/pressure feeds the mod matrix.  Default 0xFFFF = accept everything (no
+    // behaviour change).  This is what makes "sequencer notes + wind mods" work:
+    // notes on the sequencer's channel, modulation on the wind's.
+    std::atomic<uint16_t> routeNotesMask { 0xFFFF };
+    std::atomic<uint16_t> routeModMask   { 0xFFFF };
+    void setMidiRouting (int notes, int mod) {
+        routeNotesMask.store ((uint16_t) (notes & 0xFFFF), std::memory_order_relaxed);
+        routeModMask  .store ((uint16_t) (mod   & 0xFFFF), std::memory_order_relaxed);
+    }
+
     // ── MIDI probe (diagnostics) ───────────────────────────────────────────────
     // Measures what the HOST routes to us in processBlock: how many events, and
     // which channels they arrive on.  Pairs with the editor's CoreMIDI source

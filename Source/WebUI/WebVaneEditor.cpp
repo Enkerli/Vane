@@ -214,6 +214,10 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (a.isEmpty()) return;
             owner->proc.apvts.state.setProperty ("rig", a[0]["rig"].toString(), nullptr);
         })
+        .withEventListener ("setMidiRouting", [owner] (const Array<var>& a) { // per-channel role masks
+            if (a.isEmpty()) return;
+            owner->proc.setMidiRouting ((int) a[0]["notesMask"], (int) a[0]["modMask"]);
+        })
         .withEventListener ("setMacroCC", [owner] (const Array<var>& a) {     // breath/expr CC# bind
             if (a.isEmpty()) return;
             const auto which = a[0]["which"].toString();
@@ -322,6 +326,7 @@ void WebVaneEditor::timerCallback()
             if (lvl <= 0.001f) continue;               // only sounding voices
             const float hz = m.noteHz.load();
             vs.add (makeObj ({
+                { "vi",       i },                 // stable per-voice id (fixes same-note collision)
                 { "note",     hzToNote (hz) },
                 { "hz",       hz },
                 { "level",    lvl },

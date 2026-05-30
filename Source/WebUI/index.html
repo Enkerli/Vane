@@ -486,7 +486,9 @@ const VN=80; let voiceTrace={};
 function pushVoices(){
   const seen={};
   for(const v of (state.voices||[])){
-    const id=v.note||('h'+Math.round(v.hz||0)); seen[id]=1;
+    // Key by the engine's stable per-voice index so two channels playing the
+    // SAME note get distinct traces (the Sensel collision). Falls back to note/hz.
+    const id=(v.vi!=null)?('v'+v.vi):(v.note||('h'+Math.round(v.hz||0))); seen[id]=1;
     let t=voiceTrace[id];
     if(!t) t=voiceTrace[id]={p:new Array(VN).fill(0),s:new Array(VN).fill(v.slide??0.5),b:new Array(VN).fill(((v.bend||0)+1)/2),fade:0};
     t.p.push(clamp(v.pressure||0,0,1)); t.p.shift();
@@ -890,6 +892,20 @@ function updateCtrlPill(){ const e=$('#ctrlName'); if(e)e.textContent=ctrlPillTe
 // ── Rig (Stage 2a): a composition of controller instances ─────────────────────
 function rigInstances(){ return (state.rig&&state.rig.instances)||[]; }
 function persistRig(){ Bridge.send('setRig',{rig:JSON.stringify(state.rig)}); markDirty(); }
+// Parse a channel-match string ("any" | "1" | "2-16" | "1,10") → 16-bit mask.
+function chSet(s){ s=(s||'any').trim().toLowerCase();
+  if(s===''||s==='any'||s==='omni') return 0xFFFF;
+  let m=0; s.split(',').forEach(tok=>{ tok=tok.trim(); const r=tok.match(/^(\d+)\s*-\s*(\d+)$/);
+    if(r){ let a=+r[1],b=+r[2]; if(a>b){const t=a;a=b;b=t;} for(let c=a;c<=b;c++) if(c>=1&&c<=16)m|=1<<(c-1); }
+    else { const n=+tok; if(n>=1&&n<=16)m|=1<<(n-1); } });
+  return m||0xFFFF; }
+// Compile the rig's per-instance roles + channel match → two 16-bit masks the
+// engine applies: notes pass on channels an instance claims with Notes on; mod
+// on channels claimed with Mod on. Empty → 0xFFFF (accept all), so a plain
+// single-controller rig changes nothing.
+function applyRouting(){ let nm=0, mm=0;
+  rigInstances().forEach(it=>{ const cs=chSet(it.ch); if(it.notes)nm|=cs; if(it.mod)mm|=cs; });
+  Bridge.send('setMidiRouting',{notesMask:(nm||0xFFFF)&0xFFFF, modMask:(mm||0xFFFF)&0xFFFF}); }
 // Compile the rig's instances down to the flat binding pool the engine reads:
 // breath from the first instance that has one; aux = each instance's catalog
 // sources concatenated (capped at 8). Roles + match are stored, not yet enforced
@@ -912,14 +928,14 @@ function applyRig(){
   // mono: engage if any instance is a wind
   if(insts.some(it=>{const c=catEntry(it.ctrl);return c&&c.mono;}) && !mono){
     mono=true; const b=$('#monoBtn'); if(b)b.textContent='Mono'; Bridge.send('setParam',{id:'monoMode',value:1}); }
-  persistRig(); buildMeters(); updateCtrlPill();
+  persistRig(); applyRouting(); buildMeters(); updateCtrlPill();
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix();
 }
 function setInstanceCtrl(i,c){ if(!rigInstances()[i])return; state.rig.instances[i].ctrl=c; state.rig.instances[i].mode=''; applyRig(); }
 function addInstance(){ state.rig.instances.push({ctrl:'Generic MPE',mode:'',notes:true,mod:true,ch:'any'}); applyRig(); }
 function removeInstance(i){ if(rigInstances().length<=1)return; state.rig.instances.splice(i,1); applyRig(); }
-function toggleRole(i,which){ const it=rigInstances()[i]; if(!it)return; it[which]=!it[which]; persistRig(); renderControllers(); }
-function setInstanceCh(i,v){ const it=rigInstances()[i]; if(!it)return; it.ch=(v||'any').trim()||'any'; persistRig(); }
+function toggleRole(i,which){ const it=rigInstances()[i]; if(!it)return; it[which]=!it[which]; persistRig(); applyRouting(); renderControllers(); }
+function setInstanceCh(i,v){ const it=rigInstances()[i]; if(!it)return; it.ch=(v||'any').trim()||'any'; persistRig(); applyRouting(); }
 // Back-compat shim for any caller that set "the controller".
 function setCtrl(c){ setInstanceCtrl(0,c); closeMenus(); }
 
@@ -1028,7 +1044,7 @@ function renderControllers(){
   const pOpts=`<option value="">— unsaved —</option>`+state.profiles.map(n=>`<option ${n===state.profileName?'selected':''}>${n}</option>`).join('');
   const instCards = insts.map((it,i)=>instCard(it,i,insts.length)).join('');
   openModal(`<h3>Rig</h3>
-    <p>A <b>rig</b> is what you're playing through Vane — one or more controllers. Each adds per-note MPE plus its global controls; assign extras to <b>Aux</b> and route in the Matrix. <b>Notes</b> / <b>Mod</b> roles and channel are saved for per-source routing (coming next).</p>
+    <p>A <b>rig</b> is what you're playing through Vane — one or more controllers. Each adds per-note MPE plus its global controls; assign extras to <b>Aux</b> and route in the Matrix. <b>Notes</b> / <b>Mod</b> per channel are live: e.g. a sequencer on ch 1 (Notes only) + a wind on ch 2 (Mod only) = the sequencer's notes shaped by breath.</p>
     <div class="ctrl-sec" style="margin-top:0"><span class="eyebrow">Rig</span>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select class="ctrl-lbl" style="width:auto" onchange="loadProfileByName(this.value)">${pOpts}</select>
@@ -1112,6 +1128,7 @@ Bridge.on('controllerState',({aux,breathCC,exprCC,controller,rig})=>{ state.aux 
   if(parsed && Array.isArray(parsed.instances) && parsed.instances.length){ state.rig=parsed; }
   else { state.rig={instances:[{ctrl:resolveCtrlKey(controller||state.controller),mode:'',notes:true,mod:true,ch:'any'}]}; }
   if(state.rig.instances[0]) state.controller=state.rig.instances[0].ctrl;
+  applyRouting();   // sync the engine's role masks to the (loaded/migrated) rig
   updateCtrlPill(); buildMeters();
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
 // MIDI probe (diagnostics): host MIDI stats + visible CoreMIDI sources.

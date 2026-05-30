@@ -88,12 +88,17 @@ onto the flat params so nothing downstream breaks.
   Merge is naive (roles stored, not enforced) — that's 2b.
   Deferred within 2a: per-instance `mode` picker (stored, not surfaced yet);
   stale-aux cleanup when shrinking the rig.
-- **2b — router + roles** (engine). Per-message `(port, channel)` matching
-  enforces the role masks. Requires a stable per-voice id (channel/voice index)
-  in the `voices` payload — **which also fixes the Sensel same-note display
-  collision** flagged earlier. This is the deepest, net-new piece.
-
-The role mask is in the schema from 2a (stored), enforced in 2b.
+- **2b — router + roles — DONE.** Channel-based enforcement (per the MIDI-identity
+  findings: channel/zone is the cross-platform floor). The UI compiles the rig's
+  per-instance roles + channel match into two 16-bit masks (`routeNotesMask` /
+  `routeModMask`) via `setMidiRouting`. In `processBlock`: a CC/pressure feeds the
+  mod matrix only if the channel's Mod bit is set; a note-on sounds only if its
+  Notes bit is set (filtered into a separate `MidiBuffer`). Default 0xFFFF/0xFFFF
+  = accept all → a plain single-controller rig is unchanged. This makes
+  "sequencer notes (ch 1, Notes only) + wind mods (ch 2, Mod only)" work.
+  Also landed the **stable per-voice id** (`vi` = voice index) in the `voices`
+  payload; the visualiser keys traces by it, **fixing the Sensel same-note
+  collision**. MIDI-learn capture stays ungated (works on any channel).
 
 ---
 
