@@ -214,6 +214,27 @@ void WebVaneEditor::timerCallback()
         { "Velocity",   proc.meterVelocity.load() },
     }));
 
+    // ── Per-voice MPE expression → "voices" (for the per-note visualiser) ──────
+    {
+        juce::Array<juce::var> vs;
+        for (int i = 0; i < VaneProcessor::kNumVoices; ++i) {
+            auto& m = proc.voiceMeters[i];
+            const float lvl = m.level.load();
+            if (lvl <= 0.001f) continue;               // only sounding voices
+            const float hz = m.noteHz.load();
+            vs.add (makeObj ({
+                { "note",     hzToNote (hz) },
+                { "hz",       hz },
+                { "level",    lvl },
+                { "pressure", m.pressure.load() },
+                { "slide",    m.slide.load() },
+                { "bend",     m.bend.load() },
+                { "vel",      m.velocity.load() },
+            }));
+        }
+        webView.emitEventIfBrowserIsVisible ("voices", makeObj ({ { "v", juce::var (vs) } }));
+    }
+
     // ♪ note readout — emit only when it changes.
     const auto note = hzToNote (proc.currentNoteHz());
     if (note != lastNoteSent) {

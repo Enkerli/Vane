@@ -53,6 +53,10 @@ VaneProcessor::VaneProcessor()
     zone.setLowerZone(15);
     synth.setZoneLayout(zone);
 
+    // Cache SynthVoice* once (avoid per-block dynamic_cast) for the per-voice meters.
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+        voicePtrs.push_back(dynamic_cast<SynthVoice*>(synth.getVoice(i)));
+
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
@@ -171,6 +175,22 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     }
 
     synth.renderNextBlock(buffer, midi, 0, buffer.getNumSamples());
+
+    // ── Per-voice MPE snapshot for the per-note visualiser ─────────────────────
+    for (int i = 0; i < (int) voicePtrs.size() && i < kNumVoices; ++i) {
+        auto* v = voicePtrs[i];
+        if (v == nullptr) continue;
+        auto& m = voiceMeters[i];
+        const bool on = v->meterActive();
+        m.level.store(on ? v->meterLevel() : 0.0f, std::memory_order_relaxed);
+        if (on) {
+            m.noteHz  .store(v->meterNoteHz(),   std::memory_order_relaxed);
+            m.pressure.store(v->meterPressure(), std::memory_order_relaxed);
+            m.slide   .store(v->meterSlide(),    std::memory_order_relaxed);
+            m.bend    .store(v->meterBend(),     std::memory_order_relaxed);
+            m.velocity.store(v->meterVelocity(), std::memory_order_relaxed);
+        }
+    }
 
     // Publish macro-resolved meter values for the editor (relaxed: stale by one block is fine).
     // CC-backed macros: macroValues[] was just written above by setMacroSlot().

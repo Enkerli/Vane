@@ -69,6 +69,17 @@ public:
     void renderNextBlock(juce::AudioBuffer<float>&,
                          int startSample, int numSamples)           override;
 
+    // ── Per-voice meter snapshot (read by the processor on the audio thread) ──
+    // Exposes this voice's live MPE expression for the editor's per-note
+    // visualiser.  Plain reads of the per-voice state; no allocation/locking.
+    bool  meterActive()    const { return active; }
+    float meterLevel()     const { return active ? tailLevel : 0.0f; }   // 1 → fades on release
+    float meterNoteHz()    const { return baseHz; }
+    float meterPressure()  const { return pressure; }    // 0..1 (MPE Z)
+    float meterSlide()     const { return slide; }       // 0..1 (CC74 / Y)
+    float meterBend()      const { return pitchbend; }   // -1..1 (X)
+    float meterVelocity()  const { return velocity; }    // 0..1
+
 private:
     ModMatrix&    modMatrix;
     TuningClient& tuning;

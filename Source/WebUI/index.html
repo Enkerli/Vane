@@ -304,6 +304,7 @@ body{
           <span class="eyebrow">Stage · live</span>
           <div class="viewseg" id="viewseg">
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
+            <button data-view="notes" onclick="setView('notes')">Notes</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
             <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
           </div>
@@ -378,6 +379,7 @@ const state = {
           Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
           Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0 },
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
+  voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   mts:true, dirty:false, sim:true,
 };
 // seed factory-ish routing
@@ -468,6 +470,26 @@ function drawVis(){
       for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600, y=190-h[i]*170; d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
       const main=s==='Breath';
       p+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${main?2.6:1.6}" stroke-linecap="round" opacity="${main?0.95:0.5}"/>`;
+    }
+  } else if(view==='notes'){
+    // Per-note MPE field: each sounding voice is a mark on the pitch axis.
+    //   x = pitch (log Hz) + pitchbend(X)   y = pressure(Z) height
+    //   radius = velocity   ring thickness = slide/timbre(Y)   opacity = level
+    const lo=Math.log(28), hi=Math.log(2200);
+    const xOf=hz=>clamp((Math.log(Math.max(20,hz))-lo)/(hi-lo),0,1)*580+10;
+    const colP=cssv('--vn-pressure'), colS=cssv('--vn-slide'), colMut=cssv('--vn-muted');
+    for(let f=32; f<2200; f*=2){ const x=xOf(f); p+=`<line x1="${x.toFixed(1)}" y1="14" x2="${x.toFixed(1)}" y2="194" stroke="${cssv('--vn-muted-2')}" stroke-width="1" opacity="0.16"/>`; }
+    if(!state.voices.length){
+      p+=`<text x="300" y="104" font-size="12" fill="${colMut}" text-anchor="middle">play notes — each note's pressure · slide · bend shown live</text>`;
+    }
+    for(const v of state.voices){
+      const x=xOf(v.hz)+(v.bend||0)*42;
+      const y=190-(v.pressure||0)*156;
+      const r=5+(v.vel||0)*15;
+      const op=clamp(v.level||1,0.15,1);
+      p+=`<line x1="${x.toFixed(1)}" y1="190" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${colP}" stroke-width="2" opacity="${(op*0.3).toFixed(2)}"/>`;
+      p+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${colP}" fill-opacity="${(op*0.5).toFixed(2)}" stroke="${colS}" stroke-width="${(1+(v.slide||0)*4).toFixed(1)}" stroke-opacity="${op.toFixed(2)}"/>`;
+      p+=`<text x="${x.toFixed(1)}" y="${(y-r-4).toFixed(1)}" font-size="9" fill="${colMut}" text-anchor="middle" font-family="monospace" opacity="${op.toFixed(2)}">${v.note||''}</text>`;
     }
   } else if(view==='spectrum'){
     const col=cssv('--vn-breath'); const n=28; const br=state.meters.Breath, cut=state.patch.Cutoff;
@@ -839,6 +861,8 @@ Bridge.on('controllerLabel',({name})=>{ const e=$('#ctrlName'); if(e)e.textConte
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });
 // Current-patch text for the Export/Import modal.
 Bridge.on('exportData',({text})=>{ const t=$('#ioTxt'); if(t)t.value=text||''; });
+// Live per-note MPE expression (one entry per sounding voice) → "Notes" view.
+Bridge.on('voices',({v})=>{ state.voices = Array.isArray(v)?v:[]; });
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
@@ -866,6 +890,15 @@ setInterval(()=>{
   state.meters.Slide      = (Math.sin(simT*0.5+0.5)*0.5+0.5);
   state.meters.Velocity   = 0.4;
   state.meters.Pitchbend  = Math.sin(simT*0.4)*0.4+0.5;
+  // Demo per-note voices (browser preview only): three "fingers" expressing.
+  const baseHz=[174.6,261.6,392.0];
+  state.voices = baseHz.map((hz,i)=>({
+    note:['F3','C4','G4'][i], hz, level:1,
+    pressure: Math.sin(simT*(1.1+i*0.4)+i)*0.5+0.5,
+    slide:    Math.sin(simT*(0.6+i*0.3)+i*2)*0.5+0.5,
+    bend:     Math.sin(simT*(0.8+i*0.2)+i)*0.4,
+    vel:      0.5+i*0.15,
+  }));
   tickMeters();
 },40);
 </script>

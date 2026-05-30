@@ -51,6 +51,20 @@ public:
     std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
     std::atomic<float> meterVelocity  { 0.0f };   // last note-on velocity, 0..1 (held)
 
+    // ── Per-voice MPE expression snapshot (for the per-note visualiser) ─────────
+    // Filled each processBlock (audio thread) from each SynthVoice's live state;
+    // read by the editor timer (message thread).  Index = MPESynthesiser voice.
+    struct VoiceMeter {
+        std::atomic<float> level    { 0.0f };   // 0 = off; >0 = sounding (fades on release)
+        std::atomic<float> noteHz   { 0.0f };
+        std::atomic<float> pressure { 0.0f };   // 0..1  (MPE Z)
+        std::atomic<float> slide    { 0.5f };   // 0..1  (CC74 / Y)
+        std::atomic<float> bend     { 0.0f };   // -1..1 (X)
+        std::atomic<float> velocity { 0.0f };   // 0..1
+    };
+    static constexpr int kNumVoices = 15;
+    std::array<VoiceMeter, kNumVoices> voiceMeters;
+
     void reconnectMTS()      { tuning.reconnect(); }
     bool mtsConnected() const { return tuning.hasMaster(); }
 
@@ -62,6 +76,10 @@ public:
 
 private:
     juce::MPESynthesiser synth;
+
+    // SynthVoice* for each synth voice, cast once at construction so processBlock
+    // can read per-voice meter state without a per-block dynamic_cast.
+    std::vector<SynthVoice*> voicePtrs;
 
     // Shared across all voices: the Hz of the most recently started note.
     // New voices read this in noteStarted() to glide from the previous pitch
