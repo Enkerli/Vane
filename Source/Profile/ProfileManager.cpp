@@ -28,6 +28,10 @@ void ProfileManager::saveProfile(const juce::String& name)
     juce::ValueTree t("VaneProfile");
     t.setProperty("name",       name, nullptr);
     t.setProperty("controller", apvts.state.getProperty("controllerName", juce::String()), nullptr);
+    // Rig structure (multi-instance: controllers + role masks + match), authored
+    // in the UI as JSON.  Bindings still live in the flat params below; the rig
+    // is the higher-level composition layer (Stage 2a).
+    t.setProperty("rig",        apvts.state.getProperty("rig", juce::String()), nullptr);
 
     for (const auto& id : bindingParamIds())
         if (auto* p = apvts.getRawParameterValue(id))
@@ -60,6 +64,7 @@ void ProfileManager::loadProfile(const juce::String& name)
         return;
 
     apvts.state.setProperty("controllerName", t.getProperty("controller", juce::String()), nullptr);
+    apvts.state.setProperty("rig",            t.getProperty("rig", juce::String()), nullptr);
 
     for (const auto& id : bindingParamIds())
         if (t.hasProperty(id))

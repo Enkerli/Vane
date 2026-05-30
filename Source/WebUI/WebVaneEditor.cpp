@@ -210,6 +210,10 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (a.isEmpty()) return;
             owner->proc.apvts.state.setProperty ("controllerName", a[0]["name"].toString(), nullptr);
         })
+        .withEventListener ("setRig", [owner] (const Array<var>& a) {         // rig structure (JSON)
+            if (a.isEmpty()) return;
+            owner->proc.apvts.state.setProperty ("rig", a[0]["rig"].toString(), nullptr);
+        })
         .withEventListener ("setMacroCC", [owner] (const Array<var>& a) {     // breath/expr CC# bind
             if (a.isEmpty()) return;
             const auto which = a[0]["which"].toString();
@@ -380,6 +384,7 @@ void WebVaneEditor::sendControllerState()
         { "breathCC",   ccOf ("macroBreathCC", 2) },
         { "exprCC",     ccOf ("macroExprCC", 11) },
         { "controller", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() },
+        { "rig",        proc.apvts.state.getProperty ("rig", "").toString() },
     }));
 }
 

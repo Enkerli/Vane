@@ -406,7 +406,11 @@ const state = {
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
-  controller:'Sylphyo (MPE)',    // active controller (catalog key)
+  controller:'Sylphyo (MPE)',    // primary controller (= rig.instances[0].ctrl)
+  // Rig = the composition: ordered controller instances, each with a role mask
+  // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
+  // (instances seed it); roles + match are stored for the 2b router. (Stage 2a)
+  rig:{instances:[{ctrl:'Sylphyo (MPE)',mode:'',notes:true,mod:true,ch:'any'}]},
   probe:{events:0,channels:[],sources:[],vports:[],prevEvents:0,prevT:0,rate:0},  // MIDI probe
   mts:true, dirty:false, sim:true,
 };
@@ -883,21 +887,41 @@ function openCtrlMenu(e){ if(e)e.stopPropagation(); closeMenus(); openController
 // (e.g. "Alfonsylphyo"), falling back to the bare controller name.
 function ctrlPillText(){ return state.profileName || state.controller || 'Generic MPE'; }
 function updateCtrlPill(){ const e=$('#ctrlName'); if(e)e.textContent=ctrlPillText(); }
-function setCtrl(c){ state.controller=c;
-  Bridge.send('setController',{name:c});
-  const cat=CATALOG[c];
-  if(cat){   // seed bindings from the (Manifold-derived) catalog
-    if(typeof cat.breathCC==='number'){ state.cc.Breath=cat.breathCC; Bridge.send('setMacroCC',{which:'breath',cc:cat.breathCC}); }
-    (cat.aux||[]).forEach((a,i)=>{ if(i>=8)return;
-      const cc=a.cc||0; state.aux[i]={label:a.label,cc};
-      Bridge.send('setAuxLabel',{aux:i,label:a.label});
-      Bridge.send('setAuxCC',{aux:i,cc}); });
-    if(cat.mono && !mono){ mono=true; const b=$('#monoBtn'); if(b)b.textContent='Mono';
-      Bridge.send('setParam',{id:'monoMode',value:1}); }   // winds play one line
-    markDirty();
-  }
-  buildMeters();   // show only this controller's active sources
-  updateCtrlPill(); closeMenus(); if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); }
+// ── Rig (Stage 2a): a composition of controller instances ─────────────────────
+function rigInstances(){ return (state.rig&&state.rig.instances)||[]; }
+function persistRig(){ Bridge.send('setRig',{rig:JSON.stringify(state.rig)}); markDirty(); }
+// Compile the rig's instances down to the flat binding pool the engine reads:
+// breath from the first instance that has one; aux = each instance's catalog
+// sources concatenated (capped at 8). Roles + match are stored, not yet enforced
+// (the 2b router does that). Reseeds on structural edits only — never on load,
+// so manual Learn/CC tweaks survive.
+function applyRig(){
+  const insts=rigInstances();
+  const primary=(insts[0]&&insts[0].ctrl)||'Generic MPE';
+  state.controller=primary;
+  Bridge.send('setController',{name:primary});
+  // breath: first instance whose controller sends it
+  let breath=null;
+  for(const it of insts){ const c=catEntry(it.ctrl); if(c&&typeof c.breathCC==='number'){ breath=c.breathCC; break; } }
+  if(breath!==null){ state.cc.Breath=breath; Bridge.send('setMacroCC',{which:'breath',cc:breath}); }
+  // aux: concatenate every instance's catalog aux, cap 8
+  let merged=[]; for(const it of insts){ const c=catEntry(it.ctrl); (c&&c.aux||[]).forEach(a=>merged.push({label:a.label,cc:a.cc||0})); }
+  merged=merged.slice(0,8);
+  merged.forEach((a,i)=>{ state.aux[i]={label:a.label,cc:a.cc};
+    Bridge.send('setAuxLabel',{aux:i,label:a.label}); Bridge.send('setAuxCC',{aux:i,cc:a.cc}); });
+  // mono: engage if any instance is a wind
+  if(insts.some(it=>{const c=catEntry(it.ctrl);return c&&c.mono;}) && !mono){
+    mono=true; const b=$('#monoBtn'); if(b)b.textContent='Mono'; Bridge.send('setParam',{id:'monoMode',value:1}); }
+  persistRig(); buildMeters(); updateCtrlPill();
+  if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix();
+}
+function setInstanceCtrl(i,c){ if(!rigInstances()[i])return; state.rig.instances[i].ctrl=c; state.rig.instances[i].mode=''; applyRig(); }
+function addInstance(){ state.rig.instances.push({ctrl:'Generic MPE',mode:'',notes:true,mod:true,ch:'any'}); applyRig(); }
+function removeInstance(i){ if(rigInstances().length<=1)return; state.rig.instances.splice(i,1); applyRig(); }
+function toggleRole(i,which){ const it=rigInstances()[i]; if(!it)return; it[which]=!it[which]; persistRig(); renderControllers(); }
+function setInstanceCh(i,v){ const it=rigInstances()[i]; if(!it)return; it.ch=(v||'any').trim()||'any'; persistRig(); }
+// Back-compat shim for any caller that set "the controller".
+function setCtrl(c){ setInstanceCtrl(0,c); closeMenus(); }
 
 // ── Controllers panel: source profile (per-note MPE + global aux, learnable) ──
 let learnAux=-1, ctrlOpen=false, probeRunning=false;
@@ -944,15 +968,22 @@ function resolveCtrlKey(name){
   return pre || name;
 }
 function catEntry(name){ return CATALOG[resolveCtrlKey(name)]; }
-// Canonical sources active for the current controller (drives meters + vis).
-function ctrlSources(){ const c=catEntry(state.controller); return (c&&c.sources)||METER_SRC; }
+// Canonical sources active across the rig (union of every instance's sources) —
+// drives meters + vis. Falls back to the primary controller, then to all.
+function ctrlSources(){
+  const insts=rigInstances();
+  if(insts.length){ const set=new Set();
+    insts.forEach(it=>{ const c=catEntry(it.ctrl); (c&&c.sources||[]).forEach(s=>set.add(s)); });
+    if(set.size) return [...set]; }
+  const c=catEntry(state.controller); return (c&&c.sources)||METER_SRC;
+}
 function openControllers(){
   ctrlOpen=true; Bridge.send('requestControllerState'); Bridge.send('requestProfileList'); renderControllers();
 }
 function loadProfileByName(name){ if(!name)return; state.profileName=name; updateCtrlPill(); Bridge.send('loadProfile',{name}); }
 function saveProfileAs(){
-  openModal(`<h3>Save controller profile</h3><p>Reusable across patches — describes what your controller(s) send.</p>
-    <input class="rn" id="pfInp" value="${(state.profileName||'').replace(/"/g,'&quot;')}" placeholder="My Controller" />
+  openModal(`<h3>Save rig</h3><p>Reusable across patches — the controllers you play through Vane and what they send.</p>
+    <input class="rn" id="pfInp" value="${(state.profileName||'').replace(/"/g,'&quot;')}" placeholder="My Rig" />
     <div class="actions"><button class="btn" onclick="renderControllers()">Cancel</button><button class="btn primary" onclick="commitProfileSave()">Save</button></div>`);
   setTimeout(()=>{const e=$('#pfInp');if(e){e.focus();e.select();e.onkeydown=ev=>{if(ev.key==='Enter')commitProfileSave();};}},30);
 }
@@ -960,14 +991,30 @@ function commitProfileSave(){ const v=$('#pfInp').value.trim(); if(!v){$('#pfInp
 function saveProfileCur(){ if(state.profileName) Bridge.send('saveProfile',{name:state.profileName}); }
 function deleteProfileCur(){ if(state.profileName){ Bridge.send('deleteProfile',{name:state.profileName}); state.profileName=''; updateCtrlPill(); renderControllers(); } }
 function breathCCedit(v){ const cc=clamp(parseInt(v,10)||0,0,127); state.cc.Breath=cc; Bridge.send('setMacroCC',{which:'breath',cc}); markDirty(); }
+function ctrlOpts(sel){ const key=resolveCtrlKey(sel); const known=!!CATALOG[key];
+  return Object.keys(CATALOG).concat(known?[]:[sel]).map(c=>`<option ${c===(known?key:sel)?'selected':''}>${c}</option>`).join(''); }
+function ctrlNote(name){ const c=catEntry(name); return c&&c.note?`<p class="fine-hint" style="margin:4px 0 0">${c.note}</p>`:''; }
+function instCard(it,i,n){
+  return `<div style="margin-top:10px">
+    <div class="ctrl-row" style="border:none">
+      <select class="ctrl-lbl" style="grid-column:1/3;width:auto" onchange="setInstanceCtrl(${i},this.value)">${ctrlOpts(it.ctrl)}</select>
+      ${n>1?`<button class="btn" onclick="removeInstance(${i})">Remove</button>`:''}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 0 4px">
+      <span class="num" style="color:var(--vn-muted)">Role</span>
+      <button class="btn ${it.notes?'primary':''}" onclick="toggleRole(${i},'notes')" title="Contributes sounding notes">Notes</button>
+      <button class="btn ${it.mod?'primary':''}" onclick="toggleRole(${i},'mod')" title="Contributes modulation">Mod</button>
+      <span class="num" style="color:var(--vn-muted)">ch <input class="ctrl-cc num" style="width:60px" value="${(it.ch||'any').replace(/"/g,'&quot;')}" onchange="setInstanceCh(${i},this.value)" title="channel / zone match — e.g. 1, 2-16, any" /></span>
+    </div>
+    ${ctrlNote(it.ctrl)}</div>`;
+}
 function renderControllers(){
   const perNote=PERNOTE.map(([n,b,d])=>`<div class="ctrl-row">
       <span class="meter-label"><span class="dot ${d}"></span>${n}</span>
       <span class="num" style="color:var(--vn-muted);grid-column:2/-1">${b}</span></div>`).join('');
-  const cur=state.controller||'Generic MPE';
-  const curKey=resolveCtrlKey(cur);
-  const cat=CATALOG[curKey]||{};
-  const breathRow = (cat.breathCC===null) ? '' : `<div class="ctrl-row">
+  const insts=rigInstances();
+  const anyBreath = insts.some(it=>{const c=catEntry(it.ctrl); return c && typeof c.breathCC==='number';});
+  const breathRow = !anyBreath ? '' : `<div class="ctrl-row">
       <span class="meter-label"><span class="dot breath"></span>Breath</span>
       <span class="num" style="color:var(--vn-muted)">CC <input class="ctrl-cc num" type="number" min="0" max="127" value="${state.cc.Breath??2}" onchange="breathCCedit(this.value)" /></span>
       <span class="num" style="color:var(--vn-muted)">CC2 default · CC11 on some winds</span></div>`;
@@ -979,24 +1026,18 @@ function renderControllers(){
       <button class="btn ${learning?'primary':''}" onclick="auxLearnToggle(${i})">${learning?'Listening… move a control':'Learn'}</button>
     </div>`;
   }).join('');
-  // List catalog entries; if the active name resolved to a catalog key, select
-  // that key — otherwise append the raw (unknown/custom) name as its own option.
-  const known=!!CATALOG[curKey];
-  const opts=Object.keys(CATALOG).concat(known?[]:[cur])
-    .map(c=>`<option ${c===(known?curKey:cur)?'selected':''}>${c}</option>`).join('');
   const pOpts=`<option value="">— unsaved —</option>`+state.profiles.map(n=>`<option ${n===state.profileName?'selected':''}>${n}</option>`).join('');
-  const noteHtml = cat.note ? `<p class="fine-hint" style="margin-top:6px">${cat.note}</p>` : '';
-  openModal(`<h3>Controller setup</h3>
-    <p>Pick what you're playing — Vane seeds the global controls from the controller's known sources. Per-note expression comes from MPE; assign any extra controls to <b>Aux</b>, then route them in the Matrix.</p>
-    <div class="ctrl-sec" style="margin-top:0"><span class="eyebrow">Profile</span>
+  const instCards = insts.map((it,i)=>instCard(it,i,insts.length)).join('');
+  openModal(`<h3>Rig</h3>
+    <p>A <b>rig</b> is what you're playing through Vane — one or more controllers. Each adds per-note MPE plus its global controls; assign extras to <b>Aux</b> and route in the Matrix. <b>Notes</b> / <b>Mod</b> roles and channel are saved for per-source routing (coming next).</p>
+    <div class="ctrl-sec" style="margin-top:0"><span class="eyebrow">Rig</span>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select class="ctrl-lbl" style="width:auto" onchange="loadProfileByName(this.value)">${pOpts}</select>
         <button class="btn" onclick="saveProfileAs()">Save as…</button>
         ${state.profileName?'<button class="btn" onclick="saveProfileCur()">Save</button><button class="btn" onclick="deleteProfileCur()">Delete</button>':''}
       </div></div>
-    <div class="ctrl-row" style="border:none"><span class="meter-label">Controller</span>
-      <select class="ctrl-lbl" style="grid-column:2/-1;width:auto" onchange="setCtrl(this.value)">${opts}</select></div>
-    ${noteHtml}
+    <div class="ctrl-sec"><span class="eyebrow">Controllers</span>${instCards}
+      <div style="margin-top:10px"><button class="btn" onclick="addInstance()">+ Add controller</button></div></div>
     <div class="ctrl-sec"><span class="eyebrow">Per-note (MPE)</span>${perNote}</div>
     ${breathRow?`<div class="ctrl-sec"><span class="eyebrow">Global</span>${breathRow}</div>`:''}
     <div class="ctrl-sec"><span class="eyebrow">Aux — assignable global sources</span>${auxRows}
@@ -1061,10 +1102,17 @@ Bridge.on('exportData',({text})=>{ const t=$('#ioTxt'); if(t)t.value=text||''; }
 // Live per-note MPE expression (one entry per sounding voice) → "Notes" view.
 Bridge.on('voices',({v})=>{ state.voices = Array.isArray(v)?v:[]; });
 // Controller profile: aux source bindings + labels.
-Bridge.on('controllerState',({aux,breathCC,exprCC,controller})=>{ state.aux = Array.isArray(aux)?aux:[];
+Bridge.on('controllerState',({aux,breathCC,exprCC,controller,rig})=>{ state.aux = Array.isArray(aux)?aux:[];
   if(typeof breathCC==='number') state.cc.Breath=breathCC;
   if(typeof exprCC==='number')   state.cc.Expression=exprCC;
   if(controller){ state.controller=controller; }
+  // Restore the rig structure, or migrate a legacy (flat) profile to a 1-instance
+  // rig from its controller name. Don't reseed bindings — the flat params already
+  // carry them (preserves manual Learn/CC tweaks).
+  let parsed=null; if(rig){ try{ parsed=JSON.parse(rig); }catch(e){} }
+  if(parsed && Array.isArray(parsed.instances) && parsed.instances.length){ state.rig=parsed; }
+  else { state.rig={instances:[{ctrl:resolveCtrlKey(controller||state.controller),mode:'',notes:true,mod:true,ch:'any'}]}; }
+  if(state.rig.instances[0]) state.controller=state.rig.instances[0].ctrl;
   updateCtrlPill(); buildMeters();
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
 // MIDI probe (diagnostics): host MIDI stats + visible CoreMIDI sources.

@@ -76,12 +76,18 @@ onto the flat params so nothing downstream breaks.
 
 ## Phasing
 
-- **2a — schema + storage + UI** (no engine router yet). RigManager reads/writes
-  nested rigs; single-instance compiles to flat params; old flat profiles
-  migrate to 1-instance rigs. Controller setup becomes a small rig editor (add/
-  remove instances, pick mode, edit role mask + bindings). Multi-instance merges
-  *naively* (all sources summed, all notes accepted) — already delivers
-  multiple-profiles-per-controller and multi-controller source combining.
+- **2a — schema + storage + UI — DONE.** Rig is a JSON blob in `apvts.state`
+  ("rig") = `{instances:[{ctrl,mode,notes,mod,ch}]}`; presets capture it; the
+  profile file (`.vaneprofile`) persists it alongside the flat binding params.
+  Old flat profiles migrate to a 1-instance rig from `controllerName` on load
+  (no reseed, so manual tweaks survive). The Controller setup became a **Rig
+  editor**: add/remove controller instances, per-instance Notes/Mod role
+  toggles + channel-match field. `applyRig()` compiles instances → the flat pool
+  (breath from the first breathy instance; aux = catalog sources concatenated,
+  cap 8; mono if any wind). Meters/vis show the union of the rig's sources.
+  Merge is naive (roles stored, not enforced) — that's 2b.
+  Deferred within 2a: per-instance `mode` picker (stored, not surfaced yet);
+  stale-aux cleanup when shrinking the rig.
 - **2b — router + roles** (engine). Per-message `(port, channel)` matching
   enforces the role masks. Requires a stable per-voice id (channel/voice index)
   in the `voices` payload — **which also fixes the Sensel same-note display
