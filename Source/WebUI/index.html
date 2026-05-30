@@ -461,8 +461,9 @@ function attachDrag(track, cfg){
 //  Meters + visualiser (D2)
 // ════════════════════════════════════════════════════════════════════════
 function buildMeters(){
-  const el=$('#meters'); el.innerHTML='';
-  METER_SRC.forEach(s=>{
+  const el=$('#meters'); if(!el) return; el.innerHTML='';
+  const active=ctrlSources();
+  METER_SRC.filter(s=>active.includes(s)).forEach(s=>{
     el.insertAdjacentHTML('beforeend',
       `<div class="meter-row"><span class="meter-label"><span class="dot ${SRC_DOT[s]}"></span>${s}</span>
        <div class="meter"><div class="fill" id="m_${s}" style="background:var(${SRC_COLOR[s]})"></div></div>
@@ -515,13 +516,16 @@ function drawVis(){
     const W=600, yOf=v=>188-clamp(v,0,1)*172;
     const line=(h,col,w,op)=>{ let d=''; for(let i=0;i<h.length;i++){const x=i/(h.length-1)*W; d+=(i?'L':'M')+x.toFixed(1)+','+yOf(h[i]).toFixed(1);}
       return `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${op}"/>`; };
+    // Only draw what this controller actually sends (no flat "slide" line on a wind).
+    const active=ctrlSources();
     // Global CC streams (one value each): Breath bold, Expression secondary.
-    p+=line(hist.Expression, cssv('--vn-expr'),   1.6, 0.45);
-    p+=line(hist.Breath,     cssv('--vn-breath'), 2.6, 0.9);
+    if(active.includes('Expression')) p+=line(hist.Expression, cssv('--vn-expr'), 1.6, 0.45);
+    if(active.includes('Breath'))     p+=line(hist.Breath,     cssv('--vn-breath'), 2.6, 0.9);
     // Per-NOTE (per-channel) streams: one line PER VOICE for each MPE dimension,
     // coloured by dimension. Simultaneous notes fan out instead of collapsing
     // into a single fighting aggregate. Released notes fade out.
-    const dims=[['s',cssv('--vn-slide')],['p',cssv('--vn-pressure')],['b',cssv('--vn-bend')]];
+    const dims=[['s',cssv('--vn-slide'),'Slide'],['p',cssv('--vn-pressure'),'Pressure'],['b',cssv('--vn-bend'),'Pitchbend']]
+                 .filter(d=>active.includes(d[2]));
     for(const id in voiceTrace){ const t=voiceTrace[id]; const op=clamp(1-t.fade/VN,0,1)*0.7;
       if(op<=0.02) continue;
       for(const [k,col] of dims) p+=line(t[k], col, 1.6, op.toFixed(2));
@@ -874,7 +878,11 @@ function openPresetMenu(e){ if(e)e.stopPropagation(); const m=$('#presetMenu'); 
   m.classList.add('open'); }
 // Controller chip → opens the Controllers / profile setup (binding + MIDI-learn).
 function openCtrlMenu(e){ if(e)e.stopPropagation(); closeMenus(); openControllers(); }
-function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; state.controller=c;
+// The header pill shows the active controller PROFILE when one is loaded
+// (e.g. "Alfonsylphyo"), falling back to the bare controller name.
+function ctrlPillText(){ return state.profileName || state.controller || 'Generic MPE'; }
+function updateCtrlPill(){ const e=$('#ctrlName'); if(e)e.textContent=ctrlPillText(); }
+function setCtrl(c){ state.controller=c;
   Bridge.send('setController',{name:c});
   const cat=CATALOG[c];
   if(cat){   // seed bindings from the (Manifold-derived) catalog
@@ -883,9 +891,12 @@ function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; state.control
       const cc=a.cc||0; state.aux[i]={label:a.label,cc};
       Bridge.send('setAuxLabel',{aux:i,label:a.label});
       Bridge.send('setAuxCC',{aux:i,cc}); });
+    if(cat.mono && !mono){ mono=true; const b=$('#monoBtn'); if(b)b.textContent='Mono';
+      Bridge.send('setParam',{id:'monoMode',value:1}); }   // winds play one line
     markDirty();
   }
-  closeMenus(); if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); }
+  buildMeters();   // show only this controller's active sources
+  updateCtrlPill(); closeMenus(); if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); }
 
 // ── Controllers panel: source profile (per-note MPE + global aux, learnable) ──
 let learnAux=-1, ctrlOpen=false;
@@ -904,31 +915,36 @@ const PERNOTE=[
 // that depend on the device's own config are left at 0 with a "Learn" prompt.
 //   breathCC: number → seed Breath macro · null → controller has no breath
 //   aux: [{label, cc}]  (cc 0 = unknown, assign via Learn)
+//   sources: canonical dims the controller actually sends — drives which meters
+//            and visualiser traces are shown (no flat "slide" line on a wind).
+//   mono: true → picking it engages Mono mode (wind controllers play one line).
 const CATALOG = {
-  'Generic MPE':         { mpe:true,  breathCC:null, aux:[], note:'Bare MPE: per-note pitch/slide/pressure. Add your controller for tailored sources.' },
-  'Sylphyo (MPE)':       { mpe:true,  breathCC:2,    aux:[], note:'MPE lower zone. Breath on CC2, bite = channel pressure. Set pitch-bend range to 48 to match the Sylphyo app.' },
-  'Sylphyo (Standard)':  { mpe:false, breathCC:2,    aux:[], note:'Single channel. Breath on CC2 (CC11 can mirror it — keep one routed to avoid doubling).' },
-  'EWI-USB':             { mpe:false, breathCC:2,    aux:[], note:'Breath on CC2. No per-note expression — single channel wind controller.' },
-  'Zefiro Pro':          { mpe:false, breathCC:2,    aux:[{label:'Accel X',cc:0},{label:'Accel Y',cc:0},{label:'Accel Z',cc:0}], note:'Breath on CC2. Pro 3-axis accelerometer → 3 aux; CCs not yet documented in Manifold, so assign via Learn.' },
-  'Exquis':              { mpe:true,  breathCC:null, aux:[{label:'Encoder 1',cc:0},{label:'Encoder 2',cc:0},{label:'Encoder 3',cc:0},{label:'Encoder 4',cc:0}], note:'MPE surface. Four push-encoders → 4 aux; CC numbers depend on your Exquis / BWS config — assign via Learn.' },
-  'Sensel Morph':        { mpe:true,  breathCC:null, aux:[], note:'High-res MPE pressure surface. Slide on CC74. Swappable overlays — see the Thunder profile.' },
-  'Sensel Morph · Thunder':{ mpe:true, breathCC:null, aux:[], note:'Buchla Thunder overlay. An on-overlay button switches sub-layouts — save one Vane profile per layout.' },
-  'Keystep':             { mpe:false, breathCC:null, aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard + touch strips. Mod wheel on CC1, sustain on CC64.' },
-  'MicroFreak':          { mpe:false, breathCC:null, aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard synth that also sends: aftertouch + mod wheel (CC1). (Not yet in Manifold — a good addition.)' },
+  'Generic MPE':         { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'Bare MPE: per-note pitch/slide/pressure. Add your controller for tailored sources.' },
+  'Sylphyo (MPE)':       { mpe:true,  breathCC:2,    mono:true, sources:['Breath','Pressure','Pitchbend','Velocity'], aux:[], note:'MPE lower zone. Breath on CC2, bite = channel pressure. Set pitch-bend range to 48 to match the Sylphyo app.' },
+  'Sylphyo (Standard)':  { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pressure','Pitchbend','Velocity'], aux:[], note:'Single channel. Breath on CC2 (CC11 can mirror it — keep one routed to avoid doubling).' },
+  'EWI-USB':             { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Breath on CC2. No per-note expression — single channel wind controller.' },
+  'Zefiro Pro':          { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[{label:'Accel X',cc:0},{label:'Accel Y',cc:0},{label:'Accel Z',cc:0}], note:'Breath on CC2. Pro 3-axis accelerometer → 3 aux; CCs not yet documented in Manifold, so assign via Learn.' },
+  'Exquis':              { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[{label:'Encoder 1',cc:0},{label:'Encoder 2',cc:0},{label:'Encoder 3',cc:0},{label:'Encoder 4',cc:0}], note:'MPE surface. Four push-encoders → 4 aux; CC numbers depend on your Exquis / BWS config — assign via Learn.' },
+  'Sensel Morph':        { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'High-res MPE pressure surface. Slide on CC74. Swappable overlays — see the Thunder profile.' },
+  'Sensel Morph · Thunder':{ mpe:true, breathCC:null, sources:['Pressure','Pitchbend','Velocity'], aux:[], note:'Buchla Thunder overlay. An on-overlay button switches sub-layouts — save one Vane profile per layout.' },
+  'Keystep':             { mpe:false, breathCC:null, sources:['Pitchbend','Velocity'], aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard + touch strips. Mod wheel on CC1, sustain on CC64.' },
+  'MicroFreak':          { mpe:false, breathCC:null, sources:['Pressure','Pitchbend','Velocity'], aux:[{label:'Mod Wheel',cc:1}], note:'Keyboard synth that also sends: aftertouch + mod wheel (CC1). (Not yet in Manifold — a good addition.)' },
 };
+// Canonical sources active for the current controller (drives meters + vis).
+function ctrlSources(){ const c=CATALOG[state.controller]; return (c&&c.sources)||METER_SRC; }
 function openControllers(){
   ctrlOpen=true; Bridge.send('requestControllerState'); Bridge.send('requestProfileList'); renderControllers();
 }
-function loadProfileByName(name){ if(!name)return; state.profileName=name; Bridge.send('loadProfile',{name}); }
+function loadProfileByName(name){ if(!name)return; state.profileName=name; updateCtrlPill(); Bridge.send('loadProfile',{name}); }
 function saveProfileAs(){
   openModal(`<h3>Save controller profile</h3><p>Reusable across patches — describes what your controller(s) send.</p>
     <input class="rn" id="pfInp" value="${(state.profileName||'').replace(/"/g,'&quot;')}" placeholder="My Controller" />
     <div class="actions"><button class="btn" onclick="renderControllers()">Cancel</button><button class="btn primary" onclick="commitProfileSave()">Save</button></div>`);
   setTimeout(()=>{const e=$('#pfInp');if(e){e.focus();e.select();e.onkeydown=ev=>{if(ev.key==='Enter')commitProfileSave();};}},30);
 }
-function commitProfileSave(){ const v=$('#pfInp').value.trim(); if(!v){$('#pfInp').focus();return;} Bridge.send('saveProfile',{name:v}); state.profileName=v; renderControllers(); }
+function commitProfileSave(){ const v=$('#pfInp').value.trim(); if(!v){$('#pfInp').focus();return;} Bridge.send('saveProfile',{name:v}); state.profileName=v; updateCtrlPill(); renderControllers(); }
 function saveProfileCur(){ if(state.profileName) Bridge.send('saveProfile',{name:state.profileName}); }
-function deleteProfileCur(){ if(state.profileName){ Bridge.send('deleteProfile',{name:state.profileName}); state.profileName=''; renderControllers(); } }
+function deleteProfileCur(){ if(state.profileName){ Bridge.send('deleteProfile',{name:state.profileName}); state.profileName=''; updateCtrlPill(); renderControllers(); } }
 function breathCCedit(v){ const cc=clamp(parseInt(v,10)||0,0,127); state.cc.Breath=cc; Bridge.send('setMacroCC',{which:'breath',cc}); markDirty(); }
 function renderControllers(){
   const perNote=PERNOTE.map(([n,b,d])=>`<div class="ctrl-row">
@@ -993,7 +1009,7 @@ Bridge.on('paramChanged',({id,value})=>{
   if(id in state.patch){ state.patch[id]=value;
     if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
 Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
-Bridge.on('controllerLabel',({name})=>{ const e=$('#ctrlName'); if(e)e.textContent=name||'Generic MPE'; });
+Bridge.on('controllerLabel',({name})=>{ if(name)state.controller=name; updateCtrlPill(); buildMeters(); });
 // Live played-note readout (♪) from the engine's last note.
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });
 // Current-patch text for the Export/Import modal.
@@ -1004,20 +1020,21 @@ Bridge.on('voices',({v})=>{ state.voices = Array.isArray(v)?v:[]; });
 Bridge.on('controllerState',({aux,breathCC,exprCC,controller})=>{ state.aux = Array.isArray(aux)?aux:[];
   if(typeof breathCC==='number') state.cc.Breath=breathCC;
   if(typeof exprCC==='number')   state.cc.Expression=exprCC;
-  if(controller){ state.controller=controller; const e=$('#ctrlName'); if(e)e.textContent=controller; }
+  if(controller){ state.controller=controller; }
+  updateCtrlPill(); buildMeters();
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
 // MIDI-learn captured a CC for an aux source.
 Bridge.on('auxLearned',({aux,cc})=>{ if(state.aux[aux])state.aux[aux].cc=cc; if(learnAux===aux)learnAux=-1;
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
 // Saved controller profiles list.
 Bridge.on('profileList',({profiles,current})=>{ state.profiles=Array.isArray(profiles)?profiles:[];
-  if(typeof current==='string') state.profileName=current; if(ctrlOpen)renderControllers(); });
+  if(typeof current==='string') state.profileName=current; updateCtrlPill(); if(ctrlOpen)renderControllers(); });
 // Preset↔profile association: a loaded patch references a saved profile.
 Bridge.on('profileSuggest',({name})=>{ const b=$('#profileBanner'); if(!b)return;
   if(name){ b.querySelector('.pb-name').textContent=name; b.dataset.profile=name; b.classList.add('on'); }
   else b.classList.remove('on'); });
 function applySuggestedProfile(){ const b=$('#profileBanner'); const n=b.dataset.profile;
-  if(n){ state.profileName=n; Bridge.send('loadProfile',{name:n}); } b.classList.remove('on'); }
+  if(n){ state.profileName=n; updateCtrlPill(); Bridge.send('loadProfile',{name:n}); } b.classList.remove('on'); }
 function dismissProfileBanner(){ $('#profileBanner').classList.remove('on'); }
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
