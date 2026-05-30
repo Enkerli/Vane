@@ -406,11 +406,11 @@ const state = {
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
-  controller:'Sylphyo (MPE)',    // primary controller (= rig.instances[0].ctrl)
+  controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
   // (instances seed it); roles + match are stored for the 2b router. (Stage 2a)
-  rig:{instances:[{ctrl:'Sylphyo (MPE)',mode:'',notes:true,mod:true,ch:'any'}]},
+  rig:{instances:[{ctrl:'Sylphyo',mode:'',notes:true,mod:true,ch:'any'}]},
   probe:{events:0,channels:[],sources:[],vports:[],prevEvents:0,prevT:0,rate:0},  // MIDI probe
   mts:true, dirty:false, sim:true,
 };
@@ -945,8 +945,7 @@ const PERNOTE=[
 //   mono: true → picking it engages Mono mode (wind controllers play one line).
 const CATALOG = {
   'Generic MPE':         { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'Bare MPE: per-note pitch/slide/pressure. Add your controller for tailored sources.' },
-  'Sylphyo (MPE)':       { mpe:true,  breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'MPE lower zone. Breath on CC2, bite = channel pressure. Set pitch-bend range to 48 to match the Sylphyo app.' },
-  'Sylphyo (Standard)':  { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Single channel. Breath on CC2 (CC11 can mirror it — keep one routed to avoid doubling).' },
+  'Sylphyo':             { mpe:true,  breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Wind controller. Breath on CC2, bite = channel pressure. MPE or single-channel per its app; in MPE set pitch-bend range to 48 to match.' },
   'LinnStrument':        { mpe:true,  breathCC:null, sources:['Pressure','Slide','Pitchbend','Velocity'], aux:[], note:'MPE grid. Per-pad pressure (Z), slide (Y/CC74), pitch (X). No breath.' },
   'EWI-USB':             { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[], note:'Breath on CC2. No per-note expression — single channel wind controller.' },
   'Zefiro Pro':          { mpe:false, breathCC:2,    mono:true, sources:['Breath','Pitchbend','Velocity'], aux:[{label:'Accel X',cc:0},{label:'Accel Y',cc:0},{label:'Accel Z',cc:0}], note:'Breath on CC2. Pro 3-axis accelerometer → 3 aux; CCs not yet documented in Manifold, so assign via Learn.' },
@@ -958,12 +957,12 @@ const CATALOG = {
 };
 // Legacy / bare controller names → catalog keys (older saved profiles stored
 // "Sylphyo", "EWI", "Zefiro" before the catalog gained variant suffixes).
-const CTRL_ALIAS = { 'Sylphyo':'Sylphyo (MPE)', 'EWI':'EWI-USB', 'Zefiro':'Zefiro Pro', 'Generic':'Generic MPE' };
+const CTRL_ALIAS = { 'Sylphyo (MPE)':'Sylphyo', 'Sylphyo (Standard)':'Sylphyo', 'EWI':'EWI-USB', 'Zefiro':'Zefiro Pro', 'Generic':'Generic MPE' };
 function resolveCtrlKey(name){
   if(!name) return 'Generic MPE';
   if(CATALOG[name]) return name;
   if(CTRL_ALIAS[name] && CATALOG[CTRL_ALIAS[name]]) return CTRL_ALIAS[name];
-  // prefix match: "Sylphyo" → "Sylphyo (MPE)", "Sensel Morph" → "Sensel Morph · Thunder"
+  // prefix match: "Sensel Morph" → "Sensel Morph · Thunder"
   const pre = Object.keys(CATALOG).find(k=>k.startsWith(name+' (')||k.startsWith(name+' ·'));
   return pre || name;
 }
