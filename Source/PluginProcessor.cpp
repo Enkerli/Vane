@@ -6,7 +6,8 @@ VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "Vane", createParameterLayout()),
-      presetManager(apvts)
+      presetManager(apvts),
+      profileManager(apvts)
 {
     // 15 voices: one per MPE member channel in the lower zone (channels 2–16).
     // MPESynthesiser has no "sound" concept — voices handle everything directly.

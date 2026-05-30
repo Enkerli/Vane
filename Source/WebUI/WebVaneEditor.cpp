@@ -178,6 +178,34 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (aux < 0 || aux >= ModSlots::NumAux) return;
             owner->proc.apvts.state.setProperty ("auxLabel" + juce::String (aux),
                                                  a[0]["label"].toString(), nullptr);
+        })
+        .withEventListener ("setController", [owner] (const Array<var>& a) {  // controller name
+            if (a.isEmpty()) return;
+            owner->proc.apvts.state.setProperty ("controllerName", a[0]["name"].toString(), nullptr);
+        })
+        // ── Controller profiles (save/load named binding sets) ─────────────────
+        .withEventListener ("requestProfileList", [owner] (const Array<var>&) {
+            owner->sendProfileList();
+        })
+        .withEventListener ("saveProfile", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto name = a[0]["name"].toString();
+            if (name.isNotEmpty()) owner->proc.profileManager.saveProfile (name);
+            owner->sendProfileList();
+        })
+        .withEventListener ("loadProfile", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            owner->proc.profileManager.loadProfile (a[0]["name"].toString());
+            // Refresh the UI: bindings, controller name, profile list.
+            owner->sendControllerState();
+            owner->webView.emitEventIfBrowserIsVisible ("controllerLabel",
+                makeObj ({ { "name", owner->proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));
+            owner->sendProfileList();
+        })
+        .withEventListener ("deleteProfile", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            owner->proc.profileManager.deleteProfile (a[0]["name"].toString());
+            owner->sendProfileList();
         });
 }
 
@@ -308,6 +336,17 @@ void WebVaneEditor::sendControllerState()
     webView.emitEventIfBrowserIsVisible ("controllerState", makeObj ({ { "aux", juce::var (aux) } }));
 }
 
+void WebVaneEditor::sendProfileList()
+{
+    auto names = proc.profileManager.getProfileNames();
+    juce::Array<juce::var> arr;
+    for (auto& n : names) arr.add (n);
+    webView.emitEventIfBrowserIsVisible ("profileList", makeObj ({
+        { "profiles", juce::var (arr) },
+        { "current",  proc.profileManager.getCurrentProfileName() },
+    }));
+}
+
 // ── Outbound: param echo ──────────────────────────────────────────────────────
 void WebVaneEditor::parameterChanged (const juce::String& paramID, float newValue)
 {
@@ -365,6 +404,9 @@ void WebVaneEditor::sendInitialState()
     sendSlotState();
     sendPresetList();
     sendControllerState();
+    sendProfileList();
+    webView.emitEventIfBrowserIsVisible ("controllerLabel",
+        makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));
     webView.emitEventIfBrowserIsVisible ("tuningStatus",
         makeObj ({ { "connected", proc.mtsConnected() } }));
 }

@@ -154,6 +154,7 @@ target_sources(Vane PRIVATE
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
     Source/Preset/PresetManager.cpp
+    Source/Profile/ProfileManager.cpp
     Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp
     Source/Tests/StringSafetyTests.cpp

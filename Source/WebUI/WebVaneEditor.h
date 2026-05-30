@@ -57,6 +57,7 @@ private:
     int                        armedAux { -1 };          // aux index being MIDI-learned
 
     void sendControllerState();   // aux source bindings + labels → controllerState
+    void sendProfileList();       // saved controller profiles → profileList
     std::atomic<bool>          pageReady   { false };
     bool                       pageNavigated { false };
 

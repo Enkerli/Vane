@@ -391,6 +391,7 @@ const state = {
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
+  profiles:[], profileName:'',   // saved controller profiles
   mts:true, dirty:false, sim:true,
 };
 // seed factory-ish routing
@@ -857,7 +858,7 @@ function openPresetMenu(e){ if(e)e.stopPropagation(); const m=$('#presetMenu'); 
   m.classList.add('open'); }
 // Controller chip → opens the Controllers / profile setup (binding + MIDI-learn).
 function openCtrlMenu(e){ if(e)e.stopPropagation(); closeMenus(); openControllers(); }
-function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; closeMenus(); }
+function setCtrl(c){ const e=$('#ctrlName'); if(e)e.textContent=c; Bridge.send('setController',{name:c}); closeMenus(); }
 
 // ── Controllers panel: source profile (per-note fixed + global aux, learnable) ──
 let learnAux=-1, ctrlOpen=false;
@@ -867,8 +868,18 @@ const FIXED_SRC=[
   ['Breath','CC2','breath'],['Expression','CC11','expr'],
 ];
 function openControllers(){
-  ctrlOpen=true; Bridge.send('requestControllerState'); renderControllers();
+  ctrlOpen=true; Bridge.send('requestControllerState'); Bridge.send('requestProfileList'); renderControllers();
 }
+function loadProfileByName(name){ if(!name)return; state.profileName=name; Bridge.send('loadProfile',{name}); }
+function saveProfileAs(){
+  openModal(`<h3>Save controller profile</h3><p>Reusable across patches — describes what your controller(s) send.</p>
+    <input class="rn" id="pfInp" value="${(state.profileName||'').replace(/"/g,'&quot;')}" placeholder="My Controller" />
+    <div class="actions"><button class="btn" onclick="renderControllers()">Cancel</button><button class="btn primary" onclick="commitProfileSave()">Save</button></div>`);
+  setTimeout(()=>{const e=$('#pfInp');if(e){e.focus();e.select();e.onkeydown=ev=>{if(ev.key==='Enter')commitProfileSave();};}},30);
+}
+function commitProfileSave(){ const v=$('#pfInp').value.trim(); if(!v){$('#pfInp').focus();return;} Bridge.send('saveProfile',{name:v}); state.profileName=v; renderControllers(); }
+function saveProfileCur(){ if(state.profileName) Bridge.send('saveProfile',{name:state.profileName}); }
+function deleteProfileCur(){ if(state.profileName){ Bridge.send('deleteProfile',{name:state.profileName}); state.profileName=''; renderControllers(); } }
 function renderControllers(){
   const fixed=FIXED_SRC.map(([n,b,d])=>`<div class="ctrl-row">
       <span class="meter-label"><span class="dot ${d}"></span>${n}</span>
@@ -884,8 +895,15 @@ function renderControllers(){
   const cur=($('#ctrlName')||{}).textContent||'Generic MPE';
   const CTRLS=["Sylphyo","EWI","Exquis","Sensel Morph","LinnStrument","Zefiro","Generic MPE"];
   const opts=CTRLS.map(c=>`<option ${c===cur?'selected':''}>${c}</option>`).join('');
+  const pOpts=`<option value="">— unsaved —</option>`+state.profiles.map(n=>`<option ${n===state.profileName?'selected':''}>${n}</option>`).join('');
   openModal(`<h3>Controller setup</h3>
     <p>Per-note expression is fixed (MPE). Assign your controller's extra controls — encoders, accelerometer, second breath — to the global <b>Aux</b> sources, then route them in the Matrix.</p>
+    <div class="ctrl-sec" style="margin-top:0"><span class="eyebrow">Profile</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select class="ctrl-lbl" style="width:auto" onchange="loadProfileByName(this.value)">${pOpts}</select>
+        <button class="btn" onclick="saveProfileAs()">Save as…</button>
+        ${state.profileName?'<button class="btn" onclick="saveProfileCur()">Save</button><button class="btn" onclick="deleteProfileCur()">Delete</button>':''}
+      </div></div>
     <div class="ctrl-row" style="border:none"><span class="meter-label">Controller</span>
       <select class="ctrl-lbl" style="grid-column:2/-1;width:auto" onchange="setCtrl(this.value)">${opts}</select></div>
     <div class="ctrl-sec"><span class="eyebrow">Per-note &amp; standard</span>${fixed}</div>
@@ -928,6 +946,9 @@ Bridge.on('controllerState',({aux})=>{ state.aux = Array.isArray(aux)?aux:[];
 // MIDI-learn captured a CC for an aux source.
 Bridge.on('auxLearned',({aux,cc})=>{ if(state.aux[aux])state.aux[aux].cc=cc; if(learnAux===aux)learnAux=-1;
   if(ctrlOpen)renderControllers(); if(tab==='matrix')renderMatrix(); });
+// Saved controller profiles list.
+Bridge.on('profileList',({profiles,current})=>{ state.profiles=Array.isArray(profiles)?profiles:[];
+  if(typeof current==='string') state.profileName=current; if(ctrlOpen)renderControllers(); });
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });

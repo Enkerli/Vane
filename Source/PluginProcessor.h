@@ -4,6 +4,7 @@
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
 #include "Preset/PresetManager.h"
+#include "Profile/ProfileManager.h"
 
 class VaneProcessor : public juce::AudioProcessor {
 public:
@@ -35,6 +36,7 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presetManager;
+    ProfileManager profileManager;
     ModMatrix    modMatrix;
     TuningClient tuning;
 
