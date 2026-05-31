@@ -116,6 +116,32 @@ public:
                     > maxSlope (wt, 0, Wavetable::kNumMipLevels-1) * 2.0f);
         }
 
+        beginTest ("wavRoundTrips");
+        {
+            auto src = Wavetable::makeHarmonicStack (8);
+            auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                           .getChildFile ("vane_wt_roundtrip.wav");
+            expect (src.saveToWav (tmp));
+            auto loaded = Wavetable::loadFromWav (tmp);
+            expectEquals (loaded.numFrames(), src.numFrames());
+            const int top = Wavetable::kNumMipLevels - 1;
+            float worst = 0.0f;
+            for (int f = 0; f < src.numFrames(); ++f)
+                for (int i = 0; i < Wavetable::kTableSize; i += 8) {
+                    const float ph = (float) i / (float) Wavetable::kTableSize;
+                    worst = std::max (worst, std::abs (src.read (f, top, ph) - loaded.read (f, top, ph)));
+                }
+            expect (worst < 2.0e-2f, "round-trip error " + juce::String (worst));
+            tmp.deleteFile();
+        }
+
+        beginTest ("loadRejectsMissingFile");
+        {
+            auto wt = Wavetable::loadFromWav (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                                  .getChildFile ("vane_no_such_wt.wav"));
+            expect (! wt.isValid());
+        }
+
         beginTest ("oscillatorReadsWavetable");
         {
             // The oscillator, pointed at the analytic WT, must produce finite,

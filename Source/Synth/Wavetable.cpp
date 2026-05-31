@@ -1,6 +1,8 @@
 #include "Wavetable.h"
 #include <cmath>
 #include <algorithm>
+#include <memory>
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace {
 constexpr float kTwoPi = 6.283185307179586f;
@@ -129,4 +131,68 @@ const Wavetable& Wavetable::builtInDefault()
 {
     static Wavetable wt = makeHarmonicStack (16);   // built once, shared by all instances
     return wt;
+}
+
+Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize)
+{
+    Wavetable wt;
+    if (frameSize <= 0) return wt;
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (file));
+    if (rd == nullptr) return wt;
+
+    const int total = (int) rd->lengthInSamples;
+    if (total < frameSize) return wt;
+    const int nframes = total / frameSize;
+
+    juce::AudioBuffer<float> buf ((int) juce::jmax (1u, rd->numChannels), total);
+    rd->read (&buf, 0, total, 0, true, false);   // channel 0 = the wavetable
+    const float* src = buf.getReadPointer (0);
+
+    std::vector<std::vector<float>> raw;
+    raw.reserve ((size_t) nframes);
+    for (int f = 0; f < nframes; ++f) {
+        const int off = f * frameSize;
+        std::vector<float> cycle ((size_t) kTableSize, 0.0f);
+        if (frameSize == kTableSize) {
+            for (int i = 0; i < kTableSize; ++i) cycle[(size_t) i] = src[off + i];
+        } else {
+            // Linear-resample one frame (frameSize → kTableSize), wrap-aware.
+            for (int i = 0; i < kTableSize; ++i) {
+                const float pos = (float) i / (float) kTableSize * (float) frameSize;
+                const int   s0  = (int) pos;
+                const float fr  = pos - (float) s0;
+                const int   s1  = (s0 + 1) % frameSize;
+                cycle[(size_t) i] = src[off + s0] * (1.0f - fr) + src[off + s1] * fr;
+            }
+        }
+        raw.push_back (std::move (cycle));
+    }
+    wt.build (raw);
+    return wt;
+}
+
+bool Wavetable::saveToWav (const juce::File& file) const
+{
+    if (! isValid()) return false;
+
+    file.deleteFile();
+    auto os = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream());
+    if (os == nullptr || ! os->openedOk()) return false;
+
+    juce::WavAudioFormat fmt;
+    std::unique_ptr<juce::AudioFormatWriter> writer (
+        fmt.createWriterFor (os.get(), 44100.0, 1, 32, {}, 0));   // 32-bit float
+    if (writer == nullptr) return false;
+    os.release();   // the writer owns the stream now
+
+    const int top = kNumMipLevels - 1;     // full-bandwidth representation of each frame
+    juce::AudioBuffer<float> one (1, kTableSize);
+    for (int f = 0; f < numFrames(); ++f) {
+        one.copyFrom (0, 0, table (f, top), kTableSize);
+        writer->writeFromAudioSampleBuffer (one, 0, kTableSize);
+    }
+    return true;   // flushes/closes on writer destruction
 }

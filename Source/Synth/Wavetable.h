@@ -2,6 +2,7 @@
 #include <vector>
 #include <array>
 #include <cstddef>
+#include <juce_core/juce_core.h>
 
 // ── Band-limited multi-frame wavetable ────────────────────────────────────────
 //
@@ -63,6 +64,18 @@ public:
     // Process-wide default wavetable, built once (thread-safe static).  All
     // oscillators read this until a file is loaded.  Currently the harmonic stack.
     static const Wavetable& builtInDefault();
+
+    // ── WAV interchange ───────────────────────────────────────────────────────
+    // The de-facto WT format: a mono .wav of single-cycle frames concatenated,
+    // frameSize samples each (Serum-style 2048 is the common convention).
+    //
+    // loadFromWav: total/frameSize frames; each is linear-resampled to kTableSize
+    //   if frameSize differs, then band-limited via build().  Channel 0 only.
+    //   Returns an invalid Wavetable on read failure / size mismatch.
+    // saveToWav:   writes each frame's full-bandwidth cycle (top mip), kTableSize
+    //   samples, as mono 32-bit float — round-trips through loadFromWav.
+    static Wavetable loadFromWav (const juce::File& file, int frameSize = kTableSize);
+    bool saveToWav (const juce::File& file) const;
 
 private:
     struct Frame {
