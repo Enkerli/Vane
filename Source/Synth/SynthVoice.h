@@ -83,6 +83,7 @@ public:
     float meterSlide()     const { return slide; }       // 0..1 (CC74 / Y)
     float meterBend()      const { return pitchbend; }   // -1..1 (X)
     float meterVelocity()  const { return velocity; }    // 0..1
+    float meterMorph()     const { return activeMorphForMeter; }  // live morph 0..1
 
 private:
     ModMatrix&    modMatrix;
@@ -232,6 +233,7 @@ private:
     float slide     = 0.0f;   // 0..1 (CC74)
     float pitchbend = 0.0f;   // -1..1
     float velocity  = 0.0f;   // 0..1
+    float activeMorphForMeter = 0.0f;   // last block's modulated morph 0..1
 
     // Render state
     float baseHz       = 440.0f;

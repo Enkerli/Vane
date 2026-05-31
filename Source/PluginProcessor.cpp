@@ -123,6 +123,38 @@ void VaneProcessor::applyWavetableToVoices()
             v->setWavetable (activeWavetable);   // nullptr → built-in default (Oscillator falls back)
 }
 
+void VaneProcessor::wavetableDisplay (juce::Array<juce::var>& out, int n,
+                                      float& frameOut, int& framesOut) const
+{
+    frameOut = 0.0f; framesOut = 0;
+    const Wavetable* wt = activeWavetable;
+    if (wt == nullptr || wt->numFrames() < 1) return;
+    const int nf = wt->numFrames();
+    framesOut = nf;
+
+    // Live morph while a voice sounds; otherwise the knob position.
+    bool sounding = false;
+    for (auto* v : voicePtrs) if (v != nullptr && v->meterActive()) { sounding = true; break; }
+    float m = meterMorph.load (std::memory_order_relaxed);
+    if (! sounding) { if (auto* p = apvts.getRawParameterValue ("oscMorphPos")) m = p->load(); }
+    m = juce::jlimit (0.0f, 1.0f, m);
+
+    const float pos = m * (float) (nf - 1);
+    int   iA   = (int) pos;
+    if (iA > nf - 2) iA = (nf >= 2 ? nf - 2 : 0);
+    const float blend = (nf >= 2) ? pos - (float) iA : 0.0f;
+    frameOut = pos;
+
+    const int top = Wavetable::kNumMipLevels - 1;   // full-bandwidth shape for display
+    const int iB  = (nf >= 2) ? iA + 1 : iA;
+    for (int p = 0; p < n; ++p) {
+        const float ph = (float) p / (float) n;
+        const float a = wt->read (iA, top, ph);
+        const float b = wt->read (iB, top, ph);
+        out.add (juce::var (a + blend * (b - a)));
+    }
+}
+
 bool VaneProcessor::loadWavetable (const juce::File& file)
 {
     auto wt = std::make_unique<Wavetable> (Wavetable::loadFromWav (file));
@@ -256,6 +288,7 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         const bool on = v->meterActive();
         m.level.store(on ? v->meterLevel() : 0.0f, std::memory_order_relaxed);
         if (on) {
+            meterMorph.store(v->meterMorph(), std::memory_order_relaxed);   // live morph for WT display
             m.noteHz  .store(v->meterNoteHz(),   std::memory_order_relaxed);
             m.pressure.store(v->meterPressure(), std::memory_order_relaxed);
             m.slide   .store(v->meterSlide(),    std::memory_order_relaxed);

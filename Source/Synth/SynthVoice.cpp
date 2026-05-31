@@ -500,6 +500,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // at 0.5 (identity), so you cannot cross to the mirror-symmetric side.
     float activeMorphPos = std::clamp(morphPos + mods[ModDestID::OscWaveshape] * 1.0f,
                                       0.0f, 1.0f);
+    activeMorphForMeter = activeMorphPos;   // publish for the live WT display
     float activePW       = std::clamp(basePW   + mods[ModDestID::OscPulseWidth],
                                       0.5f, 0.999f);
 

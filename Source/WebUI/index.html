@@ -605,7 +605,9 @@ function renderPatch(){
     <div class="group"><span class="eyebrow">Oscillator</span>
       <div class="pslider" style="grid-column:1/-1"><div class="top">
         <span class="lbl">Wavetable</span>
+        <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span>
         <button class="btn" onclick="loadWavetableFile()">Load .wav…</button></div>
+        <svg id="wtWave" viewBox="0 0 240 60" preserveAspectRatio="none" style="width:100%;height:58px;background:var(--vn-sub);border-radius:8px;margin-top:4px;display:block"></svg>
         <div class="num" id="wtInfo" style="color:var(--vn-muted);font-size:12px;padding-top:3px">${(state.wt.name||'Harmonic Stack')} · ${state.wt.frames||16} frames</div></div>
       ${pslider('Morph','Morph','--vn-slide')}${pslider('PW','Pulse Width','--vn-slide')}
       ${pslider('Fold','Wavefold','--vn-slide')}${pslider('Inharm','Inharmonicity','--vn-slide')}
@@ -1121,6 +1123,15 @@ Bridge.on('wavetableInfo',({name,frames,ok})=>{
   const e=$('#wtInfo'); if(e) e.textContent=`${state.wt.name} · ${state.wt.frames} frames`;
   if(!ok){ const b=$('#wtInfo'); if(b) b.textContent='Could not load that .wav'; } });
 function loadWavetableFile(){ Bridge.send('loadWavetable'); }
+// Live frame waveform (current morph position) → the WT display.
+Bridge.on('wavetableWave',({pts,frame,frames})=>{
+  const svg=$('#wtWave'); if(!svg||!Array.isArray(pts)||!pts.length)return;
+  const W=240,H=60,mid=H/2,amp=H*0.46; let d='';
+  for(let i=0;i<pts.length;i++){ const x=i/(pts.length-1)*W; const y=mid-clamp(pts[i],-1,1)*amp;
+    d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1); }
+  svg.innerHTML=`<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="var(--vn-muted-2)" stroke-width="0.5" opacity="0.5"/>`
+    +`<path d="${d}" fill="none" stroke="var(--vn-slide)" stroke-width="1.6" stroke-linejoin="round"/>`;
+  const fe=$('#wtFrame'); if(fe&&frames>0) fe.textContent=`frame ${(frame||0).toFixed(1)} / ${frames}`; });
 Bridge.on('controllerLabel',({name})=>{ if(name)state.controller=name; updateCtrlPill(); buildMeters(); });
 // Live played-note readout (♪) from the engine's last note.
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });

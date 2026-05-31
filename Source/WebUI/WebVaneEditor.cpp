@@ -355,6 +355,14 @@ void WebVaneEditor::timerCallback()
         webView.emitEventIfBrowserIsVisible ("voices", makeObj ({ { "v", juce::var (vs) } }));
     }
 
+    // ── Live wavetable frame waveform → WT display ─────────────────────────────
+    {
+        juce::Array<juce::var> pts; float frameF = 0.0f; int frames = 0;
+        proc.wavetableDisplay (pts, 96, frameF, frames);
+        webView.emitEventIfBrowserIsVisible ("wavetableWave",
+            makeObj ({ { "pts", juce::var (pts) }, { "frame", frameF }, { "frames", frames } }));
+    }
+
     // ♪ note readout — emit only when it changes.
     const auto note = hzToNote (proc.currentNoteHz());
     if (note != lastNoteSent) {

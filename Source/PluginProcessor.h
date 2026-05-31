@@ -52,6 +52,11 @@ public:
     std::atomic<float> meterSlide     { 0.0f };   // CC74 / MPE Y timbre, 0..1
     std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
     std::atomic<float> meterVelocity  { 0.0f };   // last note-on velocity, 0..1 (held)
+    std::atomic<float> meterMorph     { 0.0f };   // live modulated morph 0..1 (for the WT display)
+
+    // Fill `out` with the current morph frame's waveform (n points, ±1), and
+    // report the fractional frame + frame count — drives the live WT display.
+    void wavetableDisplay (juce::Array<juce::var>& out, int n, float& frameOut, int& framesOut) const;
 
     // ── Per-voice MPE expression snapshot (for the per-note visualiser) ─────────
     // Filled each processBlock (audio thread) from each SynthVoice's live state;
