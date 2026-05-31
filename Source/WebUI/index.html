@@ -469,9 +469,31 @@ function attachDrag(track, cfg){
 // ════════════════════════════════════════════════════════════════════════
 //  Meters + visualiser (D2)
 // ════════════════════════════════════════════════════════════════════════
+// ── Active-modulation detection ───────────────────────────────────────────────
+// The display shows the modulations that are actually in use. Per-note MPE dims
+// (Pressure/Slide/Pitchbend) are read from the live voices, not the aggregate —
+// so MPE pitchbend (per-member-channel) registers correctly. A short hold keeps
+// the set from flickering. Falls back to the controller's catalog list when idle.
+const srcActiveUntil={}; const ACT_HOLD=1500;
+function updateActivity(){ const now=performance.now(); const bump=s=>{ srcActiveUntil[s]=now+ACT_HOLD; };
+  if((state.meters.Breath||0)>0.02)     bump('Breath');
+  if((state.meters.Expression||0)>0.02) bump('Expression');
+  if((state.meters.Velocity||0)>0.02)   bump('Velocity');
+  let aP=(state.meters.Pressure||0)>0.02, aS=false, aB=false;
+  for(const v of (state.voices||[])){
+    if((v.pressure||0)>0.02)                aP=true;
+    if(Math.abs((v.slide??0.5)-0.5)>0.03)   aS=true;
+    if(Math.abs(v.bend||0)>0.015)           aB=true;   // per-note MPE pitchbend
+  }
+  if(aP)bump('Pressure'); if(aS)bump('Slide'); if(aB)bump('Pitchbend'); }
+function activeSources(){ const now=performance.now();
+  const out=METER_SRC.filter(s=>(srcActiveUntil[s]||0)>now);
+  return out.length ? out : ctrlSources(); }   // idle → controller's catalog set
+let lastMeterKey='';
+function refreshMetersIfChanged(){ const k=activeSources().join(','); if(k!==lastMeterKey){ lastMeterKey=k; buildMeters(); } }
 function buildMeters(){
   const el=$('#meters'); if(!el) return; el.innerHTML='';
-  const active=ctrlSources();
+  const active=activeSources();
   METER_SRC.filter(s=>active.includes(s)).forEach(s=>{
     el.insertAdjacentHTML('beforeend',
       `<div class="meter-row"><span class="meter-label"><span class="dot ${SRC_DOT[s]}"></span>${s}</span>
@@ -507,6 +529,8 @@ function pushVoices(){
   }
 }
 function tickMeters(){
+  updateActivity();
+  refreshMetersIfChanged();   // rebuild the legend only when the active set changes
   for(const s in state.meters){
     const v=clamp(state.meters[s],0,1);
     const m=$('#m_'+s); if(m) m.style.width=(v*100)+'%';
@@ -527,8 +551,8 @@ function drawVis(){
     const W=600, yOf=v=>188-clamp(v,0,1)*172;
     const line=(h,col,w,op)=>{ let d=''; for(let i=0;i<h.length;i++){const x=i/(h.length-1)*W; d+=(i?'L':'M')+x.toFixed(1)+','+yOf(h[i]).toFixed(1);}
       return `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${op}"/>`; };
-    // Only draw what this controller actually sends (no flat "slide" line on a wind).
-    const active=ctrlSources();
+    // Draw the modulations actually in use (per-note MPE dims included).
+    const active=activeSources();
     // Global CC streams (one value each): Breath bold, Expression secondary.
     if(active.includes('Expression')) p+=line(hist.Expression, cssv('--vn-expr'), 1.6, 0.45);
     if(active.includes('Breath'))     p+=line(hist.Breath,     cssv('--vn-breath'), 2.6, 0.9);
