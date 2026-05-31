@@ -150,6 +150,7 @@ target_sources(Vane PRIVATE
     Source/ModMatrixEditor.cpp
     Source/PatchPanel.cpp
     Source/Synth/Oscillator.cpp
+    Source/Synth/Wavetable.cpp
     Source/Synth/SynthVoice.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
@@ -159,6 +160,7 @@ target_sources(Vane PRIVATE
     Source/Tests/ModMatrixTests.cpp
     Source/Tests/StringSafetyTests.cpp
     Source/Tests/TuningTests.cpp
+    Source/Tests/WavetableTests.cpp
 )
 
 target_include_directories(Vane PRIVATE Source)
