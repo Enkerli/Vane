@@ -195,12 +195,21 @@ public:
     void applyWavetableToVoices();
     juce::String wavetableName()   const { return activeWtName; }
     int          wavetableFrames() const { return activeWtFrames; }
+    bool         wavetablePhaseAlign() const { return wtPhaseAlign; }
+    // Toggle phase-aligned morphing; rebuilds the loaded table (built-in is
+    // already phase-coherent so it's a no-op there).
+    void setMorphPhaseAlign (bool on) {
+        wtPhaseAlign = on;
+        if (lastWtFile.existsAsFile()) loadWavetable (lastWtFile);
+    }
 
 private:
     std::vector<std::unique_ptr<Wavetable>> wavetablePool;   // keep-alive
     const Wavetable* activeWavetable { &Wavetable::builtInDefault() };
     juce::String activeWtName { "Harmonic Stack (built-in)" };
     int          activeWtFrames { 16 };
+    bool         wtPhaseAlign { false };
+    juce::File   lastWtFile;     // for rebuild on phase-align toggle
 public:
 
     // Hz of the most recently started note (for the UI ♪ note readout).

@@ -407,7 +407,7 @@ const state = {
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
-  wt:{name:'Harmonic Stack (built-in)', frames:16},   // active morph wavetable
+  wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false},   // active morph wavetable
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -606,6 +606,7 @@ function renderPatch(){
       <div class="pslider" style="grid-column:1/-1"><div class="top">
         <span class="lbl">Wavetable</span>
         <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span>
+        <button class="btn ${state.wt.phaseAlign?'primary':''}" id="wtAlignBtn" onclick="toggleMorphAlign()" title="Phase-align morph — interpolate magnitudes so the morph never cancels (no effect on phase-coherent tables)">Phase-align</button>
         <button class="btn" onclick="loadWavetableFile()">Load .wav…</button></div>
         <svg id="wtWave" viewBox="0 0 240 60" preserveAspectRatio="none" style="width:100%;height:58px;background:var(--vn-sub);border-radius:8px;margin-top:4px;display:block"></svg>
         <div class="num" id="wtInfo" style="color:var(--vn-muted);font-size:12px;padding-top:3px">${(state.wt.name||'Harmonic Stack')} · ${state.wt.frames||16} frames</div></div>
@@ -1118,11 +1119,15 @@ Bridge.on('paramChanged',({id,value})=>{
     if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
 Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
 // Active wavetable (name + frame count) — pushed on load and on boot.
-Bridge.on('wavetableInfo',({name,frames,ok})=>{
-  if(ok && name){ state.wt={name,frames:frames||0}; }
+Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
+  if(ok && name){ state.wt={name,frames:frames||0,phaseAlign:!!phaseAlign}; }
   const e=$('#wtInfo'); if(e) e.textContent=`${state.wt.name} · ${state.wt.frames} frames`;
+  const ab=$('#wtAlignBtn'); if(ab) ab.classList.toggle('primary',!!state.wt.phaseAlign);
   if(!ok){ const b=$('#wtInfo'); if(b) b.textContent='Could not load that .wav'; } });
 function loadWavetableFile(){ Bridge.send('loadWavetable'); }
+function toggleMorphAlign(){ state.wt.phaseAlign=!state.wt.phaseAlign;
+  const ab=$('#wtAlignBtn'); if(ab) ab.classList.toggle('primary',state.wt.phaseAlign);
+  Bridge.send('setMorphPhaseAlign',{on:state.wt.phaseAlign}); markDirty(); }
 // Live frame waveform (current morph position) → the WT display.
 Bridge.on('wavetableWave',({pts,frame,frames})=>{
   const svg=$('#wtWave'); if(!svg||!Array.isArray(pts)||!pts.length)return;

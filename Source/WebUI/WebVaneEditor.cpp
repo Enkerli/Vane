@@ -230,6 +230,11 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withEventListener ("requestWavetableInfo", [owner] (const Array<var>&) {
             owner->sendWavetableInfo (true);
         })
+        .withEventListener ("setMorphPhaseAlign", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            owner->proc.setMorphPhaseAlign (static_cast<bool> (a[0]["on"]));
+            owner->sendWavetableInfo (true);
+        })
         .withEventListener ("setMidiRouting", [owner] (const Array<var>& a) { // per-channel role masks
             if (a.isEmpty()) return;
             owner->proc.setMidiRouting ((int) a[0]["notesMask"], (int) a[0]["modMask"]);
@@ -466,6 +471,7 @@ void WebVaneEditor::sendWavetableInfo (bool ok)
     webView.emitEventIfBrowserIsVisible ("wavetableInfo", makeObj ({
         { "name",   proc.wavetableName() },
         { "frames", proc.wavetableFrames() },
+        { "phaseAlign", proc.wavetablePhaseAlign() },
         { "ok",     ok },
     }));
 }

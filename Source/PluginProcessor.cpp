@@ -157,11 +157,13 @@ void VaneProcessor::wavetableDisplay (juce::Array<juce::var>& out, int n,
 
 bool VaneProcessor::loadWavetable (const juce::File& file)
 {
-    auto wt = std::make_unique<Wavetable> (Wavetable::loadFromWav (file));
+    auto wt = std::make_unique<Wavetable> (
+        Wavetable::loadFromWav (file, Wavetable::kTableSize, wtPhaseAlign));
     if (! wt->isValid()) return false;
 
     activeWtFrames  = wt->numFrames();
     activeWtName    = file.getFileNameWithoutExtension();
+    lastWtFile      = file;              // remember for phase-align rebuilds
     activeWavetable = wt.get();          // raw ptr handed to voices; pool keeps it alive
     wavetablePool.push_back (std::move (wt));
     applyWavetableToVoices();

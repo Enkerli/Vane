@@ -14,7 +14,19 @@ constexpr float kTwoPi = 6.283185307179586f;
 // above the level's harmonic cap (keeping the conjugate mirror) and inverse.
 // DC is removed; each level is normalised to peak ±1.  Fast enough to build a
 // few hundred frames in well under a second.
-bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
+//
+// Normalisation: per-frame/per-mip peak ±1 (the default).  A GLOBAL-normalisation
+// variant (preserves a table's authored inter-frame dynamics) is kept on branch
+// wt-global-norm (commit d94d677) — swap that build() back in if we want it.
+//
+// phaseAlign: morphing two frames by linear time-domain interpolation cancels a
+// harmonic wherever the two frames hold it in opposite phase (a hollow/comb
+// artifact at mid-crossfade on phase-incoherent tables).  With phaseAlign, every
+// frame is given a COMMON per-harmonic phase — taken from whichever frame has that
+// harmonic loudest (the most reliable estimate) — so the morph interpolates only
+// magnitudes and never cancels.  Magnitudes (the timbre) are untouched; phase-
+// coherent tables (e.g. Uncanny Valley) are essentially unaffected.
+bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames, bool phaseAlign)
 {
     framesData.clear();
     if (rawFrames.empty()) return false;
@@ -27,12 +39,45 @@ bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
     std::vector<float> spec ((size_t) (2 * N), 0.0f);   // forward result (interleaved complex)
     std::vector<float> work ((size_t) (2 * N), 0.0f);
 
+    // Phase-align pass: per harmonic, the unit phasor of its loudest frame.
+    std::vector<float> refCos, refSin;
+    if (phaseAlign) {
+        refCos.assign ((size_t) (N / 2 + 1), 1.0f);
+        refSin.assign ((size_t) (N / 2 + 1), 0.0f);
+        std::vector<float> refMag ((size_t) (N / 2 + 1), 0.0f);
+        std::vector<float> sp ((size_t) (2 * N), 0.0f);
+        for (const auto& raw : rawFrames) {
+            if ((int) raw.size() != N) { framesData.clear(); return false; }
+            std::fill (sp.begin(), sp.end(), 0.0f);
+            for (int i = 0; i < N; ++i) sp[(size_t) i] = raw[(size_t) i];
+            fft.performRealOnlyForwardTransform (sp.data());
+            for (int h = 1; h < N / 2; ++h) {
+                const float re = sp[(size_t)(2*h)], im = sp[(size_t)(2*h+1)];
+                const float mag = std::sqrt (re*re + im*im);
+                if (mag > refMag[(size_t) h]) { refMag[(size_t) h] = mag;
+                    refCos[(size_t) h] = re / mag; refSin[(size_t) h] = im / mag; }
+            }
+        }
+    }
+
     for (const auto& raw : rawFrames) {
         if ((int) raw.size() != N) { framesData.clear(); return false; }
 
         std::fill (spec.begin(), spec.end(), 0.0f);
         for (int i = 0; i < N; ++i) spec[(size_t) i] = raw[(size_t) i];
         fft.performRealOnlyForwardTransform (spec.data());   // bin h at (spec[2h], spec[2h+1])
+
+        if (phaseAlign) {
+            // Re-point each harmonic to the reference phase, keeping its magnitude;
+            // mirror bin N-h gets the conjugate so the inverse stays real.
+            for (int h = 1; h < N / 2; ++h) {
+                const float re = spec[(size_t)(2*h)], im = spec[(size_t)(2*h+1)];
+                const float mag = std::sqrt (re*re + im*im);
+                const float nre = mag * refCos[(size_t) h], nim = mag * refSin[(size_t) h];
+                spec[(size_t)(2*h)]       = nre;  spec[(size_t)(2*h+1)]       = nim;
+                spec[(size_t)(2*(N-h))]   = nre;  spec[(size_t)(2*(N-h)+1)]   = -nim;
+            }
+        }
 
         Frame f;
         for (int k = 0; k < kNumMipLevels; ++k) {
@@ -132,7 +177,7 @@ static int detectFrameSize (const juce::File& file, int fallback)
     return fallback;
 }
 
-Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize)
+Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize, bool phaseAlign)
 {
     Wavetable wt;
     frameSize = detectFrameSize (file, frameSize);   // prefer the file's clm marker
@@ -170,7 +215,7 @@ Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize)
         }
         raw.push_back (std::move (cycle));
     }
-    wt.build (raw);
+    wt.build (raw, phaseAlign);
     return wt;
 }
 

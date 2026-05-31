@@ -49,8 +49,9 @@ public:
 
     // Build from raw single-cycle frames (each exactly kTableSize samples, any
     // amplitude).  DC is removed; each (frame, level) is normalised to peak ±1.
-    // Returns false if the input is empty or a frame has the wrong length.
-    bool build (const std::vector<std::vector<float>>& rawFrames);
+    // phaseAlign gives all frames a common per-harmonic phase so the morph never
+    // cancels (magnitudes/timbre untouched).  Returns false on bad input.
+    bool build (const std::vector<std::vector<float>>& rawFrames, bool phaseAlign = false);
 
     // A built-in "harmonic stack" table: frame k = the first (k+1) harmonics of a
     // sawtooth (1/h).  A genuinely simplest→complex sweep (sine → fuller saw) and
@@ -74,7 +75,8 @@ public:
     //   Returns an invalid Wavetable on read failure / size mismatch.
     // saveToWav:   writes each frame's full-bandwidth cycle (top mip), kTableSize
     //   samples, as mono 32-bit float — round-trips through loadFromWav.
-    static Wavetable loadFromWav (const juce::File& file, int frameSize = kTableSize);
+    static Wavetable loadFromWav (const juce::File& file, int frameSize = kTableSize,
+                                  bool phaseAlign = false);
     bool saveToWav (const juce::File& file) const;
 
 private:

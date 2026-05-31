@@ -158,6 +158,33 @@ public:
             expect (! wt.isValid());
         }
 
+        beginTest ("phaseAlignStopsMorphCancellation");
+        {
+            // Two frames whose fundamental is in opposite phase: linear morph
+            // cancels at the midpoint (hollow), phase-align does not.
+            std::vector<float> a (Wavetable::kTableSize), b (Wavetable::kTableSize);
+            for (int i = 0; i < Wavetable::kTableSize; ++i) {
+                const float t = 6.283185307f * (float) i / (float) Wavetable::kTableSize;
+                a[(size_t) i] =  std::sin (t);
+                b[(size_t) i] = -std::sin (t);   // π out of phase
+            }
+            const int top = Wavetable::kNumMipLevels - 1;
+            auto midRms = [&] (const Wavetable& wt) {
+                double s = 0.0; int n = 0;
+                for (int i = 0; i < Wavetable::kTableSize; i += 4) {
+                    const float ph = (float) i / (float) Wavetable::kTableSize;
+                    const float mid = 0.5f * (wt.read (0, top, ph) + wt.read (1, top, ph));
+                    s += (double) mid * mid; ++n;
+                }
+                return std::sqrt (s / n);
+            };
+            Wavetable raw;     raw.build  ({ a, b }, false);
+            Wavetable aligned; aligned.build ({ a, b }, true);
+            const double rRaw = midRms (raw), rAli = midRms (aligned);
+            expect (rRaw < 0.05, "raw midpoint should cancel, got " + juce::String (rRaw));
+            expect (rAli > 0.30, "aligned midpoint should survive, got " + juce::String (rAli));
+        }
+
         beginTest ("oscillatorReadsWavetable");
         {
             // The oscillator, pointed at the analytic WT, must produce finite,
