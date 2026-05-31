@@ -21,8 +21,14 @@ void PresetManager::savePreset(const juce::String& name)
     // state (so a DAW project that captures this state shows the right preset).
     apvts.state.setProperty("presetName", name, nullptr);
 
+    // Presets reference the wavetable library by hash — strip the embedded bytes
+    // from the saved COPY so reusing one table across presets isn't redundant.
+    // (The live state keeps wavetableData, so DAW projects stay self-contained.)
+    auto state = apvts.copyState();
+    state.removeProperty("wavetableData", nullptr);
+
     auto file = dir.getChildFile(name + fileExtension);
-    auto xml  = apvts.copyState().createXml();
+    auto xml  = state.createXml();
     if (xml && xml->writeTo(file))
         currentPresetName = name;
 }

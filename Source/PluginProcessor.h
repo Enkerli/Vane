@@ -220,6 +220,7 @@ public:
         activeWtFrames  = activeWavetable->numFrames();
         lastWtData.reset();
         apvts.state.removeProperty ("wavetableData", nullptr);
+        apvts.state.removeProperty ("wavetableHash", nullptr);
         apvts.state.removeProperty ("wavetableName", nullptr);
         applyWavetableToVoices();
     }

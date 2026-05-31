@@ -225,6 +225,27 @@ bool VaneProcessor::loadWavetable (const juce::File& file)
     return setWavetableFromData (mb);
 }
 
+// Content-addressed wavetable library: loaded tables are stored once here keyed
+// by hash, so the same table across many presets is a single file.  Presets
+// reference the hash; DAW projects still embed (self-contained).
+static juce::File wavetableLibraryDir()
+{
+    auto d = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                 .getChildFile ("Vane").getChildFile ("Wavetables");
+    if (! d.exists()) d.createDirectory();
+    return d;
+}
+
+// FNV-1a 64-bit content hash (dependency-free; juce::MD5 lives in juce_cryptography
+// which we don't link).  64 bits is ample for dedup of a personal table library.
+static juce::String hashBytes (const void* data, size_t n)
+{
+    const auto* p = static_cast<const uint8_t*> (data);
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; }
+    return juce::String::toHexString ((juce::int64) h).paddedLeft ('0', 16);
+}
+
 bool VaneProcessor::setWavetableFromData (const juce::MemoryBlock& mb)
 {
     auto wt = std::make_unique<Wavetable> (
@@ -236,10 +257,15 @@ bool VaneProcessor::setWavetableFromData (const juce::MemoryBlock& mb)
     wavetablePool.push_back (std::move (wt));
     lastWtData      = mb;                // keep for phase-align rebuilds
 
-    // Embed in plugin state so the table travels with presets AND DAW projects.
-    apvts.state.setProperty ("wavetableData",
-                             juce::Base64::toBase64 (mb.getData(), mb.getSize()), nullptr);
+    // Store once in the library (dedup) and record the reference.
+    const auto hash = hashBytes (mb.getData(), mb.getSize());
+    auto libFile = wavetableLibraryDir().getChildFile (hash + ".wav");
+    if (! libFile.existsAsFile()) libFile.replaceWithData (mb.getData(), mb.getSize());
+
+    apvts.state.setProperty ("wavetableHash", hash, nullptr);          // preset reference
     apvts.state.setProperty ("wavetableName", activeWtName, nullptr);
+    apvts.state.setProperty ("wavetableData",                          // project self-containment
+                             juce::Base64::toBase64 (mb.getData(), mb.getSize()), nullptr);
 
     applyWavetableToVoices();
     return true;
@@ -248,17 +274,27 @@ bool VaneProcessor::setWavetableFromData (const juce::MemoryBlock& mb)
 void VaneProcessor::restoreWavetableFromState()
 {
     wtPhaseAlign = (bool) apvts.state.getProperty ("wavetablePhaseAlign", false);
-    const auto b64 = apvts.state.getProperty ("wavetableData", juce::String()).toString();
-    if (b64.isEmpty()) { useBuiltInWavetable(); return; }
+    activeWtName = apvts.state.getProperty ("wavetableName", activeWtName).toString();
 
-    juce::MemoryOutputStream mos;
-    if (juce::Base64::convertFromBase64 (mos, b64) && mos.getDataSize() > 0) {
-        activeWtName = apvts.state.getProperty ("wavetableName", "Wavetable").toString();
-        juce::MemoryBlock mb (mos.getData(), mos.getDataSize());
-        if (! setWavetableFromData (mb)) useBuiltInWavetable();
-    } else {
-        useBuiltInWavetable();
+    // 1. Embedded bytes (DAW projects, and pre-library presets).
+    const auto b64 = apvts.state.getProperty ("wavetableData", juce::String()).toString();
+    if (b64.isNotEmpty()) {
+        juce::MemoryOutputStream mos;
+        if (juce::Base64::convertFromBase64 (mos, b64) && mos.getDataSize() > 0) {
+            juce::MemoryBlock mb (mos.getData(), mos.getDataSize());
+            if (setWavetableFromData (mb)) return;
+        }
     }
+    // 2. Reference by hash → resolve from the library (lean presets).
+    const auto hash = apvts.state.getProperty ("wavetableHash", juce::String()).toString();
+    if (hash.isNotEmpty()) {
+        auto libFile = wavetableLibraryDir().getChildFile (hash + ".wav");
+        juce::MemoryBlock mb;
+        if (libFile.existsAsFile() && libFile.loadFileAsData (mb) && setWavetableFromData (mb))
+            return;
+    }
+    // 3. Nothing available → built-in.
+    useBuiltInWavetable();
 }
 
 void VaneProcessor::releaseResources() {}
