@@ -475,6 +475,15 @@ void WebVaneEditor::sendWavetableInfo (bool ok)
         { "phaseAlign", proc.wavetablePhaseAlign() },
         { "ok",     ok },
     }));
+    if (ok) sendWavetableStrip();   // table changed → refresh the overview
+}
+
+void WebVaneEditor::sendWavetableStrip()
+{
+    juce::Array<juce::var> cols; int frames = 0;
+    proc.wavetableFilmstrip (cols, 28, 24, frames);
+    webView.emitEventIfBrowserIsVisible ("wavetableStrip",
+        makeObj ({ { "cols", juce::var (cols) }, { "frames", frames } }));
 }
 
 void WebVaneEditor::sendProfileList()

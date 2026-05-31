@@ -156,6 +156,25 @@ void VaneProcessor::wavetableDisplay (juce::Array<juce::var>& out, int n,
     }
 }
 
+void VaneProcessor::wavetableFilmstrip (juce::Array<juce::var>& cols, int numCols,
+                                        int pts, int& framesOut) const
+{
+    framesOut = 0;
+    const Wavetable* wt = activeWavetable;
+    if (wt == nullptr || wt->numFrames() < 1) return;
+    const int nf = wt->numFrames();
+    framesOut = nf;
+    const int n   = juce::jmin (numCols, nf);
+    const int top = Wavetable::kNumMipLevels - 1;
+    for (int c = 0; c < n; ++c) {
+        const int frame = (n > 1) ? (int) std::lround ((double) c / (n - 1) * (nf - 1)) : 0;
+        juce::Array<juce::var> pcol;
+        for (int p = 0; p < pts; ++p)
+            pcol.add (juce::var (wt->read (frame, top, (float) p / (float) pts)));
+        cols.add (juce::var (pcol));
+    }
+}
+
 bool VaneProcessor::loadWavetable (const juce::File& file)
 {
     auto wt = std::make_unique<Wavetable> (

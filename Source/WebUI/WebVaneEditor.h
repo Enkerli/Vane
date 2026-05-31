@@ -60,6 +60,7 @@ private:
     void sendProfileList();       // saved controller profiles → profileList
     void sendMidiProbe();         // diagnostics: host MIDI stats + CoreMIDI sources
     void sendWavetableInfo (bool ok);   // active wavetable name + frame count → UI
+    void sendWavetableStrip();          // overview filmstrip of the table's frames → UI
     std::unique_ptr<juce::FileChooser> fileChooser;   // kept alive during async pick
     bool                       probeOn { false };   // diagnostics panel active
     int                        probeTick { 0 };     // throttle source enum to ~2 Hz

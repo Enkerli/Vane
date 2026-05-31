@@ -58,6 +58,10 @@ public:
     // report the fractional frame + frame count — drives the live WT display.
     void wavetableDisplay (juce::Array<juce::var>& out, int n, float& frameOut, int& framesOut) const;
 
+    // Fill `cols` with up to numCols evenly-spaced frame waveforms (each `pts`
+    // points, ±1) — a static overview filmstrip of the whole table.
+    void wavetableFilmstrip (juce::Array<juce::var>& cols, int numCols, int pts, int& framesOut) const;
+
     // ── Per-voice MPE expression snapshot (for the per-note visualiser) ─────────
     // Filled each processBlock (audio thread) from each SynthVoice's live state;
     // read by the editor timer (message thread).  Index = MPESynthesiser voice.
