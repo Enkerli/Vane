@@ -197,6 +197,16 @@ public:
     // thread and hands the new pointer to every voice.
     bool loadWavetable (const juce::File& file);
     void applyWavetableToVoices();
+    // Revert to the built-in Harmonic Stack (drops any loaded table).
+    void useBuiltInWavetable() {
+        activeWavetable = &Wavetable::builtInDefault();
+        activeWtName    = "Harmonic Stack (built-in)";
+        activeWtFrames  = activeWavetable->numFrames();
+        lastWtFile      = juce::File();
+        apvts.state.removeProperty ("wavetableData", nullptr);
+        apvts.state.removeProperty ("wavetableName", nullptr);
+        applyWavetableToVoices();
+    }
     juce::String wavetableName()   const { return activeWtName; }
     int          wavetableFrames() const { return activeWtFrames; }
     bool         wavetablePhaseAlign() const { return wtPhaseAlign; }

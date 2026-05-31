@@ -231,6 +231,10 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withEventListener ("requestWavetableInfo", [owner] (const Array<var>&) {
             owner->sendWavetableInfo (true);
         })
+        .withEventListener ("useBuiltinWavetable", [owner] (const Array<var>&) {
+            owner->proc.useBuiltInWavetable();
+            owner->sendWavetableInfo (true);
+        })
         .withEventListener ("setMorphPhaseAlign", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             owner->proc.setMorphPhaseAlign (static_cast<bool> (a[0]["on"]));

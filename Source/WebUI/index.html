@@ -603,12 +603,15 @@ function renderPatch(){
   const _sc=$('#tabbody').scrollTop;
   $('#tabbody').innerHTML=`<div class="params">
     <div class="group"><span class="eyebrow">Oscillator</span>
-      <div class="pslider" style="grid-column:1/-1"><div class="top">
-        <span class="lbl">Wavetable</span>
-        <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span>
-        <button class="btn ${morphSnap?'primary':''}" id="wtSnapBtn" onclick="toggleMorphSnap()" title="Snap Morph to exact frames">Snap</button>
-        <button class="btn ${state.wt.phaseAlign?'primary':''}" id="wtAlignBtn" onclick="toggleMorphAlign()" title="Phase-align morph — interpolate magnitudes so the morph never cancels (no effect on phase-coherent tables)">Phase-align</button>
-        <button class="btn" onclick="loadWavetableFile()">Load .wav…</button></div>
+      <div class="pslider" style="grid-column:1/-1">
+        <div class="top"><span class="lbl">Wavetable</span>
+          <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span></div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0">
+          <button class="btn" onclick="useBuiltinWavetable()" title="Revert to the built-in Harmonic Stack">Built-in</button>
+          <button class="btn ${morphSnap?'primary':''}" id="wtSnapBtn" onclick="toggleMorphSnap()" title="Snap Morph to exact frames">Snap</button>
+          <button class="btn ${state.wt.phaseAlign?'primary':''}" id="wtAlignBtn" onclick="toggleMorphAlign()" title="Phase-align morph — interpolate magnitudes so the morph never cancels (no effect on phase-coherent tables)">Phase-align</button>
+          <button class="btn" onclick="loadWavetableFile()">Load .wav…</button>
+        </div>
         <svg id="wtWave" viewBox="0 0 240 60" preserveAspectRatio="none" style="width:100%;height:58px;background:var(--vn-sub);border-radius:8px;margin-top:4px;display:block"></svg>
         <svg id="wtStrip" viewBox="0 0 280 34" preserveAspectRatio="none" onclick="stripClick(event)" title="Table overview — click to jump" style="width:100%;height:32px;background:var(--vn-sub);border-radius:6px;margin-top:4px;display:block;cursor:pointer"></svg>
         <div class="num" id="wtInfo" style="color:var(--vn-muted);font-size:12px;padding-top:3px">${(state.wt.name||'Harmonic Stack')} · ${state.wt.frames||16} frames</div></div>
@@ -1129,6 +1132,7 @@ Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
   const ab=$('#wtAlignBtn'); if(ab) ab.classList.toggle('primary',!!state.wt.phaseAlign);
   if(!ok){ const b=$('#wtInfo'); if(b) b.textContent='Could not load that .wav'; } });
 function loadWavetableFile(){ Bridge.send('loadWavetable'); }
+function useBuiltinWavetable(){ Bridge.send('useBuiltinWavetable'); }
 function toggleMorphAlign(){ state.wt.phaseAlign=!state.wt.phaseAlign;
   const ab=$('#wtAlignBtn'); if(ab) ab.classList.toggle('primary',state.wt.phaseAlign);
   Bridge.send('setMorphPhaseAlign',{on:state.wt.phaseAlign}); markDirty(); }
