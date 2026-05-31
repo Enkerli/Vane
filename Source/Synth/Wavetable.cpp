@@ -1,85 +1,57 @@
 #include "Wavetable.h"
 #include <cmath>
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_dsp/juce_dsp.h>
 
 namespace {
 constexpr float kTwoPi = 6.283185307179586f;
-
-// Direct DFT of a real single cycle → harmonic cosine/sine coefficients.
-//   a[h] = (2/N) Σ x[i] cos(2π h i / N)
-//   b[h] = (2/N) Σ x[i] sin(2π h i / N)
-// h = 1..maxH (DC dropped).  O(N·maxH); see header note on FFT for the loader.
-void analyse (const std::vector<float>& x, int maxH,
-              std::vector<float>& a, std::vector<float>& b)
-{
-    const int N = (int) x.size();
-    a.assign ((size_t) maxH + 1, 0.0f);
-    b.assign ((size_t) maxH + 1, 0.0f);
-    for (int h = 1; h <= maxH; ++h) {
-        const float omega    = kTwoPi * (float) h / (float) N;
-        const float cosOmega = std::cos (omega);
-        const float sinOmega = std::sin (omega);
-        float s = 0.0f, c = 1.0f;       // sin(0), cos(0); rotate per sample
-        float ah = 0.0f, bh = 0.0f;
-        for (int i = 0; i < N; ++i) {
-            ah += x[(size_t) i] * c;
-            bh += x[(size_t) i] * s;
-            const float ns = s * cosOmega + c * sinOmega;
-            const float nc = c * cosOmega - s * sinOmega;
-            s = ns; c = nc;
-        }
-        a[(size_t) h] = 2.0f * ah / (float) N;
-        b[(size_t) h] = 2.0f * bh / (float) N;
-    }
 }
 
-// Reconstruct one cycle from harmonics 1..cap into tbl[0..N-1] (+ guard at N).
-// y[i] = Σ_{h=1..cap} a[h]·cos(2π h i/N) + b[h]·sin(2π h i/N), normalised to ±1.
-void reconstruct (const std::vector<float>& a, const std::vector<float>& b,
-                  int cap, std::vector<float>& tbl)
-{
-    const int N = Wavetable::kTableSize;
-    std::fill (tbl.begin(), tbl.end(), 0.0f);
-    for (int h = 1; h <= cap; ++h) {
-        const float ah = a[(size_t) h], bh = b[(size_t) h];
-        if (ah == 0.0f && bh == 0.0f) continue;
-        const float omega    = kTwoPi * (float) h / (float) N;
-        const float cosOmega = std::cos (omega);
-        const float sinOmega = std::sin (omega);
-        float s = 0.0f, c = 1.0f;
-        for (int i = 0; i < N; ++i) {
-            tbl[(size_t) i] += ah * c + bh * s;
-            const float ns = s * cosOmega + c * sinOmega;
-            const float nc = c * cosOmega - s * sinOmega;
-            s = ns; c = nc;
-        }
-    }
-    float peak = 0.0f;
-    for (int i = 0; i < N; ++i) peak = std::max (peak, std::abs (tbl[(size_t) i]));
-    if (peak > 1.0e-6f) { const float inv = 1.0f / peak;
-        for (int i = 0; i < N; ++i) tbl[(size_t) i] *= inv; }
-    tbl[(size_t) N] = tbl[0];   // guard point
-}
-} // namespace
-
+// Band-limit each frame by FFT: forward once, then per mip level zero the bins
+// above the level's harmonic cap (keeping the conjugate mirror) and inverse.
+// DC is removed; each level is normalised to peak ±1.  Fast enough to build a
+// few hundred frames in well under a second.
 bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
 {
     framesData.clear();
     if (rawFrames.empty()) return false;
 
-    std::vector<float> a, b;
-    for (const auto& raw : rawFrames) {
-        if ((int) raw.size() != kTableSize) { framesData.clear(); return false; }
+    constexpr int N = kTableSize;
+    static_assert ((N & (N - 1)) == 0, "kTableSize must be a power of two");
+    const int order = (int) std::log2 ((double) N);    // 11 for 2048
+    juce::dsp::FFT fft (order);
 
-        analyse (raw, kMaxHarmonics, a, b);
+    std::vector<float> spec ((size_t) (2 * N), 0.0f);   // forward result (interleaved complex)
+    std::vector<float> work ((size_t) (2 * N), 0.0f);
+
+    for (const auto& raw : rawFrames) {
+        if ((int) raw.size() != N) { framesData.clear(); return false; }
+
+        std::fill (spec.begin(), spec.end(), 0.0f);
+        for (int i = 0; i < N; ++i) spec[(size_t) i] = raw[(size_t) i];
+        fft.performRealOnlyForwardTransform (spec.data());   // bin h at (spec[2h], spec[2h+1])
 
         Frame f;
         for (int k = 0; k < kNumMipLevels; ++k) {
             const int cap = std::min (1 << k, kMaxHarmonics);
-            f.levels[(size_t) k].assign ((size_t) kTableSize + 1, 0.0f);
-            reconstruct (a, b, cap, f.levels[(size_t) k]);
+            work = spec;
+            work[0] = work[1] = 0.0f;                        // drop DC
+            // Zero harmonics above the cap; bins cap+1 .. N-cap-1 (keeps the
+            // conjugate mirror N-cap .. N-1 that pairs with 1 .. cap).
+            for (int h = cap + 1; h < N - cap; ++h) { work[(size_t)(2*h)] = 0.0f; work[(size_t)(2*h+1)] = 0.0f; }
+            fft.performRealOnlyInverseTransform (work.data());
+
+            auto& lvl = f.levels[(size_t) k];
+            lvl.assign ((size_t) N + 1, 0.0f);
+            float peak = 0.0f;
+            for (int i = 0; i < N; ++i) { lvl[(size_t) i] = work[(size_t) i];
+                                          peak = std::max (peak, std::abs (work[(size_t) i])); }
+            if (peak > 1.0e-6f) { const float inv = 1.0f / peak;
+                for (int i = 0; i < N; ++i) lvl[(size_t) i] *= inv; }
+            lvl[(size_t) N] = lvl[0];                        // guard point
         }
         framesData.push_back (std::move (f));
     }
@@ -133,9 +105,37 @@ const Wavetable& Wavetable::builtInDefault()
     return wt;
 }
 
+// Serum/Vital embed a "clm " chunk like  <!>2048 10000000 wavetable [name]
+// whose leading integer is the authoritative frame size.  juce's reader doesn't
+// surface it, so scan the RIFF ourselves; fall back to `fallback` if absent.
+static int detectFrameSize (const juce::File& file, int fallback)
+{
+    juce::MemoryBlock mb;
+    if (! file.loadFileAsData (mb) || mb.getSize() < 12) return fallback;
+    const auto* d = static_cast<const uint8_t*> (mb.getData());
+    const size_t n = mb.getSize();
+    if (std::memcmp (d, "RIFF", 4) != 0) return fallback;
+    size_t i = 12;
+    while (i + 8 <= n) {
+        const uint32_t sz = (uint32_t) d[i+4] | ((uint32_t) d[i+5] << 8)
+                          | ((uint32_t) d[i+6] << 16) | ((uint32_t) d[i+7] << 24);
+        if (std::memcmp (d + i, "clm ", 4) == 0) {
+            const auto avail = (int) juce::jmin ((size_t) sz, n - i - 8);
+            const juce::String s = juce::String::fromUTF8 ((const char*) (d + i + 8), avail);
+            const int p = s.indexOf ("<!>");
+            if (p >= 0) { const int v = s.substring (p + 3).getIntValue();
+                          if (v >= 64 && v <= 8192) return v; }
+            return fallback;
+        }
+        i += 8 + sz + (sz & 1);
+    }
+    return fallback;
+}
+
 Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize)
 {
     Wavetable wt;
+    frameSize = detectFrameSize (file, frameSize);   // prefer the file's clm marker
     if (frameSize <= 0) return wt;
 
     juce::AudioFormatManager fm;

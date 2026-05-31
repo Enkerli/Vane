@@ -214,6 +214,22 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (a.isEmpty()) return;
             owner->proc.apvts.state.setProperty ("rig", a[0]["rig"].toString(), nullptr);
         })
+        // ── Wavetable load (.wav) ──────────────────────────────────────────────
+        .withEventListener ("loadWavetable", [owner] (const Array<var>&) {
+            owner->fileChooser = std::make_unique<juce::FileChooser> (
+                "Load wavetable (.wav)", juce::File(), "*.wav");
+            owner->fileChooser->launchAsync (
+                juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                [owner] (const juce::FileChooser& fc) {
+                    const auto f = fc.getResult();
+                    const bool ok = f.existsAsFile() && owner->proc.loadWavetable (f);
+                    owner->sendWavetableInfo (ok);
+                    owner->fileChooser.reset();
+                });
+        })
+        .withEventListener ("requestWavetableInfo", [owner] (const Array<var>&) {
+            owner->sendWavetableInfo (true);
+        })
         .withEventListener ("setMidiRouting", [owner] (const Array<var>& a) { // per-channel role masks
             if (a.isEmpty()) return;
             owner->proc.setMidiRouting ((int) a[0]["notesMask"], (int) a[0]["modMask"]);
@@ -437,6 +453,15 @@ void WebVaneEditor::sendMidiProbe()
     }));
 }
 
+void WebVaneEditor::sendWavetableInfo (bool ok)
+{
+    webView.emitEventIfBrowserIsVisible ("wavetableInfo", makeObj ({
+        { "name",   proc.wavetableName() },
+        { "frames", proc.wavetableFrames() },
+        { "ok",     ok },
+    }));
+}
+
 void WebVaneEditor::sendProfileList()
 {
     auto names = proc.profileManager.getProfileNames();
@@ -506,6 +531,7 @@ void WebVaneEditor::sendInitialState()
     sendPresetList();
     sendControllerState();
     sendProfileList();
+    sendWavetableInfo (true);
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));
     webView.emitEventIfBrowserIsVisible ("tuningStatus",

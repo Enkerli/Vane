@@ -181,6 +181,23 @@ public:
     // All-notes-off / reset — called from the UI "panic" bridge event.
     void panic() { synth.turnOffAllVoices (false); }
 
+    // ── Wavetable loading (Stage 2c) ───────────────────────────────────────────
+    // Loaded tables are kept alive for the session (no frees while the audio
+    // thread may still read the previous pointer); activeWavetable is the one all
+    // voices currently read.  loadWavetable() builds on the calling (message)
+    // thread and hands the new pointer to every voice.
+    bool loadWavetable (const juce::File& file);
+    void applyWavetableToVoices();
+    juce::String wavetableName()   const { return activeWtName; }
+    int          wavetableFrames() const { return activeWtFrames; }
+
+private:
+    std::vector<std::unique_ptr<Wavetable>> wavetablePool;   // keep-alive
+    const Wavetable* activeWavetable { &Wavetable::builtInDefault() };
+    juce::String activeWtName { "Harmonic Stack (built-in)" };
+    int          activeWtFrames { 16 };
+public:
+
     // Hz of the most recently started note (for the UI ♪ note readout).
     float currentNoteHz() const { return lastNoteHz.load(); }
 

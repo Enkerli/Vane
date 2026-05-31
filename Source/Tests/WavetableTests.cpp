@@ -135,6 +135,22 @@ public:
             tmp.deleteFile();
         }
 
+        beginTest ("loadsRealVitalTable");
+        {
+            // Guarded by existence — runs on the dev machine, skipped elsewhere.
+            // "Annoying OP.wav": Vital table, int16, clm marker <!>2048 → 87 frames.
+            juce::File f ("/Users/alex/Music/Vital/Glorkglunk/Wavetables/Annoying OP.wav");
+            if (f.existsAsFile()) {
+                auto wt = Wavetable::loadFromWav (f);
+                expect (wt.isValid());
+                expectEquals (wt.numFrames(), 87);   // clm frame size detected
+                const int top = Wavetable::kNumMipLevels - 1;
+                for (int fr = 0; fr < wt.numFrames(); fr += 11)
+                    for (int i = 0; i < Wavetable::kTableSize; i += 64)
+                        expect (std::isfinite (wt.read (fr, top, (float) i / Wavetable::kTableSize)));
+            }
+        }
+
         beginTest ("loadRejectsMissingFile");
         {
             auto wt = Wavetable::loadFromWav (juce::File::getSpecialLocation (juce::File::tempDirectory)

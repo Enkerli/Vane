@@ -407,6 +407,8 @@ const state = {
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
+  wt:{name:'Harmonic Stack (built-in)', frames:16},   // active morph wavetable
+
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
   // (instances seed it); roles + match are stored for the 2b router. (Stage 2a)
@@ -601,6 +603,10 @@ function renderPatch(){
   const _sc=$('#tabbody').scrollTop;
   $('#tabbody').innerHTML=`<div class="params">
     <div class="group"><span class="eyebrow">Oscillator</span>
+      <div class="pslider" style="grid-column:1/-1"><div class="top">
+        <span class="lbl">Wavetable</span>
+        <button class="btn" onclick="loadWavetableFile()">Load .wav…</button></div>
+        <div class="num" id="wtInfo" style="color:var(--vn-muted);font-size:12px;padding-top:3px">${(state.wt.name||'Harmonic Stack')} · ${state.wt.frames||16} frames</div></div>
       ${pslider('Morph','Morph','--vn-slide')}${pslider('PW','Pulse Width','--vn-slide')}
       ${pslider('Fold','Wavefold','--vn-slide')}${pslider('Inharm','Inharmonicity','--vn-slide')}
       ${pslider('Noise','Noise','--vn-slide')}
@@ -1109,6 +1115,12 @@ Bridge.on('paramChanged',({id,value})=>{
   if(id in state.patch){ state.patch[id]=value;
     if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
 Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
+// Active wavetable (name + frame count) — pushed on load and on boot.
+Bridge.on('wavetableInfo',({name,frames,ok})=>{
+  if(ok && name){ state.wt={name,frames:frames||0}; }
+  const e=$('#wtInfo'); if(e) e.textContent=`${state.wt.name} · ${state.wt.frames} frames`;
+  if(!ok){ const b=$('#wtInfo'); if(b) b.textContent='Could not load that .wav'; } });
+function loadWavetableFile(){ Bridge.send('loadWavetable'); }
 Bridge.on('controllerLabel',({name})=>{ if(name)state.controller=name; updateCtrlPill(); buildMeters(); });
 // Live played-note readout (♪) from the engine's last note.
 Bridge.on('voice',({note})=>{ const e=$('#noteRead'); if(e)e.textContent='♪ '+(note||'—'); });

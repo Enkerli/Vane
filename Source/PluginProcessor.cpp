@@ -110,6 +110,30 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // 20 ms ramp so output-level automation never causes a zipper click.
     masterGain.reset(sampleRate, 0.020);
     masterGain.setCurrentAndTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
+
+    // Oscillator::prepare() reset each voice to the built-in default; re-apply the
+    // loaded table (if any) so it survives a sample-rate change.
+    applyWavetableToVoices();
+}
+
+void VaneProcessor::applyWavetableToVoices()
+{
+    for (auto* v : voicePtrs)
+        if (v != nullptr)
+            v->setWavetable (activeWavetable);   // nullptr → built-in default (Oscillator falls back)
+}
+
+bool VaneProcessor::loadWavetable (const juce::File& file)
+{
+    auto wt = std::make_unique<Wavetable> (Wavetable::loadFromWav (file));
+    if (! wt->isValid()) return false;
+
+    activeWtFrames  = wt->numFrames();
+    activeWtName    = file.getFileNameWithoutExtension();
+    activeWavetable = wt.get();          // raw ptr handed to voices; pool keeps it alive
+    wavetablePool.push_back (std::move (wt));
+    applyWavetableToVoices();
+    return true;
 }
 
 void VaneProcessor::releaseResources() {}

@@ -59,6 +59,10 @@ public:
 
     void prepare(double sampleRate, int blockSize);
 
+    // Point this voice's oscillator at a morph wavetable (shared, owned by the
+    // processor).  nullptr → the built-in default.
+    void setWavetable(const Wavetable* w) { osc.setWavetable(w); }
+
     // MPESynthesiserVoice overrides
     void noteStarted()                                              override;
     void noteStopped(bool allowTailOff)                            override;
