@@ -51,6 +51,27 @@ void Oscillator::prepare(double sampleRate) {
 //
 // Two sin/cos calls per harmonic (for ω itself) instead of N calls.  Numerical
 // drift over 2048 steps is negligible (< 1e-6 amplitude error per table).
+// Per-harmonic amplitude that DEFINES each morph frame.  Frames 0..3 are the
+// analytic waveforms; the band-limited mip generator in initTables() sums these
+// up to each level's harmonic cap, so every frame is anti-aliased for free.
+// New wavetable frames (Step 2) append cases here — or, later, a data-driven
+// spectrum table — and the rest of the pipeline needs no changes.
+static float frameHarmonicAmp(int frame, int h) {
+    switch (frame) {
+        case 0:  // Sine — fundamental only
+            return (h == 1) ? 1.0f : 0.0f;
+        case 1:  // Triangle — odd harmonics, alternating sign, 1/h²
+            if (h % 2 == 1) { int ni = (h - 1) / 2; return (ni % 2 == 0 ? 1.0f : -1.0f) / static_cast<float>(h * h); }
+            return 0.0f;
+        case 2:  // Sawtooth — all harmonics, 1/h
+            return 1.0f / static_cast<float>(h);
+        case 3:  // Square — odd harmonics only, 1/h
+            return (h % 2 == 1) ? 1.0f / static_cast<float>(h) : 0.0f;
+        default:
+            return 0.0f;
+    }
+}
+
 void Oscillator::initTables() {
     constexpr float twoPi = 2.0f * 3.14159265358979f;
 
@@ -59,37 +80,14 @@ void Oscillator::initTables() {
         // 2^k is safe for k ≤ 10 (max 1024), and kTableSize/2 = 1024 caps it.
         int numHarmonics = std::min(1 << k, kTableSize / 2);
 
-        for (int w = 0; w < kNumWaveforms; ++w) {
+        for (int w = 0; w < kNumFrames; ++w) {
             float* tbl = s_tables[w][k];
 
             // Zero fill (including guard point slot)
             for (int i = 0; i <= kTableSize; ++i) tbl[i] = 0.0f;
 
             for (int h = 1; h <= numHarmonics; ++h) {
-                // ── Amplitude for this (waveform, harmonic) ───────────────
-                float amp = 0.0f;
-                switch (w) {
-                    case 0:  // Sine — fundamental only
-                        amp = (h == 1) ? 1.0f : 0.0f;
-                        break;
-
-                    case 1:  // Triangle — odd harmonics, alternating sign, 1/h²
-                        if (h % 2 == 1) {
-                            int ni = (h - 1) / 2;   // 0, 1, 2, … for h = 1, 3, 5, …
-                            amp = (ni % 2 == 0 ? 1.0f : -1.0f)
-                                  / static_cast<float>(h * h);
-                        }
-                        break;
-
-                    case 2:  // Sawtooth — all harmonics, 1/h
-                        amp = 1.0f / static_cast<float>(h);
-                        break;
-
-                    case 3:  // Square — odd harmonics only, 1/h
-                        amp = (h % 2 == 1) ? 1.0f / static_cast<float>(h) : 0.0f;
-                        break;
-                }
-
+                const float amp = frameHarmonicAmp(w, h);
                 if (amp == 0.0f) continue;
 
                 // ── Angle accumulation for sin(2π·h·i / kTableSize) ──────

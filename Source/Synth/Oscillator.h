@@ -137,18 +137,19 @@ public:
         if (pmPhase >= 1.0f) pmPhase -= std::floor(pmPhase);
 
         // ── Morph blend ────────────────────────────────────────────────────────
-        // Waveform order:   Sine(0) → Triangle(1) → Square(2) → Sawtooth(3)
-        // Table index LUT:  s_tables[0]=Sine, [1]=Tri, [2]=Saw, [3]=Sqr
-        //   → morph order needs:  pos0→tbl0, pos1→tbl1, pos2→tbl3, pos3→tbl2
-        static constexpr int kMorphLut[4] = { 0, 1, 3, 2 };   // Sine Tri Sqr Saw
-
-        float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > 3.0f ? 3.0f : morphPos);
+        // The morph scans kNumMorphFrames frames listed in kMorphOrder (indices
+        // into s_tables), across morphPos 0..kNumMorphFrames-1.  Today:
+        // Sine→Triangle→Square→Sawtooth over 0..3.  Adding wavetable frames =
+        // append to kMorphOrder + widen the morph param (Step 2); positions 0..3
+        // stay put, so existing patches are unaffected.
+        const float posMax = static_cast<float>(kNumMorphFrames - 1);
+        float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > posMax ? posMax : morphPos);
         int   iA  = static_cast<int>(pos);
-        if (iA > 2) iA = 2;                  // guard: iA+1 is always ≤ 3
+        if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;   // iA+1 always valid
         float blend = pos - static_cast<float>(iA);
 
-        int tA = kMorphLut[iA];
-        int tB = kMorphLut[iA + 1];
+        int tA = kMorphOrder[iA];
+        int tB = kMorphOrder[iA + 1];
 
         // ── Table lookup (linear interpolation, guard-point safe) ──────────────
         float       idx  = wp * static_cast<float>(kTableSize);
@@ -230,12 +231,18 @@ private:
     // ── Table dimensions ─────────────────────────────────────────────────────
     static constexpr int kTableSize    = 2048;  // power of 2 for cheap index masking
     static constexpr int kNumMipLevels = 11;    // levels 0..10 → 1..1024 harmonics
-    static constexpr int kNumWaveforms = 4;     // Sine=0 Tri=1 Saw=2 Sqr=3 (Noise=PRNG)
+    static constexpr int kNumWaveforms = 4;     // analytic frames via the Waveform enum: Sine0 Tri1 Saw2 Sqr3
+    static constexpr int kNumFrames    = 4;     // total morph frames (== waveforms today; grows in Step 2)
+
+    // Morph scan order — frame indices into s_tables, length kNumMorphFrames.
+    // The morph param spans 0..kNumMorphFrames-1.  Sine→Tri→Square→Saw today.
+    static constexpr int kNumMorphFrames = 4;
+    static constexpr int kMorphOrder[kNumMorphFrames] = { 0, 1, 3, 2 };
 
     // Shared table storage.  C++17 inline static — one definition, all TUs share it.
     // +1 guard point per level: tbl[kTableSize] = tbl[0] for wrap-safe interpolation.
     // Zero-initialised; filled by initTables() on first prepare().
-    inline static float s_tables[kNumWaveforms][kNumMipLevels][kTableSize + 1] {};
+    inline static float s_tables[kNumFrames][kNumMipLevels][kTableSize + 1] {};
 
     // ── Inharmonicity (FM) constants ──────────────────────────────────────────
     // kInharmRatio — modulator : carrier frequency ratio.  √2 is irrational, so
