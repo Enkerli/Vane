@@ -107,3 +107,26 @@ Wavetable Wavetable::makeHarmonicStack (int numFrames)
     wt.build (raw);
     return wt;
 }
+
+Wavetable Wavetable::makeAnalyticDefault()
+{
+    constexpr float pi = 3.14159265358979f;
+    std::vector<std::vector<float>> raw (4, std::vector<float> ((size_t) kTableSize, 0.0f));
+    for (int i = 0; i < kTableSize; ++i) {
+        const float p = (float) i / (float) kTableSize;   // 0..1
+        const float t = kTwoPi * p;
+        raw[0][(size_t) i] = std::sin (t);                                 // Sine
+        raw[1][(size_t) i] = (2.0f / pi) * std::asin (std::sin (t));       // Triangle
+        raw[2][(size_t) i] = (p < 0.5f) ? 1.0f : -1.0f;                    // Square
+        raw[3][(size_t) i] = 2.0f * p - 1.0f;                             // Saw (ramp)
+    }
+    Wavetable wt;
+    wt.build (raw);   // build() band-limits each via DFT, so these naive shapes are safe
+    return wt;
+}
+
+const Wavetable& Wavetable::builtInDefault()
+{
+    static Wavetable wt = makeHarmonicStack (16);   // built once, shared by all instances
+    return wt;
+}

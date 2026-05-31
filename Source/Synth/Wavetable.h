@@ -56,6 +56,14 @@ public:
     // a sensible default before any file is imported.
     static Wavetable makeHarmonicStack (int numFrames = 16);
 
+    // The 4 analytic waveforms in morph order (Sine, Triangle, Square, Saw) as a
+    // 4-frame table — reproduces the legacy morph for comparison/fallback.
+    static Wavetable makeAnalyticDefault();
+
+    // Process-wide default wavetable, built once (thread-safe static).  All
+    // oscillators read this until a file is loaded.  Currently the harmonic stack.
+    static const Wavetable& builtInDefault();
+
 private:
     struct Frame {
         std::array<std::vector<float>, kNumMipLevels> levels;  // each kTableSize+1

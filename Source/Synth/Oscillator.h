@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <juce_core/juce_core.h>
+#include "Wavetable.h"
 
 // Mip-mapped single-cycle wavetable oscillator.
 //
@@ -63,6 +64,12 @@ public:
     }
 
     void setWaveform(Waveform w) { waveform = w; }
+
+    // Point the morph engine at a wavetable (shared, owned elsewhere).  nullptr →
+    // fall back to the built-in analytic morph.  Same kTableSize/mip layout, so
+    // the existing pitch-based mip selection and phase handoff are unaffected —
+    // legato, MPE and MTS-ESP keep working unchanged.
+    void setWavetable(const Wavetable* w) { wt = w; }
 
     // Advance by one sample and return the output value.
     // Hot path — kept inline to let the compiler fold it into the voice loop.
@@ -136,28 +143,37 @@ public:
         pmPhase += kInharmRatio * phaseInc;
         if (pmPhase >= 1.0f) pmPhase -= std::floor(pmPhase);
 
-        // ── Morph blend ────────────────────────────────────────────────────────
-        // The morph scans kNumMorphFrames frames listed in kMorphOrder (indices
-        // into s_tables), across morphPos 0..kNumMorphFrames-1.  Today:
-        // Sine→Triangle→Square→Sawtooth over 0..3.  Adding wavetable frames =
-        // append to kMorphOrder + widen the morph param (Step 2); positions 0..3
-        // stay put, so existing patches are unaffected.
-        const float posMax = static_cast<float>(kNumMorphFrames - 1);
-        float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > posMax ? posMax : morphPos);
-        int   iA  = static_cast<int>(pos);
-        if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;   // iA+1 always valid
-        float blend = pos - static_cast<float>(iA);
-
-        int tA = kMorphOrder[iA];
-        int tB = kMorphOrder[iA + 1];
+        // ── Select the two morph frames + their band-limited tables ────────────
+        // A loaded wavetable's frames are scanned in their own order across
+        // morphPos 0..3 (0 = first frame, 3 = last).  Without one, fall back to
+        // the analytic morph (Sine→Tri→Square→Saw via kMorphOrder).
+        const float* tbA;
+        const float* tbB;
+        float        blend;
+        if (wt != nullptr && wt->numFrames() > 0) {
+            const int nf = wt->numFrames();
+            float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > 3.0f ? 3.0f : morphPos);
+            pos *= (1.0f / 3.0f) * static_cast<float>(nf - 1);   // → 0..nf-1
+            int iA = static_cast<int>(pos);
+            if (iA > nf - 2) iA = (nf >= 2 ? nf - 2 : 0);
+            blend = (nf >= 2) ? pos - static_cast<float>(iA) : 0.0f;
+            tbA = wt->table(iA, cachedMipLevel);
+            tbB = wt->table((nf >= 2 ? iA + 1 : iA), cachedMipLevel);
+        } else {
+            const float posMax = static_cast<float>(kNumMorphFrames - 1);
+            float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > posMax ? posMax : morphPos);
+            int   iA  = static_cast<int>(pos);
+            if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;   // iA+1 always valid
+            blend = pos - static_cast<float>(iA);
+            tbA = s_tables[kMorphOrder[iA]][cachedMipLevel];
+            tbB = s_tables[kMorphOrder[iA + 1]][cachedMipLevel];
+        }
 
         // ── Table lookup (linear interpolation, guard-point safe) ──────────────
         float       idx  = wp * static_cast<float>(kTableSize);
         int         i0   = static_cast<int>(idx);
         if (i0 >= kTableSize) i0 = kTableSize - 1;
         float       frac = idx - static_cast<float>(i0);
-        const float* tbA = s_tables[tA][cachedMipLevel];
-        const float* tbB = s_tables[tB][cachedMipLevel];
         float sA = tbA[i0] + frac * (tbA[i0 + 1] - tbA[i0]);
         float sB = tbB[i0] + frac * (tbB[i0 + 1] - tbB[i0]);
 
@@ -262,4 +278,5 @@ private:
     float    pmPhase        = 0.0f;   // inharmonicity modulator phase (free-running)
     int      cachedMipLevel = 0;
     uint64_t noiseState     = 12345u;
+    const Wavetable* wt     = nullptr;   // active morph wavetable (nullptr = analytic)
 };

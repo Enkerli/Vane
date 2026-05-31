@@ -17,6 +17,10 @@ void Oscillator::prepare(double sampleRate) {
 
     static std::once_flag flag;
     std::call_once(flag, initTables);
+
+    // Default the morph engine to the shared built-in wavetable.  The processor
+    // can later point voices at a loaded table via SynthVoice/Oscillator.
+    wt = &Wavetable::builtInDefault();
 }
 
 // ── initTables ────────────────────────────────────────────────────────────────

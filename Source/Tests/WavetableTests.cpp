@@ -2,6 +2,7 @@
 #include <cmath>
 #include <vector>
 #include "Synth/Wavetable.h"
+#include "Synth/Oscillator.h"
 
 // ── Wavetable band-limiting tests (Stage 2a) ──────────────────────────────────
 //
@@ -113,6 +114,36 @@ public:
             // Frame 0 = pure sine → smooth; last frame = many harmonics → steeper.
             expect (maxSlope (wt, 15, Wavetable::kNumMipLevels-1)
                     > maxSlope (wt, 0, Wavetable::kNumMipLevels-1) * 2.0f);
+        }
+
+        beginTest ("oscillatorReadsWavetable");
+        {
+            // The oscillator, pointed at the analytic WT, must produce finite,
+            // bounded output, and morph 0 (sine frame) must be spectrally simpler
+            // than morph 3 (saw frame) — i.e. the WT read path actually morphs.
+            static const Wavetable analytic = Wavetable::makeAnalyticDefault();
+            Oscillator osc;
+            osc.prepare (48000.0);          // defaults wt to builtInDefault
+            osc.setWavetable (&analytic);   // override with the analytic table
+            osc.setFrequency (110.0f);
+
+            auto renderEnergy = [&] (float morph) {
+                osc.reset (0.0f);
+                double prev = 0.0, slope = 0.0, peak = 0.0;
+                for (int i = 0; i < 4096; ++i) {
+                    const float s = osc.nextMorphed (morph, 0.5f, 0.0f);
+                    expect (std::isfinite (s) && std::abs (s) <= 1.2f);
+                    slope += std::abs (s - prev); prev = s;
+                    peak = std::max (peak, (double) std::abs (s));
+                }
+                return std::make_pair (slope, peak);
+            };
+            auto sine = renderEnergy (0.0f);   // frame 0 = sine
+            auto saw  = renderEnergy (3.0f);   // frame 3 = saw
+            expect (saw.first > sine.first * 1.5,
+                    "saw slope " + juce::String (saw.first)
+                    + " vs sine " + juce::String (sine.first));
+            expect (sine.second > 0.1 && saw.second > 0.1);   // both actually sound
         }
     }
 };
