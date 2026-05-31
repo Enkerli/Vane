@@ -68,16 +68,19 @@ public:
             expect (worst < 1.0e-2f, "sine reconstruction error " + juce::String (worst));
         }
 
-        beginTest ("levelsNormalised");
+        beginTest ("globallyNormalised");
         {
-            Wavetable wt; wt.build ({ rampCycle() });
-            for (int k = 0; k < Wavetable::kNumMipLevels; ++k) {
-                float peak = 0.0f;
-                for (int i = 0; i < Wavetable::kTableSize; ++i)
-                    peak = std::max (peak, std::abs (wt.table (0, k)[i]));
-                expect (peak > 0.95f && peak < 1.0001f, "level " + juce::String (k)
-                        + " peak " + juce::String (peak));
-            }
+            // One global factor: the loudest point anywhere in the table is ±1,
+            // and nothing exceeds it — but individual frames/levels may be quieter
+            // (that's the point — authored dynamics are preserved).
+            Wavetable wt; wt.build ({ sineCycle(), rampCycle() });
+            float globalPeak = 0.0f;
+            for (int fr = 0; fr < wt.numFrames(); ++fr)
+                for (int k = 0; k < Wavetable::kNumMipLevels; ++k)
+                    for (int i = 0; i < Wavetable::kTableSize; ++i)
+                        globalPeak = std::max (globalPeak, std::abs (wt.table (fr, k)[i]));
+            expect (globalPeak > 0.95f && globalPeak < 1.0001f,
+                    "global peak " + juce::String (globalPeak));
         }
 
         beginTest ("guardPointContinuous");
