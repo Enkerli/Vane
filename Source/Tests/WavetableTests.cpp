@@ -185,6 +185,27 @@ public:
             expect (rAli > 0.30, "aligned midpoint should survive, got " + juce::String (rAli));
         }
 
+        beginTest ("syncTransposeBrightensAndStaysBounded");
+        {
+            static const Wavetable wtbl = Wavetable::makeAnalyticDefault();
+            Oscillator osc; osc.prepare (48000.0); osc.setWavetable (&wtbl);
+            osc.setFrequency (110.0f);
+            auto slope = [&] (float sync) {
+                osc.reset (0.0f);
+                double s = 0.0, prev = 0.0;
+                for (int i = 0; i < 8192; ++i) {
+                    const float v = osc.nextMorphed (1.0f, 0.5f, 0.0f, sync);   // saw frame
+                    expect (std::isfinite (v) && std::abs (v) <= 1.5f);
+                    s += std::abs (v - prev); prev = v;
+                }
+                return s;
+            };
+            const double s1 = slope (1.0f);   // off
+            const double s4 = slope (4.0f);   // formant up 2 octaves
+            expect (s4 > s1 * 1.2, "sync should brighten: " + juce::String (s1)
+                    + " vs " + juce::String (s4));
+        }
+
         beginTest ("oscillatorReadsWavetable");
         {
             // The oscillator, pointed at the analytic WT, must produce finite,

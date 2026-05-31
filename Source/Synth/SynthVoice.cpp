@@ -23,7 +23,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    noiseBlend,
                         std::atomic<float>*    noiseType,
                         std::atomic<float>*    fold,
-                        std::atomic<float>*    inharm)
+                        std::atomic<float>*    inharm,
+                        std::atomic<float>*    sync)
     : modMatrix(matrix), tuning(t)
     , paramMorphPos(morphPos), paramPW(pw), paramDetune(detune)
     , paramCutoff(cutoff), paramRes(res)
@@ -44,7 +45,8 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
     , paramNoiseBlend(noiseBlend)
     , paramNoiseType(noiseType)
     , paramFold(fold)
-    , paramInharm(inharm) {}
+    , paramInharm(inharm)
+    , paramSync(sync) {}
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
@@ -106,6 +108,8 @@ void SynthVoice::prepare(double sr, int blockSize)
     // Inharmonicity smoother: 3 ms ramp prevents zipper on FM-index changes.
     smoothedInharm.reset(sr, 0.003);
     smoothedInharm.setCurrentAndTargetValue(0.0f);
+    smoothedSync.reset(sr, 0.003);
+    smoothedSync.setCurrentAndTargetValue(1.0f);   // 1 = sync off
 }
 
 void SynthVoice::noteStarted()
@@ -525,6 +529,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float inharmBase   = paramInharm ? paramInharm->load() : 0.0f;
     float activeInharm = std::clamp(inharmBase + mods[ModDestID::OscInharm], 0.0f, 1.0f);
 
+    // Wavetable sync / transpose ratio: base param + OscSync mod (a ±1 route
+    // sweeps the whole 1..kSyncMax range), clamped.  1 = off.
+    constexpr float kSyncMax = 8.0f;
+    float syncBase   = paramSync ? paramSync->load() : 1.0f;
+    float activeSync = std::clamp(syncBase + mods[ModDestID::OscSync] * (kSyncMax - 1.0f),
+                                  1.0f, kSyncMax);
+
     // Timbre smoothers: on a mono-legato handoff snap straight to target (the
     // previous note's value is continuous with this one), otherwise ramp per
     // sample.  Snapping avoids an audible 3 ms ramp from this voice's stale
@@ -533,11 +544,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         smoothedPW.setCurrentAndTargetValue(activePW);
         smoothedFoldDrive.setCurrentAndTargetValue(foldDriveTgt);
         smoothedInharm.setCurrentAndTargetValue(activeInharm);
+        smoothedSync.setCurrentAndTargetValue(activeSync);
         legatoHandoffPending = false;
     } else {
         smoothedPW.setTargetValue(activePW);
         smoothedFoldDrive.setTargetValue(foldDriveTgt);
         smoothedInharm.setTargetValue(activeInharm);
+        smoothedSync.setTargetValue(activeSync);
     }
 
     // Filter: resonance and mode are block-rate parameters — set once per block.
@@ -612,7 +625,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
         // Oscillator output (morphed wavetable + PD warp + FM inharmonicity).
         float wave = osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue(),
-                                     smoothedInharm.getNextValue());
+                                     smoothedInharm.getNextValue(),
+                                     smoothedSync.getNextValue());
 
         // Noise blend: mix noise pre-filter so both wave and noise share the same
         // tonal character from the SVF.  Generation is skipped when blend is off

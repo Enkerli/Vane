@@ -121,15 +121,24 @@ public:
     // The mip tables limit the carrier and the downstream filter tames the rest;
     // a future improvement would be to drop the carrier a mip level when inharm is
     // high, and/or oversample (same trade-off noted for the wavefolder).
-    float nextMorphed(float morphPos, float pw, float inharm) {
+    // sync — wavetable hard-sync / transpose ratio (≥ 1).  A slave phasor reads
+    // the table `sync×` faster and is reset to the start each time the fundamental
+    // (master) phase wraps.  The reset forces a period of f0, so the pitch is
+    // unchanged, but a formant peak appears at f0·sync; non-integer ratios place
+    // it between harmonics — the "inharmonicity via transposition" effect (a
+    // distinct mechanism from the FM `inharm`).  sync = 1 → no effect.
+    float nextMorphed(float morphPos, float pw, float inharm, float sync = 1.0f) {
+        const bool  syncing = sync > 1.0001f;
+        const float rp = syncPhase;          // read the slave phasor (== phase when sync == 1)
+
         // ── PD warp ────────────────────────────────────────────────────────────
         // Clamp pw so neither branch divides by zero.
         pw = (pw < 0.001f) ? 0.001f : (pw > 0.999f ? 0.999f : pw);
         float wp;
-        if (phase < pw)
-            wp = phase * (0.5f / pw);
+        if (rp < pw)
+            wp = rp * (0.5f / pw);
         else
-            wp = 0.5f + (phase - pw) * (0.5f / (1.0f - pw));
+            wp = 0.5f + (rp - pw) * (0.5f / (1.0f - pw));
 
         // ── Inharmonicity (phase modulation) ────────────────────────────────────
         // Modulate the read position by a √2-ratio sine.  The modulator phase
@@ -151,21 +160,26 @@ public:
         const float* tbB;
         float        blend;
         const float m01 = (morphPos < 0.0f) ? 0.0f : (morphPos > 1.0f ? 1.0f : morphPos);  // normalised
+        // Slave runs faster, so drop a mip level per octave of sync to keep its
+        // own harmonics below Nyquist (the reset edge still aliases — a future
+        // BLEP refinement; the filter tames it for now).
+        int mip = cachedMipLevel;
+        if (syncing) { float s = sync; while (s >= 2.0f) { s *= 0.5f; if (mip > 0) --mip; } }
         if (wt != nullptr && wt->numFrames() > 0) {
             const int nf = wt->numFrames();
             float pos = m01 * static_cast<float>(nf - 1);        // → 0..nf-1
             int iA = static_cast<int>(pos);
             if (iA > nf - 2) iA = (nf >= 2 ? nf - 2 : 0);
             blend = (nf >= 2) ? pos - static_cast<float>(iA) : 0.0f;
-            tbA = wt->table(iA, cachedMipLevel);
-            tbB = wt->table((nf >= 2 ? iA + 1 : iA), cachedMipLevel);
+            tbA = wt->table(iA, mip);
+            tbB = wt->table((nf >= 2 ? iA + 1 : iA), mip);
         } else {
             float pos = m01 * static_cast<float>(kNumMorphFrames - 1);   // → 0..3 across the analytic set
             int   iA  = static_cast<int>(pos);
             if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;      // iA+1 always valid
             blend = pos - static_cast<float>(iA);
-            tbA = s_tables[kMorphOrder[iA]][cachedMipLevel];
-            tbB = s_tables[kMorphOrder[iA + 1]][cachedMipLevel];
+            tbA = s_tables[kMorphOrder[iA]][mip];
+            tbB = s_tables[kMorphOrder[iA + 1]][mip];
         }
 
         // ── Table lookup (linear interpolation, guard-point safe) ──────────────
@@ -178,8 +192,16 @@ public:
 
         float out = sA + blend * (sB - sA);
 
+        // ── Advance master + slave, hard-resetting the slave at each master wrap ─
         phase += phaseInc;
-        if (phase >= 1.0f) phase -= std::floor(phase);
+        if (phase >= 1.0f) {
+            phase -= std::floor(phase);
+            syncPhase = phase * sync;                  // restart slave (sub-sample accurate)
+            if (syncPhase >= 1.0f) syncPhase -= std::floor(syncPhase);
+        } else {
+            syncPhase += phaseInc * sync;              // sync == 1 → tracks phase exactly
+            if (syncPhase >= 1.0f) syncPhase -= std::floor(syncPhase);
+        }
 
         return out;
     }
@@ -232,7 +254,7 @@ public:
     float getPhase() const { return phase; }
 
     // Set the starting phase (0..1).  Called at note-on for legato handoff.
-    void reset(float startPhase = 0.0f) { phase = startPhase; }
+    void reset(float startPhase = 0.0f) { phase = startPhase; syncPhase = startPhase; }
 
     // Inharmonicity FM modulator phase — published/restored for legato handoff so
     // the modulator stays continuous across a mono-legato voice change.
@@ -274,6 +296,7 @@ private:
     float    sr             = 44100.0f;
     float    phase          = 0.0f;
     float    phaseInc       = 0.0f;
+    float    syncPhase      = 0.0f;   // hard-sync slave phase (== phase when sync == 1)
     float    pmPhase        = 0.0f;   // inharmonicity modulator phase (free-running)
     int      cachedMipLevel = 0;
     uint64_t noiseState     = 12345u;

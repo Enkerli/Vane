@@ -374,7 +374,7 @@ const SRC_CC  = {Breath:"CC2",Expression:"CC11",Pressure:"MPE Z",Slide:"CC74",Pi
 const SRC_COLOR={Breath:"--vn-breath",Expression:"--vn-expr",Pressure:"--vn-pressure",Slide:"--vn-slide",Pitchbend:"--vn-bend",Velocity:"--vn-vel"};
 AUX.forEach(a=>{ SRC_COLOR[a]="--vn-muted"; SRC_CC[a]="CC?"; });   // bound via the Controllers profile (next phase)
 const BINDABLE = {Breath:true,Expression:true};   // these sources expose a CC# binding
-const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm"];
+const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm","Sync"];
 const CURVES  = ["Lin","Exp","S"];
 const NUM_SLOTS = 24;
 const METER_SRC = ["Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
@@ -399,7 +399,7 @@ if(HAS_JUCE && !window.__juceLog){ window.__juceLog=true;
 const state = {
   meters:{Breath:0,Expression:0,Pressure:0,Slide:0,Pitchbend:0.5,Velocity:0},
   cc:{Breath:2,Expression:11},
-  patch:{ Morph:0.0,PW:0.5,Fold:0.0,Inharm:0.0,Noise:0.0,NoiseType:0,Detune:0,
+  patch:{ Morph:0.0,PW:0.5,Fold:0.0,Inharm:0.0,Sync:1.0,Noise:0.0,NoiseType:0,Detune:0,
           Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
           Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0 },
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
@@ -576,8 +576,8 @@ function render(){ ({patch:renderPatch,matrix:renderMatrix,presets:renderPresets
 //  Patch tab — sliders with drag + steppers + typed entry
 // ════════════════════════════════════════════════════════════════════════
 const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterTune:v=>v.toFixed(0)+' ¢',
-  Glide:v=>Math.round(v)+' ms', Morph:v=>'frame '+Math.round(v*Math.max(0,(state.wt.frames||1)-1)), PW:v=>v.toFixed(3), default:v=>v.toFixed(2) };
-const RANGE={ Morph:[0,1,.001], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Noise:[0,1,.01], Detune:[-100,100,1],
+  Glide:v=>Math.round(v)+' ms', Morph:v=>'frame '+Math.round(v*Math.max(0,(state.wt.frames||1)-1)), PW:v=>v.toFixed(3), Sync:v=>v.toFixed(2)+'×', default:v=>v.toFixed(2) };
+const RANGE={ Morph:[0,1,.001], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Sync:[1,8,.01], Noise:[0,1,.01], Detune:[-100,100,1],
   Cutoff:[20,20000,10], Reso:[0,1,.01], Output:[0,1,.01], VelVCA:[0,1,.01], Glide:[0,2000,5], MasterTune:[-100,100,1] };
 // Sliders that map exponentially (log) — most of the musical action is low.
 const LOGK={ Cutoff:true };
@@ -612,6 +612,7 @@ function renderPatch(){
         <div class="num" id="wtInfo" style="color:var(--vn-muted);font-size:12px;padding-top:3px">${(state.wt.name||'Harmonic Stack')} · ${state.wt.frames||16} frames</div></div>
       ${pslider('Morph','Morph','--vn-slide')}${pslider('PW','Pulse Width','--vn-slide')}
       ${pslider('Fold','Wavefold','--vn-slide')}${pslider('Inharm','Inharmonicity','--vn-slide')}
+      ${pslider('Sync','Sync (transpose)','--vn-slide')}
       ${pslider('Noise','Noise','--vn-slide')}
       <div class="pslider"><div class="top"><span class="lbl">Noise Type</span></div>
         <div class="seg">${["White","Pink","Brown"].map((n,i)=>`<button class="${state.patch.NoiseType===i?'active':''}" onclick="setChoice('NoiseType',${i})">${n}</button>`).join('')}</div></div>

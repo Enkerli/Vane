@@ -11,7 +11,8 @@ namespace {
 struct ParamPair { const char* ui; const char* apvts; };
 const ParamPair kParamMap[] = {
     { "Morph",   "oscMorphPos" }, { "PW",      "oscPW"      }, { "Fold",   "oscFold"     },
-    { "Inharm",  "oscInharm"   }, { "Noise",   "noiseBlend" }, { "NoiseType","noiseType" },
+    { "Inharm",  "oscInharm"   }, { "Sync",    "oscSync"    },
+    { "Noise",   "noiseBlend" }, { "NoiseType","noiseType" },
     { "Detune",  "oscDetune"   }, { "Cutoff",  "filterCutoff" }, { "Reso", "filterRes"  },
     { "Mode",    "filterMode"  }, { "Output",  "outputLevel" }, { "VelVCA", "velocityMix" },
     { "Glide",   "glideTime"   }, { "GlideMode","glideMode"  }, { "GlideCurve","glideCurve" },

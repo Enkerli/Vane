@@ -55,7 +55,9 @@ public:
                // Wavefold depth: 0 = transparent, 1 = heavy (pre-filter).
                std::atomic<float>*    fold             = nullptr,
                // Inharmonicity (FM index): 0 = harmonic, 1 = strong/metallic.
-               std::atomic<float>*    inharm           = nullptr);
+               std::atomic<float>*    inharm           = nullptr,
+               // Wavetable sync / transpose ratio: 1 = off, higher = formant sweep.
+               std::atomic<float>*    sync             = nullptr);
 
     void prepare(double sampleRate, int blockSize);
 
@@ -126,6 +128,7 @@ private:
     std::atomic<float>*    paramFold          = nullptr;
     // Inharmonicity (FM index) — read block-rate in renderNextBlock.
     std::atomic<float>*    paramInharm        = nullptr;
+    std::atomic<float>*    paramSync          = nullptr;   // wavetable sync / transpose ratio
 
     // ── Glide curve state ─────────────────────────────────────────────────────
     //
@@ -216,6 +219,7 @@ private:
     // index changes block-rate (UI drag or a slewed Slide/Pressure → Inharm route).
     // 3 ms ramp matches the other smoothers; Linear (it's an index, not a freq).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedInharm;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedSync;
 
     // ── Per-voice noise generation state ────────────────────────────────────────
     // All three generators run independently per voice so simultaneous MPE notes

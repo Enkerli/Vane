@@ -38,6 +38,7 @@ VaneProcessor::VaneProcessor()
     auto* pNoiseType  = apvts.getRawParameterValue("noiseType");
     auto* pFold       = apvts.getRawParameterValue("oscFold");
     auto* pInharm     = apvts.getRawParameterValue("oscInharm");
+    auto* pSync       = apvts.getRawParameterValue("oscSync");
     for (int i = 0; i < 15; ++i)
         synth.addVoice(new SynthVoice(modMatrix, tuning,
                                       pMorphPos, pDetune, pPW, pCutoff, pRes, pFilterMode, pVeloMix,
@@ -47,7 +48,7 @@ VaneProcessor::VaneProcessor()
                                       &meterPressure, &meterSlide, &meterPitchbend,
                                       pPBRangeLocal, pNonMPEPBRangeLocal,
                                       pGlideMode, pGlideCurve,
-                                      pNoiseBlend, pNoiseType, pFold, pInharm));
+                                      pNoiseBlend, pNoiseType, pFold, pInharm, pSync));
 
     // Lower zone: channel 1 is master, channels 2–16 are member channels
     juce::MPEZoneLayout zone;
@@ -537,6 +538,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscInharm", 1}, "Inharmonicity",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+
+    // Wavetable hard-sync / transpose ratio: 1 = off, up to 8× (formant sweep).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"oscSync", 1}, "Osc Sync",
+        juce::NormalisableRange<float>(1.0f, 8.0f), 1.0f));
 
     // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
     //

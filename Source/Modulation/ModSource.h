@@ -67,8 +67,12 @@ struct ModDestID {
     //   activeInharm = clamp(oscInharm + mods[OscInharm], 0, 1)
     //   Drives the FM-approximation inharmonicity (FM index); 0 = harmonic.
     static constexpr int OscInharm     = 9;   // inharmonicity / FM index
+    // OscSync: additive offset to the wavetable hard-sync / transpose ratio.
+    //   activeSync = clamp(oscSync + mods[OscSync]·range, 1, kSyncMax)
+    //   1 = off; higher = formant peak swept up (inharmonicity via transposition).
+    static constexpr int OscSync       = 10;  // wavetable sync / transpose ratio
 
-    static constexpr int NumDests = 10;
+    static constexpr int NumDests = 11;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -102,9 +106,9 @@ namespace ModSlots {
 
     // Destination choice list.  Maps to ModDestID values.
     inline const char* const kDestNames[] = {
-        "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm"
+        "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync"
     };
-    static constexpr int NumDestChoices = 9;
+    static constexpr int NumDestChoices = 10;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -135,6 +139,7 @@ namespace ModSlots {
             case 6: return ModDestID::OscFold;
             case 7: return ModDestID::OscNoiseMix;
             case 8: return ModDestID::OscInharm;
+            case 9: return ModDestID::OscSync;
             default: return -1;
         }
     }
