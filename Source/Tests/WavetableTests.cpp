@@ -180,8 +180,8 @@ public:
                 }
                 return std::make_pair (slope, peak);
             };
-            auto sine = renderEnergy (0.0f);   // frame 0 = sine
-            auto saw  = renderEnergy (3.0f);   // frame 3 = saw
+            auto sine = renderEnergy (0.0f);   // morph 0 → frame 0 = sine
+            auto saw  = renderEnergy (1.0f);   // morph 1 → last frame = saw
             expect (saw.first > sine.first * 1.5,
                     "saw slope " + juce::String (saw.first)
                     + " vs sine " + juce::String (sine.first));

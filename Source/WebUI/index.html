@@ -560,7 +560,7 @@ function drawVis(){
   }
   svg.innerHTML=p;
   // voice readout reflects live patch
-  const wave=["Sine","Tri","Pulse","Saw"][Math.min(3,Math.round(state.patch.Morph))];
+  const wave='frame '+Math.round(state.patch.Morph*Math.max(0,(state.wt.frames||1)-1));
   const mode=["LP","BP","HP"][state.patch.Mode];
   $('#voiceRead').textContent=`${wave} · ${mode} ${(state.patch.Cutoff/1000).toFixed(1)}k`;
 }
@@ -576,8 +576,8 @@ function render(){ ({patch:renderPatch,matrix:renderMatrix,presets:renderPresets
 //  Patch tab — sliders with drag + steppers + typed entry
 // ════════════════════════════════════════════════════════════════════════
 const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterTune:v=>v.toFixed(0)+' ¢',
-  Glide:v=>Math.round(v)+' ms', Morph:v=>v.toFixed(2), PW:v=>v.toFixed(3), default:v=>v.toFixed(2) };
-const RANGE={ Morph:[0,3,.01], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Noise:[0,1,.01], Detune:[-100,100,1],
+  Glide:v=>Math.round(v)+' ms', Morph:v=>'frame '+Math.round(v*Math.max(0,(state.wt.frames||1)-1)), PW:v=>v.toFixed(3), default:v=>v.toFixed(2) };
+const RANGE={ Morph:[0,1,.001], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Noise:[0,1,.01], Detune:[-100,100,1],
   Cutoff:[20,20000,10], Reso:[0,1,.01], Output:[0,1,.01], VelVCA:[0,1,.01], Glide:[0,2000,5], MasterTune:[-100,100,1] };
 // Sliders that map exponentially (log) — most of the musical action is low.
 const LOGK={ Cutoff:true };

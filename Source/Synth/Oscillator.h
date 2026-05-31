@@ -150,20 +150,19 @@ public:
         const float* tbA;
         const float* tbB;
         float        blend;
+        const float m01 = (morphPos < 0.0f) ? 0.0f : (morphPos > 1.0f ? 1.0f : morphPos);  // normalised
         if (wt != nullptr && wt->numFrames() > 0) {
             const int nf = wt->numFrames();
-            float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > 3.0f ? 3.0f : morphPos);
-            pos *= (1.0f / 3.0f) * static_cast<float>(nf - 1);   // → 0..nf-1
+            float pos = m01 * static_cast<float>(nf - 1);        // → 0..nf-1
             int iA = static_cast<int>(pos);
             if (iA > nf - 2) iA = (nf >= 2 ? nf - 2 : 0);
             blend = (nf >= 2) ? pos - static_cast<float>(iA) : 0.0f;
             tbA = wt->table(iA, cachedMipLevel);
             tbB = wt->table((nf >= 2 ? iA + 1 : iA), cachedMipLevel);
         } else {
-            const float posMax = static_cast<float>(kNumMorphFrames - 1);
-            float pos = (morphPos < 0.0f) ? 0.0f : (morphPos > posMax ? posMax : morphPos);
+            float pos = m01 * static_cast<float>(kNumMorphFrames - 1);   // → 0..3 across the analytic set
             int   iA  = static_cast<int>(pos);
-            if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;   // iA+1 always valid
+            if (iA > kNumMorphFrames - 2) iA = kNumMorphFrames - 2;      // iA+1 always valid
             blend = pos - static_cast<float>(iA);
             tbA = s_tables[kMorphOrder[iA]][cachedMipLevel];
             tbB = s_tables[kMorphOrder[iA + 1]][cachedMipLevel];

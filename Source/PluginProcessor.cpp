@@ -472,7 +472,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // Modulated by OscWaveshape destination (×3 scale inside SynthVoice).
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscMorphPos", 1}, "Osc Morph",
-        juce::NormalisableRange<float>(0.0f, 3.0f), 3.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));   // normalised position across the table
 
     // Noise blend: 0 = pure wavetable, 1 = pure noise.  Applied pre-filter so the
     // noise shares the same filter character as the oscillator signal.

@@ -440,7 +440,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    float morphPos   = paramMorphPos ? paramMorphPos->load() : 3.0f;  // default Saw
+    float morphPos   = paramMorphPos ? paramMorphPos->load() : 0.0f;  // normalised 0..1 across table
     float basePW     = paramPW       ? paramPW->load()       : 0.5f;  // default identity
     auto detuneCents =                 paramDetune ? paramDetune->load() : 0.0f;
     // Read once per block — branch predictor handles the inner if trivially.
@@ -494,11 +494,12 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     smoothedPitchMult.setTargetValue(pitchMult);
 
     // Morph + PW: apply mod matrix offsets once per block and clamp.
-    // OscWaveshape mod is scaled ×3 so a ±1 route sweeps the full spectrum.
+    // Morph is normalised 0..1 across the wavetable, so a ±1 OscWaveshape route
+    // sweeps the whole table (scale ×1).
     // OscPulseWidth mod is additive; range [0.5, 0.999] — negative mods floor
     // at 0.5 (identity), so you cannot cross to the mirror-symmetric side.
-    float activeMorphPos = std::clamp(morphPos + mods[ModDestID::OscWaveshape] * 3.0f,
-                                      0.0f, 3.0f);
+    float activeMorphPos = std::clamp(morphPos + mods[ModDestID::OscWaveshape] * 1.0f,
+                                      0.0f, 1.0f);
     float activePW       = std::clamp(basePW   + mods[ModDestID::OscPulseWidth],
                                       0.5f, 0.999f);
 
