@@ -1215,14 +1215,18 @@ Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
   slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
   if(tab==='matrix')renderMatrix(); });
 // Real preset library from PresetManager.
-Bridge.on('presetList',({presets,selected})=>{ if(!Array.isArray(presets))return;
+Bridge.on('presetList',({presets,selected,current})=>{ if(!Array.isArray(presets))return;
   // Defensive defaults: real PresetManager rows omit tags/fav → renderPresets()
   // calls p.tags.map(); without this the Presets tab throws and shows nothing.
   PRESETS = presets.map(p=> typeof p==='string'
       ? {name:p,tags:[],ctrl:'',scale:'',fav:false}
       : {name:'',tags:[],ctrl:'',scale:'',fav:false,...p, tags:Array.isArray(p.tags)?p.tags:[]});
-  if(typeof selected==='number') selPreset=clamp(selected,0,Math.max(0,PRESETS.length-1));
-  const nm=PRESETS[selPreset]; if(nm)$('#presetName').textContent=nm.name;
+  // selected may be -1 (unsaved or name not in the list) — don't fall back to 0.
+  if(typeof selected==='number' && selected>=0) selPreset=clamp(selected,0,Math.max(0,PRESETS.length-1));
+  // Show the actual current name from the engine; fall back to the selected row.
+  const nm = (current && current.length) ? current
+           : (selected>=0 && PRESETS[selPreset] ? PRESETS[selPreset].name : '');
+  if(nm) $('#presetName').textContent=nm;
   if(tab==='presets')renderPresets(); });
 
 // ── Boot + mock animation loop ───────────────────────────────────────────

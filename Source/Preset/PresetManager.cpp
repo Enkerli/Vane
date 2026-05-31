@@ -17,6 +17,10 @@ void PresetManager::savePreset(const juce::String& name)
     if (!dir.exists())
         dir.createDirectory();
 
+    // Stamp the name into the state so it's saved in the file AND in the live
+    // state (so a DAW project that captures this state shows the right preset).
+    apvts.state.setProperty("presetName", name, nullptr);
+
     auto file = dir.getChildFile(name + fileExtension);
     auto xml  = apvts.copyState().createXml();
     if (xml && xml->writeTo(file))
@@ -32,6 +36,7 @@ void PresetManager::loadPreset(const juce::String& name)
     auto xml = juce::XmlDocument::parse(file);
     if (xml && xml->hasTagName(apvts.state.getType())) {
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
+        apvts.state.setProperty("presetName", name, nullptr);   // authoritative name
         currentPresetName = name;
     }
 }

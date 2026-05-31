@@ -105,8 +105,11 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             auto names = owner->proc.presetManager.getPresetNames();
             if (id >= 0 && id < names.size()) {
                 owner->proc.presetManager.loadPreset (names[id]);
+                owner->proc.restoreWavetableFromState();   // preset's table (or built-in)
                 owner->sendSlotState();      // patch params echo via parameterChanged
                 owner->sendControllerState(); // the preset carries its own bindings
+                owner->sendWavetableInfo (true);
+                owner->sendPresetList();      // refresh the selected/current name
                 // Preset↔profile association: if the patch was built for a saved
                 // profile that isn't the active one, offer to apply it.
                 const auto pp = owner->proc.apvts.state.getProperty ("profileName", "").toString();
@@ -547,9 +550,11 @@ void WebVaneEditor::sendPresetList()
     auto names = proc.presetManager.getPresetNames();
     juce::Array<juce::var> arr;
     for (auto& n : names) arr.add (makeObj ({ { "name", n }, { "ctrl", "" }, { "scale", "" } }));
-    const int sel = juce::jmax (0, names.indexOf (proc.presetManager.getCurrentPresetName()));
+    const auto cur = proc.presetManager.getCurrentPresetName();
+    const int  sel = names.indexOf (cur);   // -1 if unsaved / not found — do NOT default to 0
     webView.emitEventIfBrowserIsVisible ("presetList",
-        makeObj ({ { "presets", juce::var (arr) }, { "selected", sel } }));
+        makeObj ({ { "presets", juce::var (arr) }, { "selected", sel },
+                   { "current", cur } }));
 }
 
 void WebVaneEditor::sendInitialState()

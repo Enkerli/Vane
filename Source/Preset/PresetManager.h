@@ -33,8 +33,13 @@ public:
 
     juce::File getPresetsDirectory() const;
 
-    // The name of the last saved/loaded preset, or empty if none.
-    const juce::String& getCurrentPresetName() const { return currentPresetName; }
+    // The name of the last saved/loaded preset.  Falls back to the persisted
+    // "presetName" state property so it survives a fresh instance (DAW reload),
+    // where the member starts empty.
+    juce::String getCurrentPresetName() const {
+        if (currentPresetName.isNotEmpty()) return currentPresetName;
+        return apvts.state.getProperty ("presetName", juce::String()).toString();
+    }
 
     // ── Clipboard transfer ────────────────────────────────────────────────────
     // Both methods work via Universal Clipboard on Apple devices sharing the
