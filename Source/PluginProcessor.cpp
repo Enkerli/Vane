@@ -177,17 +177,46 @@ void VaneProcessor::wavetableFilmstrip (juce::Array<juce::var>& cols, int numCol
 
 bool VaneProcessor::loadWavetable (const juce::File& file)
 {
+    juce::MemoryBlock mb;
+    if (! file.loadFileAsData (mb)) return false;
+    activeWtName = file.getFileNameWithoutExtension();
+    return setWavetableFromData (mb);
+}
+
+bool VaneProcessor::setWavetableFromData (const juce::MemoryBlock& mb)
+{
     auto wt = std::make_unique<Wavetable> (
-        Wavetable::loadFromWav (file, Wavetable::kTableSize, wtPhaseAlign));
+        Wavetable::loadFromMemory (mb.getData(), mb.getSize(), Wavetable::kTableSize, wtPhaseAlign));
     if (! wt->isValid()) return false;
 
     activeWtFrames  = wt->numFrames();
-    activeWtName    = file.getFileNameWithoutExtension();
-    lastWtFile      = file;              // remember for phase-align rebuilds
     activeWavetable = wt.get();          // raw ptr handed to voices; pool keeps it alive
     wavetablePool.push_back (std::move (wt));
+    lastWtData      = mb;                // keep for phase-align rebuilds
+
+    // Embed in plugin state so the table travels with presets AND DAW projects.
+    apvts.state.setProperty ("wavetableData",
+                             juce::Base64::toBase64 (mb.getData(), mb.getSize()), nullptr);
+    apvts.state.setProperty ("wavetableName", activeWtName, nullptr);
+
     applyWavetableToVoices();
     return true;
+}
+
+void VaneProcessor::restoreWavetableFromState()
+{
+    wtPhaseAlign = (bool) apvts.state.getProperty ("wavetablePhaseAlign", false);
+    const auto b64 = apvts.state.getProperty ("wavetableData", juce::String()).toString();
+    if (b64.isEmpty()) { useBuiltInWavetable(); return; }
+
+    juce::MemoryOutputStream mos;
+    if (juce::Base64::convertFromBase64 (mos, b64) && mos.getDataSize() > 0) {
+        activeWtName = apvts.state.getProperty ("wavetableName", "Wavetable").toString();
+        juce::MemoryBlock mb (mos.getData(), mos.getDataSize());
+        if (! setWavetableFromData (mb)) useBuiltInWavetable();
+    } else {
+        useBuiltInWavetable();
+    }
 }
 
 void VaneProcessor::releaseResources() {}
@@ -413,6 +442,10 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     if (!xml || !xml->hasTagName(apvts.state.getType())) return;
 
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
+
+    // Rebuild the embedded wavetable (or fall back to the built-in) before the
+    // param migrations below, which may early-return.
+    restoreWavetableFromState();
 
     // ── Routing migration (pre-slot → generic slots) ─────────────────────────
     // Presets saved before the slot system carry no routingV tag and store the

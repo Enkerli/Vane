@@ -153,13 +153,9 @@ const Wavetable& Wavetable::builtInDefault()
 // Serum/Vital embed a "clm " chunk like  <!>2048 10000000 wavetable [name]
 // whose leading integer is the authoritative frame size.  juce's reader doesn't
 // surface it, so scan the RIFF ourselves; fall back to `fallback` if absent.
-static int detectFrameSize (const juce::File& file, int fallback)
+static int detectFrameSizeBytes (const uint8_t* d, size_t n, int fallback)
 {
-    juce::MemoryBlock mb;
-    if (! file.loadFileAsData (mb) || mb.getSize() < 12) return fallback;
-    const auto* d = static_cast<const uint8_t*> (mb.getData());
-    const size_t n = mb.getSize();
-    if (std::memcmp (d, "RIFF", 4) != 0) return fallback;
+    if (d == nullptr || n < 12 || std::memcmp (d, "RIFF", 4) != 0) return fallback;
     size_t i = 12;
     while (i + 8 <= n) {
         const uint32_t sz = (uint32_t) d[i+4] | ((uint32_t) d[i+5] << 8)
@@ -179,13 +175,24 @@ static int detectFrameSize (const juce::File& file, int fallback)
 
 Wavetable Wavetable::loadFromWav (const juce::File& file, int frameSize, bool phaseAlign)
 {
+    juce::MemoryBlock mb;
+    if (! file.loadFileAsData (mb)) return Wavetable{};
+    return loadFromMemory (mb.getData(), mb.getSize(), frameSize, phaseAlign);
+}
+
+// Build from in-memory .wav bytes — used for the embedded-in-preset table so a
+// loaded wavetable survives project/preset save without depending on the file.
+Wavetable Wavetable::loadFromMemory (const void* data, size_t size, int frameSize, bool phaseAlign)
+{
     Wavetable wt;
-    frameSize = detectFrameSize (file, frameSize);   // prefer the file's clm marker
+    if (data == nullptr || size == 0) return wt;
+    frameSize = detectFrameSizeBytes (static_cast<const uint8_t*> (data), size, frameSize);
     if (frameSize <= 0) return wt;
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (file));
+    std::unique_ptr<juce::AudioFormatReader> rd (
+        fm.createReaderFor (std::make_unique<juce::MemoryInputStream> (data, size, false)));
     if (rd == nullptr) return wt;
 
     const int total = (int) rd->lengthInSamples;

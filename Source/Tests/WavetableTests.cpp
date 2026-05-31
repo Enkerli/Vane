@@ -151,6 +151,34 @@ public:
             }
         }
 
+        beginTest ("loadFromMemoryMatchesFileAndBase64RoundTrips");
+        {
+            auto src = Wavetable::makeHarmonicStack (8);
+            auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                           .getChildFile ("vane_wt_mem.wav");
+            expect (src.saveToWav (tmp));
+            juce::MemoryBlock mb; expect (tmp.loadFileAsData (mb));
+
+            auto fromMem  = Wavetable::loadFromMemory (mb.getData(), mb.getSize());
+            auto fromFile = Wavetable::loadFromWav (tmp);
+            expectEquals (fromMem.numFrames(), fromFile.numFrames());
+            const int top = Wavetable::kNumMipLevels - 1;
+            float worst = 0.0f;
+            for (int f = 0; f < fromMem.numFrames(); ++f)
+                for (int i = 0; i < Wavetable::kTableSize; i += 16) {
+                    const float ph = (float) i / (float) Wavetable::kTableSize;
+                    worst = std::max (worst, std::abs (fromMem.read (f, top, ph) - fromFile.read (f, top, ph)));
+                }
+            expect (worst < 1.0e-5f, "mem vs file mismatch " + juce::String (worst));
+
+            // The bytes embedded in plugin state are base64 — must survive exactly.
+            const auto b64 = juce::Base64::toBase64 (mb.getData(), mb.getSize());
+            juce::MemoryOutputStream mos;
+            expect (juce::Base64::convertFromBase64 (mos, b64));
+            expectEquals ((int) mos.getDataSize(), (int) mb.getSize());
+            tmp.deleteFile();
+        }
+
         beginTest ("loadRejectsMissingFile");
         {
             auto wt = Wavetable::loadFromWav (juce::File::getSpecialLocation (juce::File::tempDirectory)

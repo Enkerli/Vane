@@ -195,14 +195,16 @@ public:
     // thread may still read the previous pointer); activeWavetable is the one all
     // voices currently read.  loadWavetable() builds on the calling (message)
     // thread and hands the new pointer to every voice.
-    bool loadWavetable (const juce::File& file);
+    bool loadWavetable (const juce::File& file);           // load + embed in state
+    bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
+    void restoreWavetableFromState();                      // rebuild from embedded state
     void applyWavetableToVoices();
     // Revert to the built-in Harmonic Stack (drops any loaded table).
     void useBuiltInWavetable() {
         activeWavetable = &Wavetable::builtInDefault();
         activeWtName    = "Harmonic Stack (built-in)";
         activeWtFrames  = activeWavetable->numFrames();
-        lastWtFile      = juce::File();
+        lastWtData.reset();
         apvts.state.removeProperty ("wavetableData", nullptr);
         apvts.state.removeProperty ("wavetableName", nullptr);
         applyWavetableToVoices();
@@ -210,11 +212,12 @@ public:
     juce::String wavetableName()   const { return activeWtName; }
     int          wavetableFrames() const { return activeWtFrames; }
     bool         wavetablePhaseAlign() const { return wtPhaseAlign; }
-    // Toggle phase-aligned morphing; rebuilds the loaded table (built-in is
-    // already phase-coherent so it's a no-op there).
+    // Toggle phase-aligned morphing; rebuilds the loaded table from its kept bytes
+    // (built-in is already phase-coherent so it's a no-op there).
     void setMorphPhaseAlign (bool on) {
         wtPhaseAlign = on;
-        if (lastWtFile.existsAsFile()) loadWavetable (lastWtFile);
+        apvts.state.setProperty ("wavetablePhaseAlign", on, nullptr);
+        if (lastWtData.getSize() > 0) setWavetableFromData (lastWtData);
     }
 
 private:
@@ -223,7 +226,7 @@ private:
     juce::String activeWtName { "Harmonic Stack (built-in)" };
     int          activeWtFrames { 16 };
     bool         wtPhaseAlign { false };
-    juce::File   lastWtFile;     // for rebuild on phase-align toggle
+    juce::MemoryBlock lastWtData;   // raw .wav bytes of the loaded table (rebuild + state embed)
 public:
 
     // Hz of the most recently started note (for the UI ♪ note readout).

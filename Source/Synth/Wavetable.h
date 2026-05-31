@@ -77,6 +77,8 @@ public:
     //   samples, as mono 32-bit float — round-trips through loadFromWav.
     static Wavetable loadFromWav (const juce::File& file, int frameSize = kTableSize,
                                   bool phaseAlign = false);
+    static Wavetable loadFromMemory (const void* data, size_t size, int frameSize = kTableSize,
+                                     bool phaseAlign = false);
     bool saveToWav (const juce::File& file) const;
 
 private:
