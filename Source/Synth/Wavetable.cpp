@@ -12,10 +12,8 @@ constexpr float kTwoPi = 6.283185307179586f;
 
 // Band-limit each frame by FFT: forward once, then per mip level zero the bins
 // above the level's harmonic cap (keeping the conjugate mirror) and inverse.
-// DC is removed.  The whole table is then scaled by ONE global factor (so its
-// loudest point is ±1) — this preserves the wavetable's authored inter-frame
-// and inter-pitch dynamics, unlike per-frame normalisation which flattens them.
-// Fast enough to build a few hundred frames in well under a second.
+// DC is removed; each level is normalised to peak ±1.  Fast enough to build a
+// few hundred frames in well under a second.
 bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
 {
     framesData.clear();
@@ -28,7 +26,6 @@ bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
 
     std::vector<float> spec ((size_t) (2 * N), 0.0f);   // forward result (interleaved complex)
     std::vector<float> work ((size_t) (2 * N), 0.0f);
-    float globalPeak = 0.0f;
 
     for (const auto& raw : rawFrames) {
         if ((int) raw.size() != N) { framesData.clear(); return false; }
@@ -49,19 +46,15 @@ bool Wavetable::build (const std::vector<std::vector<float>>& rawFrames)
 
             auto& lvl = f.levels[(size_t) k];
             lvl.assign ((size_t) N + 1, 0.0f);
+            float peak = 0.0f;
             for (int i = 0; i < N; ++i) { lvl[(size_t) i] = work[(size_t) i];
-                                          globalPeak = std::max (globalPeak, std::abs (work[(size_t) i])); }
+                                          peak = std::max (peak, std::abs (work[(size_t) i])); }
+            if (peak > 1.0e-6f) { const float inv = 1.0f / peak;
+                for (int i = 0; i < N; ++i) lvl[(size_t) i] *= inv; }
+            lvl[(size_t) N] = lvl[0];                        // guard point
         }
         framesData.push_back (std::move (f));
     }
-
-    // Single global scale: loudest sample anywhere in the table → ±1.
-    const float inv = (globalPeak > 1.0e-6f) ? 1.0f / globalPeak : 1.0f;
-    for (auto& f : framesData)
-        for (auto& lvl : f.levels) {
-            for (int i = 0; i < N; ++i) lvl[(size_t) i] *= inv;
-            lvl[(size_t) N] = lvl[0];                        // guard point
-        }
     return true;
 }
 
