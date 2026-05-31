@@ -414,6 +414,8 @@ const state = {
   // (instances seed it); roles + match are stored for the 2b router. (Stage 2a)
   rig:{instances:[{ctrl:'Sylphyo',mode:'',notes:true,mod:true,ch:'any'}]},
   probe:{events:0,channels:[],sources:[],vports:[],prevEvents:0,prevT:0,rate:0},  // MIDI probe
+  spec:[],   // real output spectrum bins
+
   mts:true, dirty:false, sim:true,
 };
 // seed factory-ish routing
@@ -540,13 +542,11 @@ function drawVis(){
       for(const [k,col] of dims) p+=line(t[k], col, 1.6, op.toFixed(2));
     }
   } else if(view==='spectrum'){
-    const col=cssv('--vn-breath'); const n=28; const br=state.meters.Breath, cut=state.patch.Cutoff;
-    for(let i=0;i<n;i++){
-      const f=i/(n-1); const fall=Math.max(0,1-Math.abs(f-0.12)*1.4); // saw-ish tilt
-      const cutoffRoll=clamp(1-(f - cut/20000)*3,0,1);
-      const mag=(fall*0.8+0.2*Math.random())*cutoffRoll*(0.4+br*0.6);
-      const x=10+f*580, bw=580/n*0.62, bh=mag*170;
-      p+=`<rect x="${x.toFixed(1)}" y="${(190-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${col}" opacity="0.8"/>`;
+    // Real FFT magnitudes of the output (log-spaced bins, 0..1 = −80..0 dB).
+    const bins=state.spec||[], col=cssv('--vn-breath'), n=bins.length;
+    if(n){ const bw=580/n*0.72;
+      for(let i=0;i<n;i++){ const x=10+(i/n)*580, bh=clamp(bins[i],0,1)*176;
+        p+=`<rect x="${x.toFixed(1)}" y="${(188-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.2" fill="${col}" opacity="0.85"/>`; }
     }
   } else { // pitch
     const colb=cssv('--vn-bend'), cols=cssv('--vn-slide');
@@ -1125,6 +1125,8 @@ Bridge.on('paramChanged',({id,value})=>{
   if(id in state.patch){ state.patch[id]=value;
     if(tab==='patch'){ const u=patchUpd[id]; if(u) u(); else renderPatch(); } } });
 Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
+// Real output spectrum (log-spaced FFT magnitude bins).
+Bridge.on('spectrum',({bins})=>{ if(Array.isArray(bins)) state.spec=bins; });
 // Active wavetable (name + frame count) — pushed on load and on boot.
 Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
   if(ok && name){ state.wt={name,frames:frames||0,phaseAlign:!!phaseAlign}; }

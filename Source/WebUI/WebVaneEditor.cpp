@@ -376,6 +376,12 @@ void WebVaneEditor::timerCallback()
             makeObj ({ { "pts", juce::var (pts) }, { "frame", frameF }, { "frames", frames } }));
     }
 
+    // ── Real output spectrum → Spectrum view ───────────────────────────────────
+    {
+        juce::Array<juce::var> bins; proc.spectrumSnapshot (bins);
+        webView.emitEventIfBrowserIsVisible ("spectrum", makeObj ({ { "bins", juce::var (bins) } }));
+    }
+
     // ♪ note readout — emit only when it changes.
     const auto note = hzToNote (proc.currentNoteHz());
     if (note != lastNoteSent) {

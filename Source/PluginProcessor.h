@@ -1,5 +1,7 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_dsp/juce_dsp.h>
+#include <array>
 #include "Synth/SynthVoice.h"
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
@@ -53,6 +55,18 @@ public:
     std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
     std::atomic<float> meterVelocity  { 0.0f };   // last note-on velocity, 0..1 (held)
     std::atomic<float> meterMorph     { 0.0f };   // live modulated morph 0..1 (for the WT display)
+
+    // ── Real spectrum analyser ─────────────────────────────────────────────────
+    // FFT of the actual output → log-spaced magnitude bins (0..1, −80..0 dB) for
+    // the UI Spectrum view.  Computed on the audio thread (cheap, throttled to
+    // once per FFT window); the editor reads the atomic bins.
+    static constexpr int kSpecOrder = 10;            // 1024-point FFT
+    static constexpr int kSpecSize  = 1 << kSpecOrder;
+    static constexpr int kSpecBins  = 64;            // log-spaced display bins
+    std::array<std::atomic<float>, kSpecBins> specBins {};
+    void spectrumSnapshot (juce::Array<juce::var>& out) const {
+        for (auto& b : specBins) out.add ((double) b.load (std::memory_order_relaxed));
+    }
 
     // Fill `out` with the current morph frame's waveform (n points, ±1), and
     // report the fractional frame + frame count — drives the live WT display.
@@ -279,6 +293,16 @@ private:
 
     // Reconstruct generic mod slots from a pre-slot preset's legacy route params.
     void migrateLegacyRoutingToSlots(const juce::XmlElement& loadedState);
+
+    // Spectrum analyser internals (audio thread).
+    juce::dsp::FFT               specFFT { kSpecOrder };
+    std::array<float, kSpecSize>     specAccum {};
+    std::array<float, kSpecSize * 2> specWork {};
+    std::array<float, kSpecSize>     specWindow {};
+    int                          specPos { 0 };
+    bool                         specReady { false };
+    void pushSpectrumSamples (const float* x, int n);
+    void computeSpectrum();
 
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.

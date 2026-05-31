@@ -115,6 +115,48 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // Oscillator::prepare() reset each voice to the built-in default; re-apply the
     // loaded table (if any) so it survives a sample-rate change.
     applyWavetableToVoices();
+
+    // Spectrum analyser: Hann window (sample-rate independent).
+    for (int i = 0; i < kSpecSize; ++i)
+        specWindow[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
+                                                         * (float) i / (float) (kSpecSize - 1));
+    specPos = 0; specReady = false;
+}
+
+void VaneProcessor::pushSpectrumSamples (const float* x, int n)
+{
+    for (int i = 0; i < n; ++i) {
+        specAccum[(size_t) specPos++] = x[i];
+        if (specPos >= kSpecSize) { computeSpectrum(); specPos = 0; }
+    }
+}
+
+void VaneProcessor::computeSpectrum()
+{
+    const double sr = getSampleRate();
+    if (sr <= 0.0) return;
+
+    for (int i = 0; i < kSpecSize; ++i) specWork[(size_t) i] = specAccum[(size_t) i] * specWindow[(size_t) i];
+    std::fill (specWork.begin() + kSpecSize, specWork.end(), 0.0f);
+    specFFT.performFrequencyOnlyForwardTransform (specWork.data());   // magnitudes in [0..kSpecSize/2]
+
+    const float fmin = 30.0f;
+    const float fmax = juce::jmax (8000.0f, (float) sr * 0.5f);
+    const float norm = 2.0f / (float) kSpecSize;
+    std::array<float, kSpecBins> binMax {};
+    for (int k = 1; k <= kSpecSize / 2; ++k) {
+        const float f = (float) k * (float) sr / (float) kSpecSize;
+        if (f < fmin) continue;
+        int b = (int) (std::log (f / fmin) / std::log (fmax / fmin) * (kSpecBins - 1) + 0.5f);
+        b = juce::jlimit (0, kSpecBins - 1, b);
+        binMax[(size_t) b] = juce::jmax (binMax[(size_t) b], specWork[(size_t) k]);
+    }
+    for (int b = 0; b < kSpecBins; ++b) {
+        const float db = 20.0f * std::log10 (binMax[(size_t) b] * norm + 1.0e-9f);
+        specBins[(size_t) b].store (juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 80.0f),
+                                    std::memory_order_relaxed);   // −80..0 dB → 0..1
+    }
+    specReady = true;
 }
 
 void VaneProcessor::applyWavetableToVoices()
@@ -363,6 +405,8 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         L[i] *= g;
         if (R) R[i] *= g;
     }
+
+    pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
 }
 
 juce::AudioProcessorEditor* VaneProcessor::createEditor()
