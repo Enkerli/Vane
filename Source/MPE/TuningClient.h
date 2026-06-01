@@ -52,9 +52,14 @@ public:
     ~TuningClient();
 
     // Frequency in Hz for a MIDI note on a given channel (1-based).
-    // Returns 0.0f if the note is filtered (MTS hole, or an internal-tuning hole).
-    // Falls back to equal temperament if MTS returns a non-finite/zero value.
+    // Holes (MTS-filtered or internal NaN) snap to the nearest non-hole pitch
+    // instead of silencing — correct for wind controllers where portamento
+    // can land anywhere.  Returns 0.0f only if no valid pitch is found ±12.
     float noteToHz(int midiNote, int midiChannel) const;
+
+    // Raw Hz for a note without hole/filter checking — used internally for
+    // quantisation searches and deviation display.
+    float rawHz(int midiNote, int midiChannel) const;
 
     // Whether an MTS-ESP master is currently connected.
     bool hasMaster() const;

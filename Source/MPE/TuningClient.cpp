@@ -34,39 +34,54 @@ TuningClient::~TuningClient()
 #endif
 }
 
+// Raw Hz: tuning applied, no hole/filter check.  Used by noteToHz's quantisation
+// search and by deviationCents.  Returns ET if the tuning gives a bad value.
+float TuningClient::rawHz (int midiNote, int midiChannel) const
+{
+    if (source == TuningSource::Bypass)
+        return equalTemperamentHz(midiNote);
+#if VANE_HAS_MTS
+    if (source == TuningSource::FollowMTS && mtsClient && MTS_HasMaster(mtsClient)) {
+        const double hz = MTS_NoteToFrequency(mtsClient, (char) midiNote, (char) midiChannel);
+        if (hz > 0.0 && std::isfinite(hz)) return static_cast<float>(hz);
+    }
+#endif
+    if ((source == TuningSource::Internal || source == TuningSource::FollowMTS)
+            && midiNote >= 0 && midiNote < 128) {
+        const float c = internalCentsTable[(size_t) midiNote];
+        if (!std::isnan(c)) return 440.0f * std::pow (2.0f, (c - 6900.0f) / 1200.0f);
+    }
+    return equalTemperamentHz(midiNote);
+}
+
 float TuningClient::noteToHz(int midiNote, int midiChannel) const
 {
-    // Bypass: always 12-EDO.
     if (source == TuningSource::Bypass)
         return equalTemperamentHz(midiNote);
 
-    // FollowMTS: use the master when available.
+    // Determine whether this note is a hole/filter.
+    bool hole = false;
 #if VANE_HAS_MTS
-    if (source == TuningSource::FollowMTS && mtsClient && MTS_HasMaster(mtsClient)) {
-        if (MTS_ShouldFilterNote(mtsClient,
-                                  static_cast<char>(midiNote),
-                                  static_cast<char>(midiChannel)))
-            return 0.0f;
-        const double hz = MTS_NoteToFrequency(mtsClient,
-                                              static_cast<char>(midiNote),
-                                              static_cast<char>(midiChannel));
-        if (hz > 0.0 && std::isfinite(hz))
-            return static_cast<float>(hz);
-    }
-#else
-    (void)midiChannel;
+    if (source == TuningSource::FollowMTS && mtsClient && MTS_HasMaster(mtsClient))
+        hole = MTS_ShouldFilterNote(mtsClient, (char) midiNote, (char) midiChannel);
 #endif
+    if (!hole && (source == TuningSource::Internal || source == TuningSource::FollowMTS)
+            && midiNote >= 0 && midiNote < 128)
+        hole = std::isnan(internalCentsTable[(size_t) midiNote]);
 
-    // Internal tuning (or FollowMTS with no master connected = fall through).
-    if (source == TuningSource::Internal || source == TuningSource::FollowMTS) {
-        if (midiNote >= 0 && midiNote < 128) {
-            const float c = internalCentsTable[(size_t) midiNote];
-            if (std::isnan(c)) return 0.0f;   // hole: silence this note
-            // cents from C0 → Hz: C0 = 16.3516 Hz = 440 × 2^((0-69)/12)
-            return 440.0f * std::pow (2.0f, (c - 6900.0f) / 1200.0f);
+    if (!hole) return rawHz(midiNote, midiChannel);
+
+    // Hole: snap to the nearest non-hole pitch (wind controllers need this —
+    // portamento or breath vibrato can land on unmapped keys).
+    // Search outward ±12 semitones, choosing the closer side first.
+    for (int d = 1; d <= 12; ++d) {
+        for (int sign : {-1, 1}) {
+            const int n = midiNote + d * sign;
+            if (n < 0 || n >= 128) continue;
+            if (!isHole(n, midiChannel)) return rawHz(n, midiChannel);
         }
     }
-    return equalTemperamentHz(midiNote);
+    return 0.0f;   // no valid pitch in ±12 semitones (very unusual scale)
 }
 
 void TuningClient::setInternalTuning (const juce::String& id)
@@ -149,22 +164,10 @@ juce::String TuningClient::tuningName() const
 
 float TuningClient::deviationCents (int midiNote, int midiChannel) const
 {
-    const float et = (float) midiNote * 100.0f;   // ET cents from C0
     if (source == TuningSource::Bypass) return 0.0f;
-#if VANE_HAS_MTS
-    if (source == TuningSource::FollowMTS && mtsClient && MTS_HasMaster(mtsClient)) {
-        if (MTS_ShouldFilterNote (mtsClient, (char) midiNote, (char) midiChannel)) return 0.0f;
-        const double hz = MTS_NoteToFrequency (mtsClient, (char) midiNote, (char) midiChannel);
-        if (hz > 0.0 && std::isfinite(hz))
-            return (float) (1200.0 * std::log2 (hz / equalTemperamentHz(midiNote)));
-    }
-#endif
-    if (midiNote >= 0 && midiNote < 128) {
-        const float c = internalCentsTable[(size_t) midiNote];
-        if (std::isnan(c)) return 0.0f;
-        return c - et;
-    }
-    return 0.0f;
+    if (isHole (midiNote, midiChannel)) return 0.0f;   // hole: deviation displayed separately
+    const float hz = rawHz (midiNote, midiChannel);
+    return (float) (1200.0 * std::log2 ((double) hz / (double) equalTemperamentHz(midiNote)));
 }
 
 bool TuningClient::isHole (int midiNote, int midiChannel) const

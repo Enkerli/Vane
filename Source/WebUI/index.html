@@ -1276,9 +1276,11 @@ function paintStageTuning(){
       ${precSegInline()}
       <span class="num" style="font-size:11px;color:var(--vn-muted)">${sourceName()}</span>
       <span style="flex:1"></span>
-      <select data-stagepick ${t.source==='internal'?'':'disabled'} style="max-width:160px">
-        ${TUN_ORDER.map(id=>`<option value="${id}" ${t.internal===id?'selected':''}>${TUN[id].name}</option>`).join('')}
-      </select>
+      ${t.source==='internal'
+        ? `<select data-stagepick style="max-width:160px">
+             ${TUN_ORDER.map(id=>`<option value="${id}" ${t.internal===id?'selected':''}>${TUN[id].name}</option>`).join('')}
+           </select>`
+        : ''}
     </div>
     <div style="flex:none"><div class="tune-map">
       <div class="tm-head"><span class="eyebrow">${sourceName()} - octave map</span><span class="ref">A4 = 440 Hz</span></div>
@@ -1304,11 +1306,18 @@ setView=function(v){   // override in place (not a new declaration)
   _origSetView(v);
   const vis=$('.stage .vis');
   if(vis) vis.classList.toggle('tuning-on', v==='tuning');
-  if(v==='tuning') paintStageTuning();
+  if(v==='tuning'){ lastLivePcKey=''; paintStageTuning(); }
 };
 // Keep sounding-notes live while the tuning stage is open.
+// Tuning live-note tracking: only repaint when sounding pitch-classes change.
+// This avoids rebuilding #tuneStage innerHTML at 30 Hz, which nukes buttons
+// mid-tap and prevents clicks from landing on iPad.
+let lastLivePcKey='';
 const _origDrawVis=drawVis;
-drawVis=function(){ if(view==='tuning'){ paintStageTuning(); return; } _origDrawVis(); };
+drawVis=function(){ if(view==='tuning'){
+  const key=[...livePcSet()].sort().join(',');
+  if(key!==lastLivePcKey){ lastLivePcKey=key; paintStageTuning(); }
+  return; } _origDrawVis(); };
 // Header chip now jumps to the Tuning stage view.
 Bridge.on('tuningStatus',({connected,source,name,internalId,devTable,holeFlags})=>{
   setMtsLabel(connected);
