@@ -157,8 +157,27 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         })
         .withEventListener ("reconnectMts", [owner] (const Array<var>&) {
             owner->proc.reconnectMTS();
-            owner->webView.emitEventIfBrowserIsVisible ("tuningStatus",
-                makeObj ({ { "connected", owner->proc.mtsConnected() } }));
+            owner->sendTuningState();
+        })
+        // ── Tuning source + internal tuning control ───────────────────────────
+        .withEventListener ("setTuningSource", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto s = a[0]["source"].toString();
+            if      (s == "mts")      owner->proc.tuning.setTuningSource (TuningSource::FollowMTS);
+            else if (s == "internal") owner->proc.tuning.setTuningSource (TuningSource::Internal);
+            else                      owner->proc.tuning.setTuningSource (TuningSource::Bypass);
+            owner->proc.apvts.state.setProperty ("tuningSource", s, nullptr);
+            owner->sendTuningState();
+        })
+        .withEventListener ("setInternalTuning", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto id = a[0]["id"].toString();
+            owner->proc.tuning.setInternalTuning (id);
+            owner->proc.apvts.state.setProperty ("internalTuningId", id, nullptr);
+            owner->sendTuningState();
+        })
+        .withEventListener ("requestTuningState", [owner] (const Array<var>&) {
+            owner->sendTuningState();
         })
         // ── MIDI probe (diagnostics) ───────────────────────────────────────────
         .withEventListener ("requestMidiProbe", [owner] (const Array<var>&) {
@@ -405,7 +424,7 @@ void WebVaneEditor::timerCallback()
     const bool mts = proc.mtsConnected();
     if (mts != lastMtsState) {
         lastMtsState = mts;
-        webView.emitEventIfBrowserIsVisible ("tuningStatus", makeObj ({ { "connected", mts } }));
+        sendTuningState();
     }
 
     // MIDI probe (diagnostics): ~2 Hz while the panel is open.
@@ -488,6 +507,34 @@ void WebVaneEditor::sendMidiProbe()
         { "channels", juce::var (channels) },
         { "sources",  juce::var (sources) },
         { "vports",   juce::var (vps) },
+    }));
+}
+
+void WebVaneEditor::sendTuningState()
+{
+    const bool connected = proc.mtsConnected();
+    const auto src = proc.tuning.getTuningSource();
+    const juce::String srcStr = (src == TuningSource::Internal) ? "internal"
+                              : (src == TuningSource::Bypass)   ? "off"
+                              :                                    "mts";
+    // 12-note deviation table (MIDI 60-71 = C4..B4) for the stage map.
+    // The UI JS replicates this across octaves; 12 values is cheap to push.
+    juce::Array<juce::var> devTable;
+    for (int n = 60; n < 72; ++n)
+        devTable.add (proc.tuning.deviationCents (n, 1));
+
+    // Hole flags for the same 12 notes.
+    juce::Array<juce::var> holeFlags;
+    for (int n = 60; n < 72; ++n)
+        holeFlags.add (proc.tuning.isHole (n, 1));
+
+    webView.emitEventIfBrowserIsVisible ("tuningStatus", makeObj ({
+        { "connected",    connected },
+        { "source",       srcStr },
+        { "name",         proc.tuning.tuningName() },
+        { "internalId",   proc.tuning.getInternalTuningId() },
+        { "devTable",     juce::var (devTable) },
+        { "holeFlags",    juce::var (holeFlags) },
     }));
 }
 
@@ -582,8 +629,8 @@ void WebVaneEditor::sendInitialState()
     sendControllerState();
     sendProfileList();
     sendWavetableInfo (true);
+    sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));
-    webView.emitEventIfBrowserIsVisible ("tuningStatus",
-        makeObj ({ { "connected", proc.mtsConnected() } }));
+    // tuningStatus is now sent by sendTuningState() called above.
 }

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <juce_core/juce_core.h>
+#include <array>
+
 #if VANE_HAS_MTS
   #include "libMTSClient.h"
 #endif
@@ -37,13 +40,19 @@
 // preset change (the master briefly deregisters and re-registers, which can leave
 // clients without a master pointer).  libMTSClient uses atomics internally so
 // this is safe to call while audio is running, but only from the message thread.
+// Tuning source precedence:
+//   FollowMTS  — use MTS-ESP master when connected (falls back to ET if not).
+//   Internal   — use Vane's own built-in tuning table (ignores MTS master).
+//   Bypass     — always use 12-EDO (tuning disabled).
+enum class TuningSource { FollowMTS, Internal, Bypass };
+
 class TuningClient {
 public:
     TuningClient();
     ~TuningClient();
 
     // Frequency in Hz for a MIDI note on a given channel (1-based).
-    // Returns 0.0f if MTS marks this note as filtered (should not sound).
+    // Returns 0.0f if the note is filtered (MTS hole, or an internal-tuning hole).
     // Falls back to equal temperament if MTS returns a non-finite/zero value.
     float noteToHz(int midiNote, int midiChannel) const;
 
@@ -51,15 +60,43 @@ public:
     bool hasMaster() const;
 
     // Re-register with the MTS-ESP daemon.
-    // Call from the message thread if a tuning preset change left Vane silent.
-    // libMTSClient uses atomics internally so this is safe while audio is running.
     void reconnect();
 
     // Equal-temperament frequency for a MIDI note (A4 = 440 Hz reference).
-    // Public so unit tests and any future fallback callers can use it directly.
     static float equalTemperamentHz(int midiNote);
 
+    // ── Tuning-surface engine hooks ───────────────────────────────────────────
+
+    // Active tuning name for the UI ("Werckmeister III", "Just Intonation", …).
+    // Returns the MTS master's scale name when connected + following; the
+    // internal tuning name otherwise; empty when bypassed.
+    juce::String tuningName() const;
+
+    // Cents deviation from 12-ET for the given MIDI note under the current
+    // tuning (0 = equal temperament). Used to populate the deviation-profile map.
+    float deviationCents(int midiNote, int midiChannel) const;
+
+    // True if this note is silenced by the current tuning (MTS filter, or an
+    // internal-tuning hole).  The stage map marks these explicitly.
+    bool isHole(int midiNote, int midiChannel) const;
+
+    // ── Source / internal-tuning control ─────────────────────────────────────
+    void setTuningSource  (TuningSource s) { source = s; }
+    TuningSource getTuningSource() const   { return source; }
+
+    // Set the active internal tuning by id matching the JS TUN keys
+    // ("edo12", "just", "pyth", "meanqc", "werck3", "diat7", "edo19", "bp").
+    void setInternalTuning (const juce::String& id);
+    juce::String getInternalTuningId() const { return internalId; }
+
+    // Per-degree data for the active internal tuning (filled by setInternalTuning,
+    // read by noteToHz and deviationCents).  128 entries (one per MIDI note);
+    // a NaN value marks a hole.
+    std::array<float, 128> internalCentsTable {};   // cents from C0 (A4=6900¢)
+
 private:
+    TuningSource source   { TuningSource::FollowMTS };
+    juce::String internalId { "just" };
 
 #if VANE_HAS_MTS
     ::MTSClient* mtsClient = nullptr;

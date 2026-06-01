@@ -289,6 +289,52 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
   .tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;border-radius:0;border-left:none;border-right:none;border-bottom:none;
     padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--vn-panel)}
 }
+/* ── Tuning surface (4th Stage view) — lifted from Claude Design handoff ── */
+.tune-prec{border:1px solid var(--vn-line-soft);border-radius:14px;background:var(--vn-panel2);padding:13px 14px}
+.tune-prec .pr-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.tune-prec .src-pill{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px}
+.tune-prec .src-pill.mts{color:var(--vn-expr);background:var(--vn-expr-tint)}
+.tune-prec .src-pill.int{color:var(--vn-slide);background:var(--vn-slide-tint)}
+.tune-prec .src-pill.off{color:var(--vn-pressure);background:var(--vn-pressure-tint)}
+.tune-prec .tname{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.tune-prec .tsys{font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted)}
+.tune-prec .pr-sub{font-size:11px;color:var(--vn-muted);margin-top:5px;line-height:1.5}
+.tune-prec .pr-sub b{color:var(--vn-text-2)}
+.tune-sec{margin-top:12px}
+.tune-sec .eyebrow{display:block;margin-bottom:8px}
+.tune-list{display:flex;flex-direction:column;gap:5px}
+.tune-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--vn-line-soft);border-radius:10px;background:var(--vn-panel2);cursor:pointer;min-height:var(--tap,44px)}
+.tune-row:hover{border-color:var(--vn-muted-2)}
+.tune-row.sel{border-color:var(--vn-slide);background:var(--vn-panel);box-shadow:var(--shadow)}
+.tune-row.locked{opacity:.5;cursor:default}
+.tune-row .tr-name{font-weight:600;font-size:12.5px}
+.tune-row .tr-sys{font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted);margin-top:2px}
+.tune-row .tr-mark{width:16px;text-align:center;color:var(--vn-slide);font-weight:700}
+.tune-row .tr-holes{font-family:var(--vn-mono);font-size:10px;color:var(--vn-pressure);white-space:nowrap}
+.tune-map{border:1px solid var(--vn-line-soft);border-radius:12px;background:var(--vn-field);padding:10px 12px 8px;margin-top:10px}
+.tune-map .tm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.tune-map .tm-head .eyebrow{margin:0}
+.tune-map .tm-head .ref{font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted)}
+.tm-svg{width:100%;display:block}
+.tm-svg .et{stroke:var(--vn-muted-2);stroke-width:1;opacity:.35}
+.tm-svg .lane{stroke:var(--vn-line-soft);stroke-width:1}
+.tm-svg .pc{font-family:var(--vn-mono);font-size:9px}
+.tm-svg .cents{font-family:var(--vn-mono);font-size:8px;fill:var(--vn-muted)}
+.tm-svg .holex{stroke:var(--vn-pressure);stroke-width:1.6}
+.tm-svg .livelbl{font-family:var(--vn-mono);font-size:9px;fill:var(--vn-text);font-weight:700}
+.tm-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.tm-legend span{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--vn-muted)}
+.tm-legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+/* Stage-view variant: hide the normal vis, show the tuning panel */
+.vis.tuning-on>#visSvg,.vis.tuning-on>.vis-legend,.vis.tuning-on>.vis-read,.vis.tuning-on>.vis-t{visibility:hidden}
+#tuneStage{position:absolute;inset:0;display:none;flex-direction:column;gap:8px;padding:10px 12px;overflow:auto}
+.vis.tuning-on #tuneStage{display:flex}
+#tuneStage svg{position:static !important;inset:auto !important;width:100% !important}
+.tune-stagebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;flex:none}
+.tune-stagebar select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-ui);font-size:12px;font-weight:600;border-radius:8px;padding:0 10px;height:var(--ctl-h,34px);max-height:34px;cursor:pointer}
+.pbtn{border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-text-2);font-size:11px;font-weight:600;border-radius:8px;height:var(--ctl-h,34px);max-height:32px;min-width:40px;padding:0 10px;cursor:pointer;font-family:var(--vn-ui)}
+.pbtn.on{background:var(--vn-slide);color:#fff;border-color:var(--vn-slide)}
+.pbtn:disabled{opacity:.38;cursor:default}
 </style>
 </head>
 <body>
@@ -329,11 +375,13 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
             <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
+            <button data-view="tuning" onclick="setView('tuning')">Tuning</button>
           </div>
         </div>
         <div class="vis">
           <div class="vis-legend" id="visLegend"></div>
           <svg id="visSvg" preserveAspectRatio="none" viewBox="0 0 600 200"></svg>
+          <div id="tuneStage"></div>
           <div class="vis-read">
             <span class="chip num" id="noteRead">♪ —</span>
             <span class="chip num" id="voiceRead">Saw · LP 1.1k</span>
@@ -1141,9 +1189,131 @@ function srcLabel(k){ if(k>=7 && state.aux[k-7]) return state.aux[k-7].label||SO
 // pushed back by the plugin via tuningStatus and drives the label. The UI never
 // fakes the state (it previously toggled a fictional 12-EDO/disconnected label).
 function toggleMts(){ Bridge.send('reconnectMts'); }
+
+// ════════════════════════════════════════════════════════════════════════
+//  Tuning surface — 4th Stage view (lifted from Claude Design handoff, area 4)
+// ════════════════════════════════════════════════════════════════════════
+// Note names (ASCII safe — never passed through C++ strings).
+const PC = ["C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
+// Internal tuning library matching TuningClient::setInternalTuning ids.
+const TUN = {
+  edo12:  {name:"12-tone Equal",      sys:"12-EDO 100c/step",        keys:12, cents:[0,100,200,300,400,500,600,700,800,900,1000,1100], holes:[]},
+  just:   {name:"Just Intonation",    sys:"5-limit / C major",       keys:12, cents:[0,111.7,203.9,315.6,386.3,498.0,590.2,702.0,813.7,884.4,996.1,1088.3], holes:[]},
+  pyth:   {name:"Pythagorean",        sys:"3-limit / chain of 5ths", keys:12, cents:[0,113.7,203.9,294.1,407.8,498.0,611.7,702.0,815.6,905.9,996.1,1109.8], holes:[]},
+  meanqc: {name:"Quarter-comma Meantone", sys:"fifth 696.6c",        keys:12, cents:[0,76.0,193.2,310.3,386.3,503.4,579.5,696.6,772.6,889.7,1006.8,1082.9], holes:[]},
+  werck3: {name:"Werckmeister III",   sys:"1691 well-temperament",   keys:12, cents:[0,90.2,192.2,294.1,390.2,498.0,588.3,696.1,792.2,888.3,996.1,1092.2], holes:[]},
+  diat7:  {name:"Just Diatonic",      sys:"7 notes / 5 holes",       keys:12, cents:[0,null,203.9,null,386.3,498.0,null,702.0,null,884.4,null,1088.3], holes:[1,3,6,8,10]},
+  edo19:  {name:"19-tone Equal",      sys:"19-EDO / 63.2c step",     edo:19,  period:1200},
+  bp:     {name:"Bohlen-Pierce",      sys:"13 / tritave (non-octave)",edo:13,  period:1901.955},
+};
+const TUN_ORDER = ["edo12","just","pyth","meanqc","werck3","diat7","edo19","bp"];
+
+const tuningState = { source:'mts', internal:'just', name:'', sys:'', devTable:[], holeFlags:[] };
+
+// Deviation-profile map SVG (the characterful wiggle IS the temperament).
+function tuningMapSvg(devTable, holeFlags, live, big){
+  const W=big?540:300, H=big?160:130, padX=16, top=22, zero=Math.round(H*0.52);
+  const degs = devTable.map((dev,k)=>({label:PC[k%12], dev, hole:holeFlags[k%12]||false, idx:k%12}));
+  const maxDev = Math.max(15, ...degs.filter(d=>!d.hole).map(d=>Math.abs(d.dev)));
+  const half = Math.min(zero-top, H-20-zero);
+  const Y=dev=>zero-(dev/maxDev)*half;
+  const n=degs.length, X=i=>padX+(n<=1?0:i/(n-1)*(W-2*padX));
+  let g='';
+  g+=`<line class="lane" x1="${padX}" y1="${zero}" x2="${W-padX}" y2="${zero}"/>`;
+  g+=`<text class="cents" x="${padX}" y="${(Y(maxDev)-3).toFixed(1)}" >+${Math.round(maxDev)}c</text>`;
+  g+=`<text class="cents" x="${padX}" y="${(Y(-maxDev)+9).toFixed(1)}">-${Math.round(maxDev)}c</text>`;
+  g+=`<text class="cents" x="${(W-padX).toFixed(1)}" y="${(zero-3).toFixed(1)}" text-anchor="end">equal</text>`;
+  const poly=degs.map((d,i)=>d.hole?null:`${X(i).toFixed(1)},${Y(d.dev).toFixed(1)}`).filter(Boolean);
+  if(poly.length>1) g+=`<polyline points="${poly.join(' ')}" fill="none" stroke="var(--vn-slide)" stroke-width="1.4" opacity="0.4"/>`;
+  degs.forEach((d,i)=>{
+    const x=X(i);
+    if(d.hole){ g+=`<line class="holex" x1="${(x-4).toFixed(1)}" y1="${(zero-4).toFixed(1)}" x2="${(x+4).toFixed(1)}" y2="${(zero+4).toFixed(1)}"/>`;
+      g+=`<line class="holex" x1="${(x-4).toFixed(1)}" y1="${(zero+4).toFixed(1)}" x2="${(x+4).toFixed(1)}" y2="${(zero-4).toFixed(1)}"/>`;
+      g+=`<text class="pc" x="${x.toFixed(1)}" y="${(H-5).toFixed(1)}" text-anchor="middle" fill="var(--vn-pressure)">${d.label}</text>`; return; }
+    const lit=live.has(d.idx), y=Y(d.dev);
+    g+=`<line x1="${x.toFixed(1)}" y1="${zero}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${lit?'var(--vn-bend)':'var(--vn-slide)'}" stroke-width="${lit?2.4:1.6}" opacity="${lit?1:.7}" stroke-linecap="round"/>`;
+    g+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${lit?4.4:3}" fill="${lit?'var(--vn-bend)':'var(--vn-slide)'}" stroke="var(--vn-panel)" stroke-width="1.4"/>`;
+    g+=`<text class="pc" x="${x.toFixed(1)}" y="${(H-5).toFixed(1)}" text-anchor="middle" fill="${lit?'var(--vn-bend)':'var(--vn-muted)'}">${d.label}</text>`;
+    if(lit) g+=`<text class="livelbl" x="${x.toFixed(1)}" y="${(y+(d.dev>=0?-8:14)).toFixed(1)}" text-anchor="middle">${d.dev>=0?'+':''}${d.dev.toFixed(1)}</text>`;
+  });
+  return `<svg class="tm-svg" viewBox="0 0 ${W} ${H}" style="height:${H}px" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+}
+function livePcSet(){
+  const out=new Set();
+  for(const v of (state.voices||[])){
+    if(!v.hz||v.hz<16) continue;
+    const c=1200*Math.log2(v.hz/16.3516);
+    out.add(Math.round(((c%1200)+1200)%1200/100)%12);
+  }
+  return out;
+}
+function precSegInline(){
+  const t=tuningState;
+  const seg=(id,lbl,on,dis)=>`<button class="pbtn ${on?'on':''}" data-prec="${id}" ${dis?'disabled':''}>${lbl}</button>`;
+  return `<div class="seg">${seg('mts','Master',t.source==='mts',!state.mts)}${seg('internal','Internal',t.source==='internal',false)}${seg('off','Bypass',t.source==='off',false)}</div>`;
+}
+function sourceName(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
+  if(t.source==='off') return '12-tone Equal'; if(t.source==='internal') return tn.name;
+  return t.name||'12-tone Equal'; }
+function sourceSys(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
+  if(t.source==='off') return '12-EDO 100c/step'; if(t.source==='internal') return tn.sys;
+  return ''; }
+function paintStageTuning(){
+  const el=$('#tuneStage'); if(!el) return;
+  const t=tuningState;
+  const tn=TUN[t.internal]||TUN.just;
+  const devT = t.devTable.length===12 ? t.devTable : new Array(12).fill(0);
+  const holeF = t.holeFlags.length===12 ? t.holeFlags : new Array(12).fill(false);
+  const live=livePcSet();
+  el.innerHTML=`<div class="tune-stagebar">
+      ${precSegInline()}
+      <span class="num" style="font-size:11px;color:var(--vn-muted)">${sourceName()}</span>
+      <span style="flex:1"></span>
+      <select data-stagepick ${t.source==='internal'?'':'disabled'} style="max-width:160px">
+        ${TUN_ORDER.map(id=>`<option value="${id}" ${t.internal===id?'selected':''}>${TUN[id].name}</option>`).join('')}
+      </select>
+    </div>
+    <div style="flex:none"><div class="tune-map">
+      <div class="tm-head"><span class="eyebrow">${sourceName()} - octave map</span><span class="ref">A4 = 440 Hz</span></div>
+      ${tuningMapSvg(devT, holeF, live, true)}
+      <div class="tm-legend">
+        <span><i style="background:var(--vn-slide)"></i>tuned degree</span>
+        <span><i style="background:var(--vn-bend)"></i>sounding</span>
+        <span><i style="background:var(--vn-pressure)"></i>hole</span>
+      </div></div></div>`;
+  el.querySelectorAll('[data-prec]').forEach(b=>b.onclick=()=>{
+    if(b.disabled)return; tuningState.source=b.dataset.prec;
+    Bridge.send('setTuningSource',{source:b.dataset.prec}); });
+  const sel=el.querySelector('[data-stagepick]'); if(sel) sel.onchange=()=>{
+    tuningState.internal=sel.value; Bridge.send('setInternalTuning',{id:sel.value}); };
+}
+// Wire tuning into setView.
+const _origSetView=setView;
+setView=function(v){   // override in place (not a new declaration)
+  _origSetView(v);
+  const vis=$('.stage .vis');
+  if(vis) vis.classList.toggle('tuning-on', v==='tuning');
+  if(v==='tuning') paintStageTuning();
+};
+// Keep sounding-notes live while the tuning stage is open.
+const _origDrawVis=drawVis;
+drawVis=function(){ if(view==='tuning'){ paintStageTuning(); return; } _origDrawVis(); };
+// Header chip now jumps to the Tuning stage view.
+Bridge.on('tuningStatus',({connected,source,name,internalId,devTable,holeFlags})=>{
+  setMtsLabel(connected);
+  if(typeof source==='string')     tuningState.source=source;
+  if(typeof name==='string')       tuningState.name=name;
+  if(typeof internalId==='string') tuningState.internal=internalId;
+  if(Array.isArray(devTable))      tuningState.devTable=devTable;
+  if(Array.isArray(holeFlags))     tuningState.holeFlags=holeFlags;
+  if(view==='tuning') paintStageTuning();
+});
 function setMtsLabel(connected){ const c=$('#tuningChip'); if(!c)return; state.mts=connected;
   c.classList.toggle('warn-state', !connected);
-  c.textContent = connected ? 'MTS-ESP · on' : '⚠ MTS-ESP off · click to retry'; }
+  const n=tuningState.name;
+  c.textContent = connected ? (n ? 'MTS: '+n : 'MTS-ESP · on') : '⚠ MTS-ESP off · click to retry';
+  c.title = 'Tuning — click to open';
+  c.onclick = ()=>setView('tuning'); }
 
 // ── Incoming bridge events (real plugin pushes these) ────────────────────
 Bridge.on('meters',m=>{ Object.assign(state.meters,m); if(!state.sim) tickMeters(); });

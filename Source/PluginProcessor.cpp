@@ -523,6 +523,14 @@ void VaneProcessor::setStateInformation(const void* data, int size)
 
     apvts.replaceState(juce::ValueTree::fromXml(*xml));
 
+    // Restore tuning source + internal tuning selection.
+    {
+        const auto src = apvts.state.getProperty ("tuningSource", "mts").toString();
+        if      (src == "internal") tuning.setTuningSource (TuningSource::Internal);
+        else if (src == "off")      tuning.setTuningSource (TuningSource::Bypass);
+        else                        tuning.setTuningSource (TuningSource::FollowMTS);
+        tuning.setInternalTuning (apvts.state.getProperty ("internalTuningId", "just").toString());
+    }
     // Rebuild the embedded wavetable (or fall back to the built-in) before the
     // param migrations below, which may early-return.
     restoreWavetableFromState();
