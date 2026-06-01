@@ -200,18 +200,21 @@ juce_add_binary_data(VaneLibrary
 target_link_libraries(Vane PRIVATE VaneLibrary)
 
 # ── Factory transient samples (PCM attacks / breath chiffs) ──────────────────
-# Uncomment and populate once .wav files are ready in Assets/transients/.
-# Each sample should be mono, 44100 Hz, recorded at a known pitch (nativeHz).
-# After adding files here, call loadFromMemory() in TransientLibrary::TransientLibrary()
-# using the BinaryDataTrn:: symbols and matching nativeHz values.
-#
-# juce_add_binary_data(VaneTransients
-#     HEADER_NAME BinaryDataTransients.h
-#     NAMESPACE   BinaryDataTrn
-#     SOURCES
-#         Assets/transients/flute_chiff.wav
-#         Assets/transients/reed_attack.wav)
-# target_link_libraries(Vane PRIVATE VaneTransients)
+# All samples are CC0-1.0 (Versilian Studios VSCO-2-CE and VCSL).
+# Trimmed to attack-onset only (280–380 ms), mono, 16-bit PCM.
+# Sources:
+#   Flute, Clarinet, Cello, Trumpet: github.com/sgossner/VSCO-2-CE
+#   Recorder:                        github.com/sgossner/VCSL
+juce_add_binary_data(VaneTransients
+    HEADER_NAME BinaryDataTransients.h
+    NAMESPACE   BinaryDataTrn
+    SOURCES
+        Assets/transients/flute_stac_A4.wav
+        Assets/transients/recorder_stac_D4.wav
+        Assets/transients/clarinet_stac_D4.wav
+        Assets/transients/cello_spic_C3.wav
+        Assets/transients/trumpet_stac_A4.wav)
+target_link_libraries(Vane PRIVATE VaneTransients)
 
 target_compile_definitions(Vane PUBLIC
     JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple

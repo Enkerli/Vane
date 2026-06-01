@@ -1,5 +1,6 @@
 #include "TransientLibrary.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <BinaryDataTransients.h>
 
 TransientLibrary::TransientLibrary()
 {
@@ -7,20 +8,42 @@ TransientLibrary::TransientLibrary()
     entryNames.add("None");
     entries.emplace_back();   // empty sentinel; getSample(0) returns nullptr
 
-    // Factory samples go here once .wav files are bundled into the
-    // VaneTransients binary-data target (see CMakeLists.txt).
+    // All factory samples are CC0-1.0 (no attribution required).
+    // Sources:
+    //   Flute, Clarinet, Cello, Trumpet: Versilian Studios VSCO-2-CE
+    //     github.com/sgossner/VSCO-2-CE — CC0-1.0
+    //   Recorder: Versilian Community Sample Library (VCSL)
+    //     github.com/sgossner/VCSL — CC0-1.0
     //
-    // Pattern for each sample:
-    //   #include <BinaryDataTransients.h>
-    //   loadFromMemory(BinaryDataTrn::sample_wav,
-    //                  BinaryDataTrn::sample_wavSize,
-    //                  "Display Name", 440.0f);
-    //
-    // The nativeHz argument should match the fundamental of the recorded
-    // attack.  SynthVoice scales playback speed so the transient pitch-
-    // tracks the current note — important for samples with clear tonality
-    // (reed attacks, bowed string attacks) less so for pure noise (breath
-    // chiffs, key clicks).
+    // Samples are trimmed to the attack onset only (280–380 ms), mixed to
+    // mono, and normalised.  nativeHz is the pitch of the recorded note;
+    // SynthVoice::noteStarted() pitch-tracks playback so the transient
+    // character follows the current note.
+
+    // Flute staccato A4 (440 Hz) — breath chiff onset, concert flute
+    loadFromMemory(BinaryDataTrn::flute_stac_A4_wav,
+                   BinaryDataTrn::flute_stac_A4_wavSize,
+                   "Flute Chiff", 440.0f);
+
+    // Baroque alto recorder staccato D4 (293.66 Hz) — stronger chiff character
+    loadFromMemory(BinaryDataTrn::recorder_stac_D4_wav,
+                   BinaryDataTrn::recorder_stac_D4_wavSize,
+                   "Recorder Chiff", 293.66f);
+
+    // Clarinet staccato D4 (293.66 Hz) — reed articulation onset
+    loadFromMemory(BinaryDataTrn::clarinet_stac_D4_wav,
+                   BinaryDataTrn::clarinet_stac_D4_wavSize,
+                   "Clarinet Attack", 293.66f);
+
+    // Cello section spiccato C3 (130.81 Hz) — bow-on-string attack onset
+    loadFromMemory(BinaryDataTrn::cello_spic_C3_wav,
+                   BinaryDataTrn::cello_spic_C3_wavSize,
+                   "Cello Spiccato", 130.81f);
+
+    // Trumpet staccato A4 (440 Hz) — lip buzz / embouchure onset
+    loadFromMemory(BinaryDataTrn::trumpet_stac_A4_wav,
+                   BinaryDataTrn::trumpet_stac_A4_wavSize,
+                   "Trumpet Attack", 440.0f);
 }
 
 const TransientSample* TransientLibrary::getSample(int index) const noexcept
@@ -36,12 +59,13 @@ void TransientLibrary::loadFromMemory(const char* data, int size,
     juce::AudioFormatManager fmt;
     fmt.registerBasicFormats();
 
-    auto stream  = std::make_unique<juce::MemoryInputStream>(data, (size_t) size, false);
-    auto* reader = fmt.createReaderFor(std::move(stream));
+    std::unique_ptr<juce::AudioFormatReader> reader (
+        fmt.createReaderFor(
+            std::make_unique<juce::MemoryInputStream>(data, (size_t) size, false)));
     if (reader == nullptr) return;
 
     const int numSamples = static_cast<int>(reader->lengthInSamples);
-    if (numSamples < 2) { delete reader; return; }
+    if (numSamples < 2) return;
 
     TransientSample ts;
     ts.name       = name;
@@ -52,7 +76,6 @@ void TransientLibrary::loadFromMemory(const char* data, int size,
     // Read all channels into a temp buffer and mix down to mono.
     juce::AudioBuffer<float> tmp(static_cast<int>(reader->numChannels), numSamples);
     reader->read(&tmp, 0, numSamples, 0, true, true);
-    delete reader;
 
     auto*       dest  = ts.buffer.getWritePointer(0);
     const float scale = 1.0f / static_cast<float>(tmp.getNumChannels());
