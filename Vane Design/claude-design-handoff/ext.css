@@ -1,0 +1,198 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Vane — Design-exploration styles (areas 1 · 4 · 6)
+   All built on the shipping --vn-* tokens; nothing hard-coded that a theme
+   swap would break. Lift these into Source/WebUI/index.html's <style>.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Cross-cutting (area 6): no stray text selection in a performance UI ──
+   The WebView would let a drag select labels/values. Kill it everywhere
+   except real text entry. -webkit-touch-callout stops the iOS long-press
+   magnifier/callout on labels too. */
+body{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
+
+/* ═══════════════ AREA 1 — Bézier mod-curves ═══════════════ */
+
+/* Curve thumbnail — replaces the {lin·exp·s} miniseg in a route row. */
+.curve-thumb{ display:inline-flex; align-items:center; justify-content:center;
+  width:58px; height:var(--ctl-h); max-height:38px; padding:0; border:1px solid var(--vn-line);
+  background:var(--vn-field); border-radius:9px; cursor:pointer; color:var(--vn-muted); }
+.curve-thumb.open{ border-color:currentColor; background:var(--vn-panel); }
+.curve-thumb svg{ width:46px; height:22px; display:block; }
+.slot .curve-thumb{ grid-column:1/2; grid-row:3; justify-self:start; }   /* old miniseg cell */
+.curve-thumb .tline{ fill:none; stroke:var(--vn-muted-2); stroke-width:1; opacity:.5; }
+
+/* Shared curve editor canvas (used inline AND in the dedicated dock). */
+.curve-ed{ grid-column:1/-1; grid-row:4; margin-top:4px;
+  border:1px solid var(--vn-line-soft); border-radius:12px; background:var(--vn-field);
+  padding:10px 12px 11px; }
+.curve-ed[hidden]{ display:none; }
+.curve-ed .ce-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
+.curve-ed .ce-head .lbl{ font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--vn-muted); font-weight:600; }
+.curve-ed .ce-head .biCh{ font-family:var(--vn-mono); font-size:9.5px; font-weight:700; color:var(--vn-bend);
+  border:1px solid var(--vn-bend); border-radius:999px; padding:1px 7px; letter-spacing:.04em; }
+.curve-ed .ce-head .sp{ flex:1; }
+.curve-ed .ce-head .pbtn{ border:1px solid var(--vn-line); background:var(--vn-panel); color:var(--vn-text-2);
+  font-size:11px; font-weight:600; border-radius:8px; height:var(--ctl-h); max-height:32px; min-width:var(--tap);
+  padding:0 10px; cursor:pointer; font-family:var(--vn-ui); }
+.curve-ed .ce-head .pbtn:disabled{ opacity:.38; cursor:default; }
+.curve-svg{ width:100%; display:block; touch-action:none; border-radius:8px; background:var(--vn-panel);
+  border:1px solid var(--vn-line-soft); }
+.curve-svg .grid{ stroke:var(--vn-line-soft); stroke-width:1; }
+.curve-svg .axis{ stroke:var(--vn-muted-2); stroke-width:1; stroke-dasharray:2 4; opacity:.6; }
+.curve-svg .crv{ fill:none; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+.curve-svg .crvfill{ opacity:.10; }
+.curve-svg .anchor{ fill:var(--vn-panel); stroke-width:2.5; cursor:grab; }
+.curve-svg .anchor.sel{ stroke-width:3.5; }
+.curve-svg .hit{ fill:transparent; cursor:grab; }
+.curve-svg .live{ fill:currentColor; stroke:var(--vn-panel); stroke-width:1.5; }
+.curve-svg .livev{ fill:var(--vn-text); font-family:var(--vn-mono); font-size:9px; }
+.ce-foot{ display:flex; align-items:center; gap:8px; margin-top:7px; }
+.ce-foot .hint{ font-size:10px; color:var(--vn-muted); flex:1; line-height:1.45; }
+.ce-foot .rm{ border:1px solid var(--vn-line); background:var(--vn-panel); color:var(--vn-pressure);
+  font-size:11px; font-weight:600; border-radius:8px; height:var(--ctl-h); max-height:30px; padding:0 10px;
+  cursor:pointer; font-family:var(--vn-ui); }
+.ce-foot .rm[hidden]{ display:none; }
+
+/* Approach B — dedicated editor docked above the route list. */
+.curve-dock{ border:1px solid var(--vn-line-soft); border-radius:14px; background:var(--vn-panel2);
+  padding:12px 13px; margin-bottom:11px; }
+.curve-dock .dk-head{ display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+.curve-dock .dk-route{ display:flex; align-items:center; gap:7px; font-weight:700; font-size:13px; min-width:0; }
+.curve-dock .dk-route .arr{ color:var(--vn-muted); }
+.curve-dock .dk-route .src{ color:var(--vn-text); } .curve-dock .dk-route .dst{ color:var(--vn-text-2); }
+.curve-dock .dk-amt{ font-family:var(--vn-mono); font-size:11px; color:var(--vn-muted); margin-left:auto; }
+.curve-dock.empty{ text-align:center; color:var(--vn-muted); font-size:12px; padding:22px 12px; }
+/* When the dedicated editor is active, the row's curve cell shows a compact
+   selectable thumbnail instead of an inline editor. */
+.slot.curve-selected{ border-color:var(--vn-breath); box-shadow:var(--shadow); }
+
+/* ═══════════════ AREA 4 — MTS-ESP / tuning ═══════════════ */
+
+.tune{ display:flex; flex-direction:column; gap:14px; }
+.tune-prec{ border:1px solid var(--vn-line-soft); border-radius:14px; background:var(--vn-panel2); padding:13px 14px; }
+.tune-prec .pr-top{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.tune-prec .src-pill{ display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:700;
+  letter-spacing:.04em; text-transform:uppercase; padding:4px 10px; border-radius:999px; }
+.tune-prec .src-pill.mts{ color:var(--vn-expr); background:var(--vn-expr-tint); }
+.tune-prec .src-pill.int{ color:var(--vn-slide); background:var(--vn-slide-tint); }
+.tune-prec .src-pill.off{ color:var(--vn-pressure); background:var(--vn-pressure-tint); }
+.tune-prec .tname{ font-size:17px; font-weight:700; letter-spacing:-.01em; }
+.tune-prec .tsys{ font-family:var(--vn-mono); font-size:11px; color:var(--vn-muted); }
+.tune-prec .pr-sub{ font-size:11.5px; color:var(--vn-muted); margin-top:6px; line-height:1.5; }
+.tune-prec .pr-sub b{ color:var(--vn-text-2); }
+.tune-prec .retry{ margin-left:auto; }
+
+.tune-sec .eyebrow{ display:block; margin-bottom:8px; }
+.tune-list{ display:flex; flex-direction:column; gap:6px; }
+.tune-row{ display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+  padding:9px 11px; border:1px solid var(--vn-line-soft); border-radius:10px; background:var(--vn-panel2);
+  cursor:pointer; min-height:var(--tap); }
+.tune-row:hover{ border-color:var(--vn-muted-2); }
+.tune-row.sel{ border-color:var(--vn-slide); background:var(--vn-panel); box-shadow:var(--shadow); }
+.tune-row.locked{ opacity:.5; cursor:default; }
+.tune-row .tr-name{ font-weight:600; font-size:13px; }
+.tune-row .tr-sys{ font-family:var(--vn-mono); font-size:10.5px; color:var(--vn-muted); margin-top:2px; }
+.tune-row .tr-mark{ width:18px; text-align:center; color:var(--vn-slide); font-weight:700; }
+.tune-row .tr-holes{ font-family:var(--vn-mono); font-size:10px; color:var(--vn-pressure); white-space:nowrap; }
+
+/* The map: an octave of pitch-class lanes on a cents ruler. */
+.tune-map{ border:1px solid var(--vn-line-soft); border-radius:14px; background:var(--vn-field);
+  padding:12px 14px 10px; }
+.tune-map .tm-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.tune-map .tm-head .eyebrow{ margin:0; }
+.tune-map .tm-head .ref{ font-family:var(--vn-mono); font-size:10.5px; color:var(--vn-muted); }
+.tm-svg{ width:100%; display:block; }
+.tm-svg .et{ stroke:var(--vn-muted-2); stroke-width:1; opacity:.35; }
+.tm-svg .lane{ stroke:var(--vn-line-soft); stroke-width:1; }
+.tm-svg .pc{ font-family:var(--vn-mono); font-size:9px; }
+.tm-svg .cents{ font-family:var(--vn-mono); font-size:8.5px; fill:var(--vn-muted); }
+.tm-svg .dev{ stroke-width:2.4; stroke-linecap:round; }
+.tm-svg .node{ stroke:var(--vn-panel); stroke-width:1.4; }
+.tm-svg .hole{ stroke:var(--vn-pressure); stroke-width:1.6; }
+.tm-svg .holex{ stroke:var(--vn-pressure); stroke-width:1.6; }
+.tm-svg .liven{ fill:var(--vn-bend); stroke:var(--vn-panel); stroke-width:1.6; }
+.tm-svg .livelbl{ font-family:var(--vn-mono); font-size:9px; fill:var(--vn-text); font-weight:700; }
+.tm-legend{ display:flex; gap:14px; flex-wrap:wrap; margin-top:9px; }
+.tm-legend span{ display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:600; color:var(--vn-muted); }
+.tm-legend i{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+/* Stage-view variant (approach B) — selector strip above the big live map. */
+.vis.tuning-on > #visSvg,
+.vis.tuning-on > .vis-legend,
+.vis.tuning-on > .vis-read,
+.vis.tuning-on > .vis-t{ visibility:hidden; }
+#tuneStage{ position:absolute; inset:0; display:none; flex-direction:column; gap:10px;
+  padding:12px 14px; overflow:auto; }
+.vis.tuning-on #tuneStage{ display:flex; }
+/* the app styles .vis svg as an absolute full-bleed layer — keep OUR svgs in flow */
+#tuneStage svg{ position:static !important; inset:auto !important; width:100% !important; }
+.tune-stagebar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px; flex:none; }
+.tune-stagebar select{ appearance:none; border:1px solid var(--vn-line); background:var(--vn-field); color:var(--vn-text);
+  font-family:var(--vn-ui); font-size:12px; font-weight:600; border-radius:8px; padding:0 10px; height:var(--ctl-h);
+  max-height:34px; cursor:pointer; }
+.tune-stage-map{ flex:none; display:flex; flex-direction:column; }
+.tune-stage-map .tune-map{ flex:none; }
+
+/* ═══════════════ AREA 6 — AUv3 reflow ═══════════════ */
+
+/* Approach B (focus / one-pane). A top segmented switcher swaps a single
+   full-height surface in/out instead of a long scroll. Desktop is untouched
+   (rules gated on the same narrow breakpoint the app already uses). */
+.focusbar{ display:none; }
+@media (max-width:860px){
+  #app[data-reflow="focus"] .focusbar{
+    display:flex; gap:4px; background:var(--vn-panel2); border:1px solid var(--vn-line);
+    border-radius:999px; padding:4px; flex:none; overflow-x:auto; }
+  #app[data-reflow="focus"] .focusbar button{ flex:1 0 auto; border:none; background:transparent;
+    color:var(--vn-muted); font-weight:600; font-size:12.5px; padding:9px 13px; border-radius:999px;
+    cursor:pointer; min-height:var(--tap); white-space:nowrap; }
+  #app[data-reflow="focus"] .focusbar button.active{ background:var(--vn-panel); color:var(--vn-text);
+    box-shadow:0 1px 3px rgba(0,0,0,.07); }
+  /* one pane at a time: hide the non-active half, drop the bottom tab bar */
+  #app[data-reflow="focus"] .main{ display:block; flex:1; min-height:0; }
+  #app[data-reflow="focus"] .stage,
+  #app[data-reflow="focus"] .inspector{ height:100%; }
+  #app[data-reflow="focus"] .inspector .tabs{ display:none; }
+  #app[data-reflow="focus"] .main[data-pane="stage"] .inspector{ display:none; }
+  #app[data-reflow="focus"] .main[data-pane="inspector"] .stage{ display:none; }
+  #app[data-reflow="focus"]{ overflow:hidden; height:100%; }
+  body.focus-active{ overflow:hidden; }
+}
+
+/* Approach A (refined stacked scroll): keep the live Stage pinned at the top
+   while params scroll under it, so you never lose the visual you're tuning to.
+   Pure narrow-screen refinement of what already ships. */
+@media (max-width:860px){
+  #app[data-reflow="stack"] .stage{ position:sticky; top:0; z-index:30;
+    background:var(--vn-bg); padding-bottom:8px; }
+  #app[data-reflow="stack"] .stage .vis{ min-height:104px; max-height:30vh; }
+  #app[data-reflow="stack"] .stage .sub{ display:none; }   /* meters fold away when pinned */
+  #app[data-reflow="stack"] .stage.expanded .vis{ max-height:60vh; }
+  #app[data-reflow="stack"] .stage.expanded .sub{ display:block; }
+  .stage-pin{ display:none; }
+  @media (max-width:860px){ #app[data-reflow="stack"] .stage-pin{ display:inline-flex; } }
+}
+
+/* Host-defer (AUv3 in a host that already shows preset/transport chrome): the
+   preset nav collapses to a slim, non-duplicative status line. */
+#app[data-host="auv3"] .preset-nav button{ display:none; }
+#app[data-host="auv3"] .preset-nav{ background:transparent; border-color:transparent; padding:0; }
+#app[data-host="auv3"] .preset-nav .name{ font-size:13px; min-width:0; }
+
+/* ═══════════════ Exploration switcher (fork only; hidden in embed) ═══════ */
+.xplor{ position:fixed; left:12px; bottom:12px; z-index:120; display:flex; flex-direction:column; gap:7px;
+  background:var(--vn-panel); border:1px solid var(--vn-line); border-radius:14px; box-shadow:var(--shadow);
+  padding:11px 13px; max-width:280px; font-family:var(--vn-ui); }
+.xplor .xt{ font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--vn-muted); font-weight:700; }
+.xplor .xrow{ display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.xplor .xrow > span{ font-size:11.5px; color:var(--vn-text-2); font-weight:600; }
+.xplor .seg2{ display:inline-flex; background:var(--vn-field); border-radius:9px; padding:3px; gap:2px; }
+.xplor .seg2 button{ border:none; background:transparent; color:var(--vn-muted); font-size:11px; font-weight:700;
+  padding:5px 9px; border-radius:6px; cursor:pointer; }
+.xplor .seg2 button.active{ background:var(--vn-panel); color:var(--vn-text); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.xplor .xclose{ position:absolute; top:8px; right:9px; border:none; background:transparent; color:var(--vn-muted-2);
+  cursor:pointer; font-size:14px; line-height:1; }
+body.embed .xplor{ display:none; }
+.xplor[hidden]{ display:none; }

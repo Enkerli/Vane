@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vane — UI Overhaul Recommendations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#f5f2eb; --panel:#fcfbf7; --panel2:#f3eee3; --field:#efebe2;
+  --line:#ddd6ca; --line-soft:#eae3d4; --text:#2d2b27; --text2:#4b463e;
+  --muted:#8b8678; --muted2:#b6b0a1;
+  --breath:#4b86c7; --expr:#2d9d8a; --pressure:#d28330; --slide:#a35bbf;
+  --bend:#c39529; --vel:#7a4cff;
+  --breath-tint:#dde8f4; --pressure-tint:#f4e3cf; --bend-tint:#f1e6c3;
+  --ui:"Inter",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SF Mono,monospace;
+  --r:20px; --r-md:14px; --r-sm:10px;
+  --shadow:0 6px 22px rgba(28,25,20,.05);
+  --maxw:1080px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--ui); font-size:15px; line-height:1.55;
+  letter-spacing:-.005em; -webkit-font-smoothing:antialiased;
+}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+/* ── Dots ──────────────────────────────── */
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none;vertical-align:middle}
+.dot.b{background:var(--breath)} .dot.e{background:var(--expr)} .dot.p{background:var(--pressure)}
+.dot.s{background:var(--slide)} .dot.bend{background:var(--bend)} .dot.v{background:var(--vel)}
+
+/* ── Masthead ──────────────────────────── */
+.mast{padding:64px 0 30px}
+.mast .kick{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.mast h1{font-size:46px;line-height:1.04;font-weight:700;letter-spacing:-.025em;margin:0 0 14px}
+.mast .lede{font-size:18px;color:var(--text2);max-width:60ch;line-height:1.5;margin:0}
+.mast .files{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}
+.fchip{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border:1px solid var(--line);
+  border-radius:999px;background:var(--panel);font-size:12.5px;font-weight:500;color:var(--text2)}
+.fchip .mono{font-size:11.5px;color:var(--text)}
+
+/* ── Verdict ───────────────────────────── */
+.verdict{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:30px 34px;margin-top:14px}
+.verdict h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--breath);margin:0 0 14px;font-weight:700}
+.verdict p{margin:0 0 14px;color:var(--text2);font-size:16px;line-height:1.6}
+.verdict p:last-child{margin-bottom:0}
+.verdict strong{color:var(--text);font-weight:600}
+
+/* ── Section heads ─────────────────────── */
+.sec{padding:52px 0 0}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.sec-head .idx{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--muted2)}
+.sec-head h2{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0}
+.sec-sub{color:var(--muted);font-size:14.5px;margin:14px 0 26px;max-width:64ch}
+
+/* ── Scorecard ─────────────────────────── */
+.score{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-top:26px}
+.score-row{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:13px 24px;border-top:1px solid var(--line-soft)}
+.score-row:first-child{border-top:none}
+.score-row .what{font-size:14.5px;font-weight:500}
+.score-row .ref{font-family:var(--mono);font-size:11px;color:var(--muted2);margin-left:8px}
+.badge{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.badge.done{background:rgba(45,157,138,.14);color:#1f7a6b}
+.badge.partial{background:rgba(195,149,41,.16);color:#8a6916}
+.badge.missing{background:rgba(210,131,48,.15);color:#a55e1c}
+.badge.na{background:var(--field);color:var(--muted)}
+.score-cap{display:flex;gap:18px;flex-wrap:wrap;padding:14px 24px;background:var(--panel2);border-top:1px solid var(--line-soft);font-size:12px;color:var(--muted)}
+.score-cap span{display:inline-flex;align-items:center;gap:6px}
+.tick{width:9px;height:9px;border-radius:2px;display:inline-block}
+.tick.done{background:#2d9d8a}.tick.partial{background:var(--bend)}.tick.missing{background:var(--pressure)}.tick.na{background:var(--muted2)}
+
+/* ── Recommendation cards ──────────────── */
+.recs{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+.rec{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);box-shadow:var(--shadow);padding:24px 28px}
+.rec-top{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.rec-num{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--muted2)}
+.rec-top h3{font-size:19px;font-weight:700;letter-spacing:-.015em;margin:0;flex:1;min-width:240px}
+.sev{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 11px;border-radius:999px}
+.sev.blocker{background:rgba(210,131,48,.16);color:#a55e1c}
+.sev.high{background:rgba(195,149,41,.18);color:#8a6916}
+.sev.medium{background:rgba(75,134,199,.15);color:#2f5f93}
+.sev.polish{background:var(--field);color:var(--muted)}
+.rec .issue,.rec .fix{font-size:15px;line-height:1.6}
+.rec .issue{color:var(--text2);margin:0 0 12px}
+.rec .fix{color:var(--text);margin:0;padding:14px 16px;background:var(--panel2);border-radius:var(--r-md);border-left:3px solid var(--breath)}
+.rec .fix b{font-weight:600}
+.rec .issue code,.rec .fix code,.rec .issue .mono{font-family:var(--mono);font-size:13px;background:var(--field);padding:1px 6px;border-radius:5px;color:var(--text)}
+.rec .spec{display:inline-block;margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* mini illustrations inside cards */
+.demo{margin:16px 0 4px;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line-soft)}
+.demo-h{display:flex;gap:18px;padding:9px 14px;background:var(--panel2);font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.demo-h span{flex:1}
+.demo-b{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.demo-cell{padding:16px 14px}
+.demo-cell.bad{background:repeating-linear-gradient(135deg,rgba(210,131,48,.05) 0 7px,transparent 7px 14px)}
+.demo-cell.good{background:repeating-linear-gradient(135deg,rgba(45,157,138,.06) 0 7px,transparent 7px 14px);border-left:1px solid var(--line-soft)}
+.demo-tag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:11px}
+.demo-tag.bad{color:#a55e1c}.demo-tag.good{color:#1f7a6b}
+.hitbox{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-size:12px;font-weight:600;color:var(--text2)}
+
+/* reconstructed mod-row (good vs prototype) */
+.mrow{display:grid;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line-soft);border-radius:9px;padding:9px 11px;font-size:12px}
+.mrow.proto{grid-template-columns:auto 92px 14px 78px 1fr 70px 18px}
+.mrow.full{grid-template-columns:auto 96px 14px 84px 1fr 60px 64px 34px 30px 22px}
+.mrow .arr{color:var(--muted);text-align:center}
+.mini-sel{border:1px solid var(--line);background:var(--field);border-radius:6px;padding:5px 7px;font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini-bip{height:7px;border-radius:999px;background:var(--field);position:relative}
+.mini-bip .f{position:absolute;top:0;bottom:0;left:50%;width:35%;background:var(--breath);border-radius:999px}
+.mini-bip .c{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted2)}
+.mini-seg{display:inline-flex;background:var(--field);border-radius:6px;padding:2px;gap:2px}
+.mini-seg b{font-size:9.5px;font-weight:600;color:var(--muted);padding:3px 6px;border-radius:4px}
+.mini-seg b.on{background:var(--panel);color:var(--text)}
+.mini-meter{height:5px;border-radius:999px;background:var(--field);position:relative;overflow:hidden}
+.mini-meter .f{position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--breath);border-radius:999px}
+.mini-rel{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.tog{width:30px;height:18px;border-radius:999px;background:var(--breath);position:relative}
+.tog::after{content:"";position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.xb{color:var(--muted2);text-align:center}
+.drop-note{font-size:11px;color:#a55e1c;margin-top:8px;font-weight:600}
+
+/* ── Sequencing ────────────────────────── */
+.phase{display:grid;grid-template-columns:auto 1fr;gap:18px;padding:18px 0;border-top:1px solid var(--line-soft)}
+.phase:first-of-type{border-top:none}
+.phase .pn{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--breath);padding-top:2px}
+.phase h4{margin:0 0 5px;font-size:16px;font-weight:700}
+.phase p{margin:0;color:var(--text2);font-size:14.5px}
+.phase .add{display:inline-block;margin-top:8px;font-size:13px;color:var(--text);background:var(--breath-tint);padding:3px 10px;border-radius:7px;font-weight:500}
+
+footer{padding:56px 0 80px;color:var(--muted);font-size:13px;text-align:center}
+footer .mono{color:var(--muted2)}
+
+@media(max-width:720px){
+  .mast h1{font-size:34px}
+  .demo-b{grid-template-columns:1fr}
+  .demo-cell.good{border-left:none;border-top:1px solid var(--line-soft)}
+  .mrow.proto,.mrow.full{grid-template-columns:repeat(4,1fr);overflow-x:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- ───────────── Masthead ───────────── -->
+  <header class="mast">
+    <div class="kick">
+      <span class="dot b"></span><span class="dot e"></span><span class="dot p"></span>
+      <span class="dot s"></span><span class="dot bend"></span><span class="dot v"></span>
+      <span class="eyebrow" style="margin-left:6px">Vane · UI Overhaul Spec v1</span>
+    </div>
+    <h1>Review &amp; Recommendations</h1>
+    <p class="lede">An assessment of the whole-app prototype against the locked overhaul spec — what's on target, where the prototype under-delivers on its own headline goals, and a prioritized path to close the gap.</p>
+    <div class="files">
+      <span class="fchip">Reviewing <span class="mono">vane_app_prototype.html</span></span>
+      <span class="fchip">against <span class="mono">vane_ui_overhaul_spec.md</span></span>
+      <span class="fchip">design source <span class="mono">wireframe-styles.css · artboards/*</span></span>
+    </div>
+  </header>
+
+  <!-- ───────────── Verdict ───────────── -->
+  <div class="verdict">
+    <h2>Bottom line</h2>
+    <p>The <strong>direction is right and worth committing to.</strong> WebView rendering, a 24-slot generic mod backend mapped to APVTS param groups, the six-source colour system, and the two-column Stage / Inspector layout are all sound — and the prototype proves the mock-bridge validation harness (§9) works as intended.</p>
+    <p>But the prototype exists to solve <strong>two named pain points — precision and touch — and today it lands neither.</strong> There is no real dragging (clicking the track jumps the value), no fine-drag, no steppers; and every hit target is well under the 44 pt the spec mandates. Meanwhile the mod-matrix row has quietly dropped three things the spec's chosen design (MMStack) treats as core — attack/release, a per-route enable, and the live source meter — and the visual surface has drifted off the design tokens (10 px corners, no shadow) into something harder than the artboards.</p>
+    <p>None of this is a redesign. It's a <strong>completion pass</strong>: make the controls behave, size them for the iPad, restore the matrix row, and re-seat the look on <code>wireframe-styles.css</code>. The 18 recommendations below are grouped and prioritized to fold straight into the §10 build phasing.</p>
+  </div>
+
+  <!-- ───────────── Scorecard ───────────── -->
+  <section class="sec" id="scorecard">
+    <div class="sec-head"><span class="idx">00</span><h2>Spec-to-prototype scorecard</h2></div>
+    <p class="sec-sub">Every promise the spec makes, and whether the current prototype delivers it. Bridge wiring is marked N/A — the harness mocks it deliberately.</p>
+    <div class="score">
+      <div class="score-row"><div class="what">24 generic mod slots, source/dest/amount/curve model<span class="ref">§2 §5</span></div><span class="badge done">Modeled</span></div>
+      <div class="score-row"><div class="what">Six-source colour system, consistent everywhere<span class="ref">§3</span></div><span class="badge done">Done</span></div>
+      <div class="score-row"><div class="what">Two-column Stage / Inspector layout<span class="ref">§4</span></div><span class="badge done">Done</span></div>
+      <div class="score-row"><div class="what">Typed numeric entry with commit/cancel<span class="ref">§6.3</span></div><span class="badge done">Done</span></div>
+      <div class="score-row"><div class="what">Light + dark themes<span class="ref">§3 §8</span></div><span class="badge done">Done</span></div>
+      <div class="score-row"><div class="what">Coarse <em>drag</em> on continuous controls<span class="ref">§6.1</span></div><span class="badge missing">Click-jumps, no drag</span></div>
+      <div class="score-row"><div class="what">Fine-drag precision — the Bitwig-like win<span class="ref">§6.2</span></div><span class="badge missing">Missing</span></div>
+      <div class="score-row"><div class="what">Stepper (±) affordance<span class="ref">§6.4</span></div><span class="badge missing">Missing</span></div>
+      <div class="score-row"><div class="what">Touch targets ≥ 44 pt<span class="ref">§6 §7</span></div><span class="badge missing">~24–30 px, fails</span></div>
+      <div class="score-row"><div class="what">Mod-row attack / release readouts<span class="ref">§6 MMStack</span></div><span class="badge missing">Dropped</span></div>
+      <div class="score-row"><div class="what">Mod-row per-route enable (≠ delete)<span class="ref">§6 MMStack</span></div><span class="badge missing">Delete only</span></div>
+      <div class="score-row"><div class="what">Mod-row live source meter<span class="ref">§6 MMStack</span></div><span class="badge missing">Dropped</span></div>
+      <div class="score-row"><div class="what">Source CC# / binding picker<span class="ref">§5 macro bindings</span></div><span class="badge missing">Hardcoded</span></div>
+      <div class="score-row"><div class="what">Preset browser — tag / favorite / scale filters, per-item glyph, rename / delete<span class="ref">§6</span></div><span class="badge partial">Partial</span></div>
+      <div class="score-row"><div class="what">Preset import / export escape hatch<span class="ref">§6</span></div><span class="badge missing">Missing</span></div>
+      <div class="score-row"><div class="what">Designed states — empty / full / MTS / unsaved<span class="ref">§8</span></div><span class="badge missing">Not designed</span></div>
+      <div class="score-row"><div class="what">Visual fidelity to tokens — 20/14 px radii, soft shadow<span class="ref">§3</span></div><span class="badge partial">Drifted</span></div>
+      <div class="score-row"><div class="what">iPad bottom tab bar + safe-area insets<span class="ref">§7</span></div><span class="badge missing">Top tabs only</span></div>
+    </div>
+    <div class="score-cap">
+      <span><i class="tick done"></i>Delivered</span>
+      <span><i class="tick partial"></i>Partial / drifted</span>
+      <span><i class="tick missing"></i>Missing</span>
+      <span><i class="tick na"></i>N/A (mocked harness)</span>
+    </div>
+  </section>
+
+  <!-- ───────────── A. Interaction & precision ───────────── -->
+  <section class="sec" id="interaction">
+    <div class="sec-head"><span class="idx">A</span><h2>Interaction &amp; precision</h2></div>
+    <p class="sec-sub">The headline reason the overhaul exists. Spec §6 specifies four behaviours for every continuous control; the prototype implements one and a half.</p>
+    <div class="recs">
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">A1</span><h3>Replace click-to-set with real pointer drag</h3><span class="sev blocker">Blocker</span></div>
+        <p class="issue">Tracks use <code>onclick → trackSet</code>: a single click <b>jumps</b> the value to wherever the pointer landed. There's no <code>pointerdown → pointermove</code> drag at all. For a performance synth this is the worst case — one stray click on a track destroys a dialed-in cutoff, and you can't nudge.</p>
+        <p class="fix"><b>Implement pointer-capture drag</b> on every <code>.track</code> and <code>.bipolar</code>: <code>pointerdown</code> grabs, <code>pointermove</code> maps delta→value, <code>pointerup</code> releases. Keep tap-to-focus, but value only changes on drag. This is the foundation A2–A3 build on.</p>
+        <span class="spec">spec §6.1 · prototype trackSet() / slotAmtSet()</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">A2</span><h3>Add a fine-drag precision mode</h3><span class="sev blocker">Blocker</span></div>
+        <p class="issue">This is explicitly called out in the spec as <em>"the Bitwig-like win"</em> and it is entirely absent. Without sub-step precision, the matrix amount and cutoff can't be set to the exact value a player needs — which is the original complaint.</p>
+        <p class="fix"><b>Two routes to fine control:</b> a modifier-held drag on desktop (<code>Shift</code>/<code>⌥</code> → ~5–10× lower sensitivity), and a vertical slow-drag gesture that works identically on touch. Pair with a subtle "fine" cursor/affordance so it's discoverable. The typed field (already built) is the third precision path — keep all three.</p>
+        <span class="spec">spec §6.2 · §6.3</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">A3</span><h3>Add ± steppers where space allows</h3><span class="sev medium">Medium</span></div>
+        <p class="issue">Spec §6.4 lists a stepper affordance; none exists. For discrete-feeling values (Detune ¢, PB range st, Glide ms) a one-tap nudge is faster and more accurate than any drag.</p>
+        <p class="fix">Add compact <code>−/+</code> steppers to typed-value rows on desktop, and expose <kbd>↑</kbd>/<kbd>↓</kbd> arrow-key nudge while a numeric field is focused (with units shown). On iPad, steppers double as oversized touch targets — see B1.</p>
+        <span class="spec">spec §6.4</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────── B. Touch & cross-platform ───────────── -->
+  <section class="sec" id="touch">
+    <div class="sec-head"><span class="idx">B</span><h2>Touch &amp; cross-platform</h2></div>
+    <p class="sec-sub">The second named pain point. iPad AUv3 is a first-class target, but the prototype was built at desktop density and the single 760 px breakpoint only re-stacks columns — it never enlarges anything.</p>
+    <div class="recs">
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">B1</span><h3>Hit targets fail the 44 pt rule — add a touch density pass</h3><span class="sev blocker">Blocker</span></div>
+        <p class="issue">Measured against the spec's "≥ 44 pt on all interactive elements": slider tracks are <code>8 px</code> tall, the slot delete is a <code>15 px</code> glyph, <code>.icon-btn</code> is <code>30×30</code>, segmented buttons ~<code>24 px</code>, selects ~<code>30 px</code>. On glass these are mis-hits waiting to happen.</p>
+        <div class="demo">
+          <div class="demo-h"><span>Current prototype density</span><span>Touch-mode target</span></div>
+          <div class="demo-b">
+            <div class="demo-cell bad">
+              <div class="demo-tag bad">≈ 24–30 px · fails</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="hitbox" style="width:30px;height:30px">◐</span>
+                <span class="hitbox" style="width:46px;height:24px">Mono</span>
+                <span class="hitbox" style="width:18px;height:18px;border:none;color:var(--muted2)">✕</span>
+              </div>
+            </div>
+            <div class="demo-cell good">
+              <div class="demo-tag good">≥ 44 px · passes</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="hitbox" style="width:44px;height:44px">◐</span>
+                <span class="hitbox" style="width:64px;height:44px">Mono</span>
+                <span class="hitbox" style="width:44px;height:44px;color:var(--muted)">✕</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="fix"><b>Drive density from a CSS custom-property scale</b> that the width breakpoint (and ideally a coarse-pointer media query) bumps: control height <code>32 → 44 px</code>, track <code>8 → 14 px</code>, font and padding up to match. Same React tree, CSS-only — exactly the model §7 prescribes.</p>
+        <span class="spec">spec §6 (targets ≥ 44 pt) · §7</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">B2</span><h3>Build the iPad bottom tab bar &amp; respect safe areas</h3><span class="sev high">High</span></div>
+        <p class="issue">§7 specifies a single-column stack with a <b>bottom tab bar</b> on iPad and respect for safe areas. The prototype keeps tabs pinned to the top of the inspector and has no <code>env(safe-area-inset-*)</code> padding — under the AUv3 home indicator the bottom row will be clipped.</p>
+        <p class="fix">At the narrow breakpoint, relocate <code>[Patch][Matrix][Presets]</code> to a fixed bottom bar with thumb-reachable tabs, and pad the shell with <code>env(safe-area-inset-bottom)</code>. Header → Stage → active tab full-width above it.</p>
+        <span class="spec">spec §7</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">B3</span><h3>Remove hover-only affordances</h3><span class="sev medium">Medium</span></div>
+        <p class="issue">§7 says "no hover-only affordances." Several states are hover-gated: the typed-value editor's only affordance is <code>.val:hover</code> background, slot/preset borders only react on <code>:hover</code>. On touch there is no hover, so these cues never appear.</p>
+        <p class="fix">Make affordances always-visible or press-driven: a persistent edit underline on typed values, an explicit "edit" tap zone, and active/pressed states instead of hover-reveals. Gate any remaining hover polish behind <code>@media (hover:hover)</code>.</p>
+        <span class="spec">spec §7</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────── C. Mod-matrix completeness ───────────── -->
+  <section class="sec" id="matrix">
+    <div class="sec-head"><span class="idx">C</span><h2>Mod-matrix completeness</h2></div>
+    <p class="sec-sub">The free matrix is the headline feature. The chosen design is MMStack (§4), whose route row is fully specified — but the prototype's row is a reduced version that drops slew and state controls that are central to Vane's slew-limited identity.</p>
+
+    <div class="rec" style="margin-top:8px">
+      <div class="rec-top"><span class="rec-num">C1</span><h3>Restore the full MMStack route row</h3><span class="sev high">High</span></div>
+      <p class="issue">The spec's row is: <span class="mono">source dot + label + CC (picker) → arrow → dest (picker) → amount −1..+1 → curve {lin·exp·S} → atk / rel → live source meter → enable + delete.</span> The prototype keeps source · dest · amount · curve · delete and silently drops <b>attack/release</b>, the <b>live source meter</b>, and a <b>per-route enable</b>.</p>
+
+      <div class="demo">
+        <div class="demo-h"><span>Prototype row — 5 controls</span></div>
+        <div style="padding:14px">
+          <div class="mrow proto">
+            <span class="dot b"></span>
+            <span class="mini-sel">Breath</span>
+            <span class="arr">→</span>
+            <span class="mini-sel">Cutoff</span>
+            <span class="mini-bip"><span class="c"></span><span class="f"></span></span>
+            <span class="mini-seg"><b class="on">lin</b><b>exp</b><b>S</b></span>
+            <span class="xb">✕</span>
+          </div>
+          <div class="drop-note">↑ no attack/release · no live meter · no enable (delete is the only off-switch)</div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div class="demo-h"><span>Spec MMStack row — full</span></div>
+        <div style="padding:14px">
+          <div class="mrow full">
+            <span class="dot b"></span>
+            <span class="mini-sel">Breath · CC2</span>
+            <span class="arr">→</span>
+            <span class="mini-sel">Cutoff</span>
+            <span class="mini-bip"><span class="c"></span><span class="f"></span></span>
+            <span class="mini-seg"><b class="on">lin</b><b>exp</b><b>±</b></span>
+            <span class="mini-rel">↑5 ↓80</span>
+            <span class="mini-meter"><span class="f"></span></span>
+            <span class="tog"></span>
+            <span class="xb">✕</span>
+          </div>
+          <div style="font-size:11px;color:#1f7a6b;margin-top:8px;font-weight:600">↑ CC picker · atk/rel · per-route meter · enable toggle restored</div>
+        </div>
+      </div>
+
+      <p class="fix"><b>Bring the row back to parity with MMStack.</b> Attack/release aren't optional polish — they're the slew limiting that defines how Vane responds to breath, and they appear in the DSP defaults table and every artboard. A separate enable lets a player mute a route without losing its settings (delete is destructive).</p>
+      <span class="spec">spec §6 · README mod-matrix defaults (atk/rel per route)</span>
+    </div>
+
+    <div class="recs" style="margin-top:16px">
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">C2</span><h3>Add the source-binding / CC# picker</h3><span class="sev medium">Medium</span></div>
+        <p class="issue">CC labels (<code>SRC_CC</code>) are a fixed lookup. §5's macro bindings require Breath src ∈ {CC, AT, MPE Z} with a settable CC#, and Expr ∈ {CC, AT} + CC#. Players on a BC-1 vs a Sylphyo bind different CCs.</p>
+        <p class="fix">Make the CC chip on each source a small picker (binding type + CC number), surfaced both in the matrix row and a Macro-bindings group in Patch. Persist via APVTS like everything else.</p>
+        <span class="spec">spec §5 macro bindings</span>
+      </div>
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">C3</span><h3>Reconcile the curve set with bipolar routing</h3><span class="sev polish">Polish</span></div>
+        <p class="issue">The prototype's curve segment is <code>{Lin, Exp, S}</code>, but the artboard and the README treat Slide→Cutoff as <b>bipolar (±)</b>, and the amount slider is already −1..+1. It's ambiguous whether "±" is a curve or just a negative amount.</p>
+        <p class="fix">Decide and document: keep curve = shape <code>{Lin, Exp, S}</code> and let polarity live entirely in the signed amount (cleaner), or add an explicit bipolar curve. Whatever you pick, the segmented control labels must match the backend choice enum exactly.</p>
+        <span class="spec">spec §5 dests · README (slide → bipolar)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── D. Visual-system fidelity ───────────── -->
+  <section class="sec" id="visual">
+    <div class="sec-head"><span class="idx">D</span><h2>Visual-system fidelity</h2></div>
+    <p class="sec-sub">Spec §3 says to use <code>wireframe-styles.css</code> tokens verbatim. The prototype re-declares its own and lands harder and flatter than the artboards it's meant to consolidate.</p>
+    <div class="recs">
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">D1</span><h3>Re-seat radii, shadows &amp; surfaces on the real tokens</h3><span class="sev high">High</span></div>
+        <p class="issue">The source design uses <code>border-radius:20px</code> panels with <code>box-shadow:0 6px 22px rgba(28,25,20,.05)</code>, 14 px sub-panels and 14 px segmented controls. The prototype redefines <code>--r:10px</code>, <code>--r-sm:7px</code> and drops shadows entirely. The result reads as a generic flat plugin, not the warm, soft Vane surface in the artboards.</p>
+        <div class="demo">
+          <div class="demo-h"><span>Prototype · 10px, flat</span><span>Tokens · 20px, soft shadow</span></div>
+          <div class="demo-b">
+            <div class="demo-cell bad" style="display:flex;align-items:center;justify-content:center;min-height:96px">
+              <div style="width:80%;height:62px;background:var(--panel);border:1px solid var(--line);border-radius:10px"></div>
+            </div>
+            <div class="demo-cell good" style="display:flex;align-items:center;justify-content:center;min-height:96px">
+              <div style="width:80%;height:62px;background:var(--panel);border:1px solid var(--line-soft);border-radius:20px;box-shadow:0 6px 22px rgba(28,25,20,.08)"></div>
+            </div>
+          </div>
+        </div>
+        <p class="fix"><b>Import the token file rather than re-declaring it.</b> Bundle <code>wireframe-styles.css</code> variables as the single source of truth so design and build can't drift, then map component classes onto <code>--vn-*</code>. One change there re-themes the whole app.</p>
+        <span class="spec">spec §3 ("use wireframe-styles.css tokens verbatim")</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">D2</span><h3>Make the visualiser the signature, not a generic sine</h3><span class="sev medium">Medium</span></div>
+        <p class="issue">The Stage is the largest panel (1.5fr) yet shows four hardcoded scrolling sine paths. The artboards proposed far more: <code>MainViewA</code>'s Breath / Spectrum / Pitch view switch with a live note + filter readout, and the "wind tunnel" flow. Right now the most prominent panel carries the least meaning.</p>
+        <p class="fix">Treat the visualiser as Vane's identity moment. At minimum: drive it from real breath/expression history, add the <b>Breath / Spectrum / Pitch</b> view toggle and the <code>♪ A3 · Saw · LP 1.8k</code> readout from the artboard. Consider a perf/edit split (the dark <code>MainViewC</code>) so it can go full-bleed for the gig.</p>
+        <span class="spec">artboards main-view.jsx (MainViewA / MainViewC)</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────── E. Presets & states ───────────── -->
+  <section class="sec" id="presets">
+    <div class="sec-head"><span class="idx">E</span><h2>Presets &amp; states</h2></div>
+    <p class="sec-sub">The preset browser is the second headline feature — it replaces the clipboard copy/paste "workaround." The prototype sketches it but stops short of the spec, and §8's required states aren't designed at all.</p>
+    <div class="recs">
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">E1</span><h3>Flesh out the preset browser to spec</h3><span class="sev high">High</span></div>
+        <p class="issue">Present: a non-functional search field, controller filters, a list, and a "Save current" button. Missing vs §6: <b>tag, scale &amp; favorites filters</b>, the <b>tiny breath-curve glyph</b> per item, working <b>rename / delete / favorite</b>, and the <b>import/export-text escape hatch</b> that preserves the portability the clipboard gave for free.</p>
+        <p class="fix">Build the full sidebar (controller · tag · scale · favorites), make search and favorite-toggle live, add per-item actions, and keep a text import/export so presets stay shareable. This is what justifies removing the clipboard path — until it ships, don't.</p>
+        <span class="spec">spec §6 preset browser · §10 phase 4</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">E2</span><h3>Design the eight states §8 calls out</h3><span class="sev medium">Medium</span></div>
+        <p class="issue">§8 enumerates states the prototype doesn't show: empty mod matrix, matrix near-full (scrolling), idle vs active meters, MTS-ESP connected vs <b>disconnected</b>, preset unsaved-changes, naming/rename, and empty library. Today the matrix has a nice dashed empty-add, but the rest are undefined — and "MTS disconnected" and "unsaved changes" are exactly the moments a player needs clear feedback.</p>
+        <p class="fix">Spec each as a real state: an unsaved-changes marker on the preset nav, a disconnected treatment on the tuning chip (it's a static label now), idle-meter rest state, and an empty-library zero state. These are cheap to add and prevent silent-failure confusion.</p>
+        <span class="spec">spec §8</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────── F. Accessibility & IA ───────────── -->
+  <section class="sec" id="a11y">
+    <div class="sec-head"><span class="idx">F</span><h2>Accessibility &amp; information architecture</h2></div>
+    <p class="sec-sub">Small, mostly-cheap fixes that raise the floor for keyboard users, colour-blind players, and anyone reading the header for the first time.</p>
+    <div class="recs">
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">F1</span><h3>Don't encode sources by colour alone; add focus &amp; keyboard support</h3><span class="sev high">High</span></div>
+        <p class="issue">Sources are distinguished almost entirely by a coloured dot — breath-blue vs expression-teal vs slide-purple are hard to separate for colour-blind players, and several dots are tiny. There are also no visible focus rings and no keyboard model for the sliders/matrix, so the plugin isn't operable without a pointer.</p>
+        <p class="fix">Always pair the dot with its label or CC text (the artboards already do this — keep it everywhere). Add visible <code>:focus-visible</code> rings, make sliders arrow-key operable, and verify text contrast on the warm surfaces, especially <code>--muted</code> on <code>--panel2</code>.</p>
+        <span class="spec">general · §10 phase 5 (accessibility)</span>
+      </div>
+
+      <div class="rec">
+        <div class="rec-top"><span class="rec-num">F2</span><h3>Resolve the header title ambiguity</h3><span class="sev polish">Polish</span></div>
+        <p class="issue">The masthead shows the eyebrow "Vane · Performance" with an <code>&lt;h1&gt;</code> of <b>"Breath Stage"</b>, while the preset nav beside it reads <b>"Reedlike · Lyrical."</b> Two competing titles — it's unclear what names the current sound.</p>
+        <p class="fix">Let the <b>preset name be the primary title</b> (it's what changes and what the player thinks in), demote "Breath Stage" to a section label on the Stage panel, and keep "Vane" as the quiet brand mark. One title, no competition.</p>
+        <span class="spec">spec §4 header</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────── Sequencing ───────────── -->
+  <section class="sec" id="sequencing">
+    <div class="sec-head"><span class="idx">G</span><h2>How this folds into the build phasing</h2></div>
+    <p class="sec-sub">Mapped onto the spec's §10 phases — nothing here reorders the plan, it just pins which recommendations land where.</p>
+    <div style="background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 28px;margin-top:26px">
+      <div class="phase"><span class="pn">1</span><div><h4>WebView shell — Patch + meters</h4><p>Prove the pipeline on macOS &amp; iPad. Land the interaction core here so it's proven before the matrix depends on it.</p><span class="add">A1 drag · A2 fine-drag · B1 touch density · D1 token import</span></div></div>
+      <div class="phase"><span class="pn">2</span><div><h4>24-slot generic backend</h4><p>DSP/state with default-patch parity. Lock the choice enums (curve, source binding) the UI will mirror.</p><span class="add">C2 CC binding model · C3 curve/polarity decision</span></div></div>
+      <div class="phase"><span class="pn">3</span><div><h4>Free mod-matrix UI — headline</h4><p>Build on the new backend. Ship the full MMStack row, not the reduced one.</p><span class="add">C1 full route row · A3 steppers · F1 source labelling</span></div></div>
+      <div class="phase"><span class="pn">4</span><div><h4>Preset browser</h4><p>Only here does the clipboard workaround get removed — once import/export parity exists.</p><span class="add">E1 full browser · E2 unsaved / empty states</span></div></div>
+      <div class="phase"><span class="pn">5</span><div><h4>Polish — visualiser, theming, a11y, AUv3</h4><p>The signature Stage, the bottom tab bar, and the accessibility floor.</p><span class="add">D2 visualiser · B2 iPad tab bar · B3 hover · E2 MTS state · F1 focus/keys · F2 header IA</span></div></div>
+    </div>
+  </section>
+
+  <footer>
+    <div>Vane — UI overhaul review · 18 recommendations across 6 areas</div>
+    <div class="mono" style="margin-top:6px">vane_app_prototype.html · vane_ui_overhaul_spec.md · wireframe-styles.css</div>
+  </footer>
+
+</div>
+
+</body>
+</html>
