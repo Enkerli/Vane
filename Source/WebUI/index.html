@@ -60,7 +60,10 @@ body{
   font-family:var(--vn-ui); background:var(--vn-bg); color:var(--vn-text);
   font-size:13px; line-height:1.4; letter-spacing:-.005em;
   -webkit-font-smoothing:antialiased; overflow:hidden;
+  /* A performance drag must never select a label (touch + mouse). Inputs opt back in. */
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
 }
+input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
 .num{font-family:var(--vn-mono);font-variant-numeric:tabular-nums}
 .eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--vn-muted);font-weight:600}
 :focus-visible{outline:2px solid var(--vn-breath);outline-offset:2px;border-radius:6px}
@@ -1258,6 +1261,22 @@ Bridge.on('presetList',({presets,selected,current})=>{ if(!Array.isArray(presets
 // ── Boot + mock animation loop ───────────────────────────────────────────
 state.sim = !HAS_JUCE;                 // live data from the plugin when embedded
 state.aux = AUX.map((a,i)=>({label:a,cc:0}));   // default until controllerState arrives
+// Single-tap typed entry on touch (Claude Design, area 6). The value fields open
+// number editors via ondblclick, which is unreliable on touch; bridge tap→edit
+// for coarse pointers only, leaving desktop double-click untouched. Drag controls
+// set their dblclick in JS (no [ondblclick] attribute), so a tap that begins a
+// drag can't accidentally open an editor.
+(function(){
+  const coarse = matchMedia('(pointer:coarse)').matches || ('ontouchstart' in window);
+  if(!coarse) return;
+  document.documentElement.classList.add('is-touch');
+  document.addEventListener('click', e=>{
+    const el=e.target.closest('[ondblclick]'); if(!el) return;
+    if(el.querySelector('input')) return;            // already editing
+    e.preventDefault(); e.stopPropagation();
+    if(typeof el.ondblclick==='function') el.ondblclick.call(el, e);
+  }, true);
+})();
 buildMeters(); render(); Bridge.send('uiReady');
 setInterval(()=>{
   if(!state.sim) return;
