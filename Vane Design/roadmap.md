@@ -64,10 +64,25 @@ which also gives the public-domain-vs-copyright distinction.
    keymap-"holes" abrupt-note-end fix. Flagged at the very start, never done;
    the most under-delivered part of Vane's MTS-first identity.
 
-**Tier 2 — after the Claude Design UX pass (UI-heavy → shape with Design input)**
-3. **Bézier mod-curves** — editable per-route modulation curves (replaces the
-   discrete Lin/Exp/S choices). High expressive payoff; natural in the WebView.
-4. **Preset browser / UX rework** — informed by Design.
+**Tier 2 — Claude Design handoff landed (`Vane Design/claude-design-handoff/`)**
+Decisions (user-picked from the A/B explorations):
+3. **MTS-ESP / tuning → 4th STAGE view (B).** Sources / Spectrum / Pitch /
+   **Tuning**: tuning name·system, internal-tuning library, explicit **holes**,
+   **master ▸ internal ▸ off** precedence (losing layer shown-but-locked, never
+   faked), deviation-profile map (keys × cents-off-ET) with sounding notes lit.
+   Lift from `ext-tuning.js`. *Engine work:* expose tuning name, internal
+   tunings, hole detection from `TuningClient`/MTS-ESP. **(Do first — Tier 1.)**
+4. **Bézier mod-curves → INLINE-EXPAND in the route row (A).** Monotone-cubic
+   curve canvas: drag midpoint to bend, +anchors (≤3) for S-curves, bipolar
+   mirror for Pitchbend, live value-dot. Lift from `ext-curves.js`. *Engine
+   work:* ModMatrix curve evaluator + per-slot control points (replaces the
+   discrete Lin/Exp/S `curve` choice).
+5. **AUv3 reflow → FOCUS, one-pane segmented (B).** Top segmented switch swaps
+   Stage · Patch · Matrix · Presets (no long scroll) on narrow/short windows.
+   Lift `buildFocusbar`/`focusPane` from `ext-reflow.js` + the `ext.css` reflow
+   rules. Pure UI. Touch cross-cutting fixes already shipped (commit 7946ff8).
+6. **Preset browser / UX rework** — areas 2/3/5 of the design questions, not yet
+   explored; revisit with Design.
 
 **Tier 3 — self-contained, whenever**
 5. **BLEP-clean sync** — anti-alias the hardsync reset edge (the one rough edge
