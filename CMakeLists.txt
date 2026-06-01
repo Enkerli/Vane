@@ -156,6 +156,8 @@ target_sources(Vane PRIVATE
     Source/Synth/Oscillator.cpp
     Source/Synth/Wavetable.cpp
     Source/Synth/SynthVoice.cpp
+    Source/Synth/SamplePlayer.cpp
+    Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
     Source/Preset/PresetManager.cpp
@@ -164,6 +166,7 @@ target_sources(Vane PRIVATE
     Source/Tests/ModMatrixTests.cpp
     Source/Tests/StringSafetyTests.cpp
     Source/Tests/TuningTests.cpp
+    Source/Tests/TransientTests.cpp
     Source/Tests/WavetableTests.cpp
 )
 
@@ -195,6 +198,20 @@ juce_add_binary_data(VaneLibrary
         Assets/library/AKWF_stringbox.wav
         Assets/library/AKWF_bw_perfectwaves.wav)
 target_link_libraries(Vane PRIVATE VaneLibrary)
+
+# ── Factory transient samples (PCM attacks / breath chiffs) ──────────────────
+# Uncomment and populate once .wav files are ready in Assets/transients/.
+# Each sample should be mono, 44100 Hz, recorded at a known pitch (nativeHz).
+# After adding files here, call loadFromMemory() in TransientLibrary::TransientLibrary()
+# using the BinaryDataTrn:: symbols and matching nativeHz values.
+#
+# juce_add_binary_data(VaneTransients
+#     HEADER_NAME BinaryDataTransients.h
+#     NAMESPACE   BinaryDataTrn
+#     SOURCES
+#         Assets/transients/flute_chiff.wav
+#         Assets/transients/reed_attack.wav)
+# target_link_libraries(Vane PRIVATE VaneTransients)
 
 target_compile_definitions(Vane PUBLIC
     JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple

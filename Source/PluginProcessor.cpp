@@ -60,6 +60,22 @@ VaneProcessor::VaneProcessor()
     for (int i = 0; i < synth.getNumVoices(); ++i)
         voicePtrs.push_back(dynamic_cast<SynthVoice*>(synth.getVoice(i)));
 
+    // Wire the transient library and APVTS pointers to every voice.
+    // Must come after voicePtrs is populated and after the APVTS parameters
+    // for the transient section exist (they were just added above).
+    {
+        auto* pTrGain    = apvts.getRawParameterValue("transientGain");
+        auto* pTrDecay   = apvts.getRawParameterValue("transientDecay");
+        auto* pTrChoice  = apvts.getRawParameterValue("transientChoice");
+        auto* pTrTrigger = apvts.getRawParameterValue("transientTrigger");
+        for (auto* v : voicePtrs) {
+            if (v) {
+                v->setTransientLibrary(&transientLib);
+                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger);
+            }
+        }
+    }
+
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
@@ -791,6 +807,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
 
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"monoMode", 1}, "Mono", false));
+
+    // ── Transient / PCM sample ────────────────────────────────────────────────
+    // A short one-shot PCM sample layered on note attacks for breath chiffs,
+    // reed buzzes, or key clicks.  Default gain = 0 (off) so existing presets
+    // are unaffected.  Modulated by the TransientLevel mod-matrix destination
+    // (e.g. velocity → transient loudness for accent emphasis).
+    {
+        // Build the choice list from the live library so the saved index always
+        // refers to the correct entry even as factory samples are added.
+        // At construction time the library has only "None"; future factory
+        // samples appended in TransientLibrary::TransientLibrary() extend it.
+        const TransientLibrary stub;   // mirror of the real library (same ctor)
+        layout.add(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{"transientChoice", 1}, "Transient Sample",
+            stub.names(), 0));
+    }
+
+    // Gain 0..2: 0 = silent (off), 1 = unity relative to the base output level.
+    // Allowing up to 2 (6 dB boost) means a quiet sample can punch through.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientGain", 1}, "Transient Gain",
+        juce::NormalisableRange<float>(0.0f, 2.0f, 0.0f, 0.5f), 0.0f));
+
+    // Decay: exponential fade time from peak (1.0) after trigger.
+    // 10 ms = very short click; 2000 ms = slowly fading attack sample.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientDecay", 1}, "Transient Decay (ms)",
+        juce::NormalisableRange<float>(10.0f, 2000.0f, 0.0f, 0.5f), 200.0f));
+
+    // Trigger mode:
+    //   0 = Always     — fires on every note-on (legato or not)
+    //   1 = Non-legato — fires only when breath was off at note-on (default)
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"transientTrigger", 1}, "Transient Trigger",
+        juce::StringArray{"Always", "Non-legato"}, 1));
 
     // ── Modulation route amounts ──────────────────────────────────────────────
     // How far each source sweeps its destination.  All are live parameters —

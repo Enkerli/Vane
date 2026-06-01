@@ -110,6 +110,11 @@ void SynthVoice::prepare(double sr, int blockSize)
     smoothedInharm.setCurrentAndTargetValue(0.0f);
     smoothedSync.reset(sr, 0.003);
     smoothedSync.setCurrentAndTargetValue(1.0f);   // 1 = sync off
+
+    // Pre-allocate the mono scratch buffer used to render the transient into
+    // before adding to both output channels.  Sized to blockSize so no heap
+    // activity occurs during renderNextBlock.
+    transientScratch.assign(static_cast<size_t>(blockSize), 0.0f);
 }
 
 void SynthVoice::noteStarted()
@@ -364,6 +369,34 @@ void SynthVoice::noteStarted()
             // Snap the cutoff smoother to the inherited Hz so the first block's
             // per-sample setCutoff() calls start from the right place.
             smoothedCutoff.setCurrentAndTargetValue(c);
+        }
+    }
+
+    // ── Transient trigger ────────────────────────────────────────────────────────
+    // "Always" fires on every note-on (legato or not) — useful for key clicks or
+    // string bow attacks that should repeat with every articulation.
+    // "Non-legato only" fires only when breath was off at note-on (the common wind-
+    // controller case: breath attack / reed buzz at the start of a new phrase).
+    if (paramTransientGain != nullptr && transientLib != nullptr
+        && paramTransientChoice != nullptr) {
+        int  triggerMode   = paramTransientTrigger
+            ? static_cast<int>(std::round(paramTransientTrigger->load())) : 1;
+        bool shouldTrigger = (triggerMode == 0) || !isLegato;  // 0=Always, 1=Non-legato
+
+        if (shouldTrigger) {
+            int choice = static_cast<int>(std::round(paramTransientChoice->load()));
+            if (const TransientSample* ts = transientLib->getSample(choice)) {
+                // Pitch-track the sample: speed = voiceHz / nativeHz, adjusted
+                // for any difference between the sample's native sample rate and
+                // the current plugin sample rate.
+                float speedRatio = juce::jlimit(0.125f, 8.0f,
+                                               baseHz / ts->nativeHz)
+                                   * static_cast<float>(ts->sampleRate / sampleRate);
+                transientPlayer.setSample(ts->buffer.getReadPointer(0),
+                                          ts->buffer.getNumSamples());
+                transientEnvLevel = 1.0f;
+                transientPlayer.trigger(speedRatio);
+            }
         }
     }
 
@@ -685,6 +718,36 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         float sample = filter.process(folded, filterMode) * gain * tailLevel;
         left[i] += sample;
         if (right) right[i] += sample;
+    }
+
+    // ── Transient sample rendering (post-filter, additive) ──────────────────────
+    // Rendered after the main loop so it doesn't disturb the per-sample filter
+    // state.  Scaled by tailLevel (end-of-block value) so it fades on note release;
+    // the approximation is fine — tail-off ramps over tens of milliseconds.
+    // The scratch buffer is pre-allocated in prepare() to avoid heap allocation here.
+    if (paramTransientGain != nullptr && transientPlayer.isPlaying()
+        && !transientScratch.empty()) {
+        float tGain    = paramTransientGain->load();
+        float tMod     = mods[ModDestID::TransientLevel];   // e.g. velocity → transient
+        float finalGain = std::clamp(tGain + tMod, 0.0f, 2.0f) * tailLevel;
+
+        if (finalGain > 1e-6f) {
+            float tDecayMs  = paramTransientDecay ? paramTransientDecay->load() : 200.0f;
+            float decayCoeff = tDecayMs > 0.0f
+                ? std::exp(-1.0f / (tDecayMs * 0.001f * static_cast<float>(sampleRate)))
+                : 0.0f;
+
+            // Zero the scratch range we will use (may be less than full buffer size).
+            const int n = juce::jmin(numSamples, static_cast<int>(transientScratch.size()));
+            std::fill(transientScratch.begin(), transientScratch.begin() + n, 0.0f);
+
+            transientPlayer.renderAdding(transientScratch.data(), n,
+                                         transientEnvLevel, decayCoeff, finalGain);
+
+            buffer.addFrom(0, startSample, transientScratch.data(), n);
+            if (buffer.getNumChannels() > 1)
+                buffer.addFrom(1, startSample, transientScratch.data(), n);
+        }
     }
 
     // Publish state for the next voice to inherit.

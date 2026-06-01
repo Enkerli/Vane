@@ -4,6 +4,8 @@
 #include "MPE/TuningClient.h"
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
+#include "Synth/SamplePlayer.h"
+#include "Synth/TransientLibrary.h"
 
 class SynthVoice : public juce::MPESynthesiserVoice {
 public:
@@ -64,6 +66,24 @@ public:
     // Point this voice's oscillator at a morph wavetable (shared, owned by the
     // processor).  nullptr → the built-in default.
     void setWavetable(const Wavetable* w) { osc.setWavetable(w); }
+
+    // Wire the transient library (owned by VaneProcessor, shared across all voices).
+    // Safe to call before prepare() — used in the processor constructor.
+    void setTransientLibrary(const TransientLibrary* lib) noexcept { transientLib = lib; }
+
+    // Wire the four APVTS raw-parameter pointers for the transient section.
+    // Call after addVoice() in the processor constructor, following the same
+    // pattern as the wavetable wiring.  All may be nullptr — the transient
+    // section gracefully disables itself when any required pointer is missing.
+    void setTransientParams(std::atomic<float>* gain,
+                            std::atomic<float>* decay,
+                            std::atomic<float>* choice,
+                            std::atomic<float>* trigger) noexcept {
+        paramTransientGain    = gain;
+        paramTransientDecay   = decay;
+        paramTransientChoice  = choice;
+        paramTransientTrigger = trigger;
+    }
 
     // MPESynthesiserVoice overrides
     void noteStarted()                                              override;
@@ -244,4 +264,18 @@ private:
     bool  active       = false;
     bool  isTailingOff = false;
     float tailLevel    = 0.0f;
+
+    // ── Transient sample playback ────────────────────────────────────────────────
+    // Library is shared (owned by VaneProcessor); player + envelope are per-voice.
+    // transientScratch is allocated in prepare() to avoid per-block heap activity.
+    const TransientLibrary* transientLib = nullptr;
+    SamplePlayer            transientPlayer;
+    float                   transientEnvLevel = 0.0f;   // current decay envelope (0..1)
+    std::vector<float>      transientScratch;            // mono render scratch, sized in prepare()
+
+    // Transient APVTS parameter pointers — set via setTransientParams().
+    std::atomic<float>* paramTransientGain    = nullptr; // 0..2, default 0 (off)
+    std::atomic<float>* paramTransientDecay   = nullptr; // 10..2000 ms
+    std::atomic<float>* paramTransientChoice  = nullptr; // index into TransientLibrary
+    std::atomic<float>* paramTransientTrigger = nullptr; // 0=Always, 1=Non-legato only
 };

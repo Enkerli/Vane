@@ -72,7 +72,12 @@ struct ModDestID {
     //   1 = off; higher = formant peak swept up (inharmonicity via transposition).
     static constexpr int OscSync       = 10;  // wavetable sync / transpose ratio
 
-    static constexpr int NumDests = 11;
+    // TransientLevel: additive offset to the transient gain (0..1).
+    //   finalGain = clamp(transientGain + mods[TransientLevel], 0, 2)
+    //   Useful for velocity → transient loudness or breath → attack emphasis.
+    static constexpr int TransientLevel = 11; // transient sample gain
+
+    static constexpr int NumDests = 12;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -105,10 +110,13 @@ namespace ModSlots {
     static constexpr int NumSourceChoices = 7 + NumAux;
 
     // Destination choice list.  Maps to ModDestID values.
+    // IMPORTANT: only ever APPEND — APVTS stores the choice index, so inserting
+    // would shift existing presets' destination assignments.
     inline const char* const kDestNames[] = {
-        "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync"
+        "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync",
+        "Transient"
     };
-    static constexpr int NumDestChoices = 10;
+    static constexpr int NumDestChoices = 11;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -140,6 +148,7 @@ namespace ModSlots {
             case 7: return ModDestID::OscNoiseMix;
             case 8: return ModDestID::OscInharm;
             case 9: return ModDestID::OscSync;
+            case 10: return ModDestID::TransientLevel;
             default: return -1;
         }
     }

@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <array>
 #include "Synth/SynthVoice.h"
+#include "Synth/TransientLibrary.h"
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
 #include "Preset/PresetManager.h"
@@ -323,6 +324,11 @@ private:
     bool                         specReady { false };
     void pushSpectrumSamples (const float* x, int n);
     void computeSpectrum();
+
+    // ── Transient sample library ───────────────────────────────────────────────
+    // Constructed once; all voices hold a const pointer into it.
+    // Never mutated after the processor constructor returns.
+    TransientLibrary transientLib;
 
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.
