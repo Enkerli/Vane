@@ -1250,7 +1250,7 @@ function livePcSet(){
 function precSegInline(){
   const t=tuningState;
   const seg=(id,lbl,on,dis)=>`<button class="pbtn ${on?'on':''}" data-prec="${id}" ${dis?'disabled':''}>${lbl}</button>`;
-  return `<div class="seg">${seg('mts','Master',t.source==='mts',!state.mts)}${seg('internal','Internal',t.source==='internal',false)}${seg('off','Bypass',t.source==='off',false)}</div>`;
+  return `<div class="seg">${seg('mts','MTS',t.source==='mts',!state.mts)}${seg('internal','Internal',t.source==='internal',false)}${seg('off','Bypass',t.source==='off',false)}</div>`;
 }
 function sourceName(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
   if(t.source==='off')      return '12-tone Equal';
@@ -1320,20 +1320,32 @@ drawVis=function(){ if(view==='tuning'){
   return; } _origDrawVis(); };
 // Header chip now jumps to the Tuning stage view.
 Bridge.on('tuningStatus',({connected,source,name,internalId,devTable,holeFlags})=>{
-  setMtsLabel(connected);
+  // Update state FIRST, then the chip — so the chip always reads fresh values.
+  state.mts = connected;
   if(typeof source==='string')     tuningState.source=source;
   if(typeof name==='string')       tuningState.name=name;
   if(typeof internalId==='string') tuningState.internal=internalId;
   if(Array.isArray(devTable))      tuningState.devTable=devTable;
   if(Array.isArray(holeFlags))     tuningState.holeFlags=holeFlags;
+  updateTuningChip(connected);
+  // Reset livePc cache so the view repaints even when sounding notes haven't
+  // changed (e.g. switching internal tunings while holding a note).
+  lastLivePcKey='';
   if(view==='tuning') paintStageTuning();
 });
-function setMtsLabel(connected){ const c=$('#tuningChip'); if(!c)return; state.mts=connected;
-  c.classList.toggle('warn-state', !connected);
-  const n=tuningState.name;
-  c.textContent = connected ? (n ? 'MTS: '+n : 'MTS-ESP · on') : '⚠ MTS-ESP off · click to retry';
-  c.title = 'Tuning — click to open';
-  c.onclick = ()=>setView('tuning'); }
+// Chip text reflects the ACTIVE tuning, not just the MTS connection state.
+function updateTuningChip(connected){ const c=$('#tuningChip'); if(!c)return;
+  c.classList.toggle('warn-state', !connected && tuningState.source==='mts');
+  const t=tuningState;
+  let label;
+  if(t.source==='off')             label = '12-EDO (bypass)';
+  else if(t.source==='internal')   label = sourceName();       // e.g. "Pythagorean"
+  else if(connected && t.name)     label = 'MTS: '+t.name;
+  else if(connected)               label = 'MTS-ESP · on'; // · (ASCII-safe literal)
+  else                             label = '⚠ MTS-ESP off · click to retry';
+  c.textContent=label; c.title='Tuning — click to open'; c.onclick=()=>setView('tuning'); }
+// Keep the original setMtsLabel name working (called from elsewhere).
+function setMtsLabel(connected){ state.mts=connected; updateTuningChip(connected); }
 
 // ── Incoming bridge events (real plugin pushes these) ────────────────────
 Bridge.on('meters',m=>{ Object.assign(state.meters,m); if(!state.sim) tickMeters(); });
