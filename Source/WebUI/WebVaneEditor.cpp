@@ -221,12 +221,23 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         // ── Wavetable load (.wav) ──────────────────────────────────────────────
         .withEventListener ("loadWavetable", [owner] (const Array<var>&) {
             owner->fileChooser = std::make_unique<juce::FileChooser> (
-                "Load wavetable (.wav)", juce::File(), "*.wav");
+                "Load wavetable (.wav)", juce::File(), "*.wav;*.WAV");
             owner->fileChooser->launchAsync (
                 juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                 [owner] (const juce::FileChooser& fc) {
-                    const auto f = fc.getResult();
-                    const bool ok = f.existsAsFile() && owner->proc.loadWavetable (f);
+                    // Read via the URL, not getResult(): on iOS the pick is a
+                    // security-scoped URL with no usable local file path.
+                    const auto url = fc.getURLResult();
+                    bool ok = false;
+                    if (! url.isEmpty()) {
+                        juce::MemoryBlock mb;
+                        if (auto in = url.createInputStream (juce::URL::InputStreamOptions (
+                                          juce::URL::ParameterHandling::inAddress)))
+                            in->readIntoMemoryBlock (mb);
+                        if (mb.getSize() > 0)
+                            ok = owner->proc.loadWavetableFromData (
+                                     mb, url.getFileName().upToLastOccurrenceOf (".", false, false));
+                    }
                     owner->sendWavetableInfo (ok);
                     owner->fileChooser.reset();
                 });

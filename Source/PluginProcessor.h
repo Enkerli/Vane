@@ -211,6 +211,13 @@ public:
     // thread and hands the new pointer to every voice.
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
+    // Load from already-read bytes + a display name.  iOS picks files as
+    // security-scoped URLs (no usable local path), so the editor reads the URL
+    // into memory and hands it here.
+    bool loadWavetableFromData (const juce::MemoryBlock& mb, const juce::String& name) {
+        activeWtName = name.isNotEmpty() ? name : juce::String ("Wavetable");
+        return setWavetableFromData (mb);
+    }
     void restoreWavetableFromState();                      // rebuild from embedded state
     void applyWavetableToVoices();
     // Revert to the built-in Harmonic Stack (drops any loaded table).
