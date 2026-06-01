@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "WebUI/WebVaneEditor.h"
+#include <BinaryDataLibrary.h>
 
 VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
@@ -80,6 +81,8 @@ VaneProcessor::VaneProcessor()
                           apvts.getRawParameterValue(base + "_curve"));
     }
 
+    parseLibraryManifest();   // parse the bundled factory table catalogue
+
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
     juce::UnitTestRunner runner;
@@ -157,6 +160,58 @@ void VaneProcessor::computeSpectrum()
                                     std::memory_order_relaxed);   // −80..0 dB → 0..1
     }
     specReady = true;
+}
+
+void VaneProcessor::parseLibraryManifest()
+{
+    library.clear();
+    const juce::String json (BinaryDataLib::library_json,
+                             (size_t) BinaryDataLib::library_jsonSize);
+    auto root = juce::JSON::parse (json);
+    const juce::Array<juce::var>* tables = nullptr;
+    if (auto* obj = root.getDynamicObject())
+        tables = obj->getProperty ("tables").getArray();
+    if (tables == nullptr) return;
+    for (const auto& t : *tables) {
+        LibraryEntry e;
+        e.id          = t["id"].toString();
+        e.title       = t["title"].toString();
+        e.family      = t["family"].toString();
+        e.morphIntent = t["morphIntent"].toString();
+        e.license     = t["license"].toString();
+        e.frameCount  = (int) t["frameCount"];
+        if (auto* tagsArr = t["tags"].getArray())
+            for (auto& tag : *tagsArr) e.tags.add (tag.toString());
+        if (e.id.isNotEmpty()) library.add (e);
+    }
+}
+
+// Binary-data lookup: id → resource name (e.g. "akwf_violin" → "AKWF_violin_wav").
+// juce_add_binary_data mangles filenames: dots→underscores, prefix preserved.
+bool VaneProcessor::loadLibraryTable (const juce::String& id)
+{
+    // Build the expected resource name from the id.
+    // ids are like "akwf_violin"; files are "AKWF_violin.wav" → resource "AKWF_violin_wav"
+    juce::String resName;
+    for (const auto& e : library) {
+        if (e.id == id) {
+            // Match the file entry in the manifest to find the expected BinaryData name.
+            // Convention: AKWF_violin.wav → AKWF_violin_wav; dots → underscores.
+            resName = e.id.toUpperCase().replace ("-", "_") + "_wav";
+            break;
+        }
+    }
+    if (resName.isEmpty()) return false;
+    int sz = 0;
+    const char* data = BinaryDataLib::getNamedResource (resName.toRawUTF8(), sz);
+    if (data == nullptr || sz <= 0) return false;
+
+    // Find the title for display.
+    for (const auto& e : library) if (e.id == id) { activeWtName = e.title; break; }
+    juce::MemoryBlock mb (data, (size_t) sz);
+    const bool ok = setWavetableFromData (mb);
+    if (ok) apvts.state.setProperty ("wavetableLibraryId", id, nullptr);
+    return ok;
 }
 
 void VaneProcessor::applyWavetableToVoices()

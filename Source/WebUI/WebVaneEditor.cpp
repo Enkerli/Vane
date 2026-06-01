@@ -268,6 +268,15 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             owner->proc.useBuiltInWavetable();
             owner->sendWavetableInfo (true);
         })
+        .withEventListener ("loadLibraryTable", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const bool ok = owner->proc.loadLibraryTable (a[0]["id"].toString());
+            owner->sendWavetableInfo (ok);
+            owner->sendLibrary();   // refresh so the active badge updates
+        })
+        .withEventListener ("requestLibrary", [owner] (const Array<var>&) {
+            owner->sendLibrary();
+        })
         .withEventListener ("setMorphPhaseAlign", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             owner->proc.setMorphPhaseAlign (static_cast<bool> (a[0]["on"]));
@@ -541,6 +550,28 @@ void WebVaneEditor::sendTuningState()
     }));
 }
 
+void WebVaneEditor::sendLibrary()
+{
+    juce::Array<juce::var> entries;
+    const auto activeId = proc.apvts.state.getProperty ("wavetableLibraryId", "").toString();
+    for (const auto& e : proc.getLibrary()) {
+        juce::Array<juce::var> tags;
+        for (auto& t : e.tags) tags.add (t);
+        entries.add (makeObj ({
+            { "id",          e.id },
+            { "title",       e.title },
+            { "family",      e.family },
+            { "morphIntent", e.morphIntent },
+            { "license",     e.license },
+            { "frameCount",  e.frameCount },
+            { "tags",        juce::var (tags) },
+            { "active",      e.id == activeId },
+        }));
+    }
+    webView.emitEventIfBrowserIsVisible ("libraryData",
+        makeObj ({ { "tables", juce::var (entries) } }));
+}
+
 void WebVaneEditor::sendWavetableInfo (bool ok)
 {
     webView.emitEventIfBrowserIsVisible ("wavetableInfo", makeObj ({
@@ -632,6 +663,7 @@ void WebVaneEditor::sendInitialState()
     sendControllerState();
     sendProfileList();
     sendWavetableInfo (true);
+    sendLibrary();
     sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));

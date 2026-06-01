@@ -209,6 +209,16 @@ public:
     // thread may still read the previous pointer); activeWavetable is the one all
     // voices currently read.  loadWavetable() builds on the calling (message)
     // thread and hands the new pointer to every voice.
+    // ── Factory wavetable library ─────────────────────────────────────────────
+    struct LibraryEntry {
+        juce::String id, title, family, morphIntent, license;
+        juce::StringArray tags;
+        int frameCount { 0 };
+    };
+    const juce::Array<LibraryEntry>& getLibrary() const { return library; }
+    // Load a factory table by id (from BinaryData); returns false on bad id.
+    bool loadLibraryTable (const juce::String& id);
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as
@@ -243,6 +253,8 @@ public:
     }
 
 private:
+    juce::Array<LibraryEntry>               library;          // parsed once at construction
+    void parseLibraryManifest();
     std::vector<std::unique_ptr<Wavetable>> wavetablePool;   // keep-alive
     const Wavetable* activeWavetable { &Wavetable::builtInDefault() };
     juce::String activeWtName { "Harmonic Stack (built-in)" };

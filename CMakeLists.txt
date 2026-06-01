@@ -180,6 +180,22 @@ juce_add_binary_data(VaneWebUI
     SOURCES     Source/WebUI/index.html)
 target_link_libraries(Vane PRIVATE VaneWebUI)
 
+# ── Factory wavetable library (bundled, CC0 / Public Domain) ─────────────────
+# A curated subset compiled into BinaryData so the browser works on AUv3/iOS
+# without any file picker.  library.json is the manifest; .wav files are the
+# tables.  Re-run Assets/library/build_manifest.py to regenerate the manifest.
+juce_add_binary_data(VaneLibrary
+    HEADER_NAME BinaryDataLibrary.h
+    NAMESPACE   BinaryDataLib
+    SOURCES
+        Assets/library/library.json
+        Assets/library/AKWF_violin.wav
+        Assets/library/AKWF_oboe.wav
+        Assets/library/AKWF_pluckalgo.wav
+        Assets/library/AKWF_stringbox.wav
+        Assets/library/AKWF_bw_perfectwaves.wav)
+target_link_libraries(Vane PRIVATE VaneLibrary)
+
 target_compile_definitions(Vane PUBLIC
     JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple
     JUCE_USE_CURL=0

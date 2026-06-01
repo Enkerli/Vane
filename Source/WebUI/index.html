@@ -289,6 +289,14 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
   .tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;border-radius:0;border-left:none;border-right:none;border-bottom:none;
     padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--vn-panel)}
 }
+/* ── Wavetable library browser ── */
+.lib-list{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.lib-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--vn-line-soft);border-radius:10px;background:var(--vn-panel2);cursor:pointer;min-height:var(--tap,44px)}
+.lib-row:hover{border-color:var(--vn-muted-2)}
+.lib-row.active{border-color:var(--vn-slide);background:var(--vn-panel);box-shadow:var(--shadow)}
+.lib-row .lr-title{font-weight:600;font-size:13px}
+.lib-row .lr-meta{font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted);margin-top:2px}
+.lib-row .lr-badge{font-family:var(--vn-mono);font-size:9px;color:var(--vn-expr);border:1px solid var(--vn-expr);border-radius:999px;padding:2px 7px;white-space:nowrap}
 /* ── Tuning surface (4th Stage view) — lifted from Claude Design handoff ── */
 .tune-prec{border:1px solid var(--vn-line-soft);border-radius:14px;background:var(--vn-panel2);padding:13px 14px}
 .tune-prec .pr-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
@@ -459,6 +467,7 @@ const state = {
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
   wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false, strip:null, stripCols:0},   // active morph wavetable
+  library:[],   // factory table catalogue
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -682,6 +691,7 @@ function renderPatch(){
         <div class="top"><span class="lbl">Wavetable</span>
           <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span></div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0">
+          <button class="btn" onclick="openLibraryBrowser()" title="Browse the factory wavetable library (CC0)">Library…</button>
           <button class="btn" onclick="useBuiltinWavetable()" title="Revert to the built-in Harmonic Stack">Built-in</button>
           <button class="btn ${morphSnap?'primary':''}" id="wtSnapBtn" onclick="toggleMorphSnap()" title="Snap Morph to exact frames">Snap</button>
           <button class="btn ${state.wt.phaseAlign?'primary':''}" id="wtAlignBtn" onclick="toggleMorphAlign()" title="Phase-align morph — interpolate magnitudes so the morph never cancels (no effect on phase-coherent tables)">Phase-align</button>
@@ -1364,6 +1374,40 @@ Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
   if(!ok){ const b=$('#wtInfo'); if(b) b.textContent='Could not load that .wav'; } });
 function loadWavetableFile(){ Bridge.send('loadWavetable'); }
 function useBuiltinWavetable(){ Bridge.send('useBuiltinWavetable'); }
+
+// ── Factory wavetable library browser ────────────────────────────────────────
+const MORPH_INTENT_LABELS = {
+  spectral_enrichment:'spectral', brightness_ramp:'brightness',
+  fold_growth:'fold', asymmetry_growth:'asymmetry', noise_growth:'noise',
+  formant_shift:'formant', pulse_motion:'pulse', digital_decay:'digital',
+  hybrid:'hybrid', unknown:'—'
+};
+Bridge.on('libraryData',({tables})=>{ if(Array.isArray(tables)) state.library=tables;
+  const el=$('#libRows'); if(el) renderLibRows(el); });
+function renderLibRows(el){
+  el.innerHTML=(state.library||[]).map(t=>`
+    <div class="lib-row ${t.active?'active':''}" onclick="pickLibTable('${t.id}')">
+      <div><div class="lr-title">${t.title}${t.active?' ◆':''}</div>
+        <div class="lr-meta">${t.frameCount} frames · ${MORPH_INTENT_LABELS[t.morphIntent]||t.morphIntent} · ${t.family}</div>
+      </div>
+      <span class="lr-badge">${t.license}</span>
+    </div>`).join('');
+}
+function pickLibTable(id){
+  Bridge.send('loadLibraryTable',{id});
+  closeModal();
+}
+function openLibraryBrowser(){
+  Bridge.send('requestLibrary');
+  openModal(`<h3>Wavetable Library</h3>
+    <p>Factory tables — all <b>CC0 / Public Domain</b>, bundled for iOS compatibility.
+    Click a table to audition immediately; use <b>Load .wav…</b> to import your own.</p>
+    <div id="libRows" class="lib-list">${(state.library||[]).length===0
+      ? '<p style="color:var(--vn-muted);font-size:12px">Loading…</p>'
+      : ''}</div>
+    <div class="actions"><button class="btn primary" onclick="closeModal()">Done</button></div>`);
+  const el=$('#libRows'); if(el) renderLibRows(el);
+}
 function toggleMorphAlign(){ state.wt.phaseAlign=!state.wt.phaseAlign;
   const ab=$('#wtAlignBtn'); if(ab) ab.classList.toggle('primary',state.wt.phaseAlign);
   Bridge.send('setMorphPhaseAlign',{on:state.wt.phaseAlign}); markDirty(); }
