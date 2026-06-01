@@ -1253,17 +1253,24 @@ function precSegInline(){
   return `<div class="seg">${seg('mts','Master',t.source==='mts',!state.mts)}${seg('internal','Internal',t.source==='internal',false)}${seg('off','Bypass',t.source==='off',false)}</div>`;
 }
 function sourceName(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
-  if(t.source==='off') return '12-tone Equal'; if(t.source==='internal') return tn.name;
-  return t.name||'12-tone Equal'; }
+  if(t.source==='off')      return '12-tone Equal';
+  if(t.source==='internal') return tn.name;
+  // FollowMTS: show the master name when connected; explicit "No master" otherwise
+  // so the display never shows the internal tuning name in the master section.
+  return state.mts ? (t.name||'Connected') : 'No master'; }
 function sourceSys(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
-  if(t.source==='off') return '12-EDO 100c/step'; if(t.source==='internal') return tn.sys;
-  return ''; }
+  if(t.source==='off')      return '12-EDO 100c/step';
+  if(t.source==='internal') return tn.sys;
+  return state.mts ? '' : 'Waiting for MTS-ESP master'; }
 function paintStageTuning(){
   const el=$('#tuneStage'); if(!el) return;
   const t=tuningState;
   const tn=TUN[t.internal]||TUN.just;
-  const devT = t.devTable.length===12 ? t.devTable : new Array(12).fill(0);
-  const holeF = t.holeFlags.length===12 ? t.holeFlags : new Array(12).fill(false);
+  // When following MTS with no master, show flat 12-ET (no holes, no deviation)
+  // — the internal table is irrelevant in this mode.
+  const noMaster = (t.source==='mts' && !state.mts);
+  const devT  = noMaster ? new Array(12).fill(0)     : (t.devTable.length===12  ? t.devTable  : new Array(12).fill(0));
+  const holeF = noMaster ? new Array(12).fill(false) : (t.holeFlags.length===12 ? t.holeFlags : new Array(12).fill(false));
   const live=livePcSet();
   el.innerHTML=`<div class="tune-stagebar">
       ${precSegInline()}
@@ -1282,10 +1289,14 @@ function paintStageTuning(){
         <span><i style="background:var(--vn-pressure)"></i>hole</span>
       </div></div></div>`;
   el.querySelectorAll('[data-prec]').forEach(b=>b.onclick=()=>{
-    if(b.disabled)return; tuningState.source=b.dataset.prec;
+    if(b.disabled)return;
+    tuningState.source=b.dataset.prec;
+    paintStageTuning();  // immediate optimistic repaint (bridge response will confirm)
     Bridge.send('setTuningSource',{source:b.dataset.prec}); });
   const sel=el.querySelector('[data-stagepick]'); if(sel) sel.onchange=()=>{
-    tuningState.internal=sel.value; Bridge.send('setInternalTuning',{id:sel.value}); };
+    tuningState.internal=sel.value;
+    paintStageTuning();  // immediate repaint
+    Bridge.send('setInternalTuning',{id:sel.value}); };
 }
 // Wire tuning into setView.
 const _origSetView=setView;

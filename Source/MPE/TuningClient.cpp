@@ -123,10 +123,17 @@ juce::String TuningClient::tuningName() const
 {
     if (source == TuningSource::Bypass) return {};
 #if VANE_HAS_MTS
-    if (source == TuningSource::FollowMTS && mtsClient && MTS_HasMaster(mtsClient)) {
-        const char* n = MTS_GetScaleName(mtsClient);
-        if (n && n[0]) return juce::String (n);
+    if (source == TuningSource::FollowMTS) {
+        if (mtsClient && MTS_HasMaster(mtsClient)) {
+            const char* n = MTS_GetScaleName(mtsClient);
+            if (n && n[0]) return juce::String (n);
+            return juce::String ("(unnamed tuning)");
+        }
+        // FollowMTS but no master: return empty — no tuning name to report.
+        return {};
     }
+#else
+    if (source == TuningSource::FollowMTS) return {};
 #endif
     // Internal tuning names (ASCII-only literals — non-ASCII through juce::String
     // traps on iOS; all names here are deliberately ASCII).

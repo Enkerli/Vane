@@ -419,11 +419,14 @@ void WebVaneEditor::timerCallback()
         webView.emitEventIfBrowserIsVisible ("voice", makeObj ({ { "note", note } }));
     }
 
-    // Real MTS-ESP connection state — push on change (the chip reflects this,
-    // never a faked UI toggle).
-    const bool mts = proc.mtsConnected();
-    if (mts != lastMtsState) {
-        lastMtsState = mts;
+    // Push tuning state whenever the connection state OR the active tuning name
+    // changes.  Checking the name catches in-session tuning switches (Entonal
+    // Studio changing presets while connected) which don't flip the connected bool.
+    const bool   mts  = proc.mtsConnected();
+    const auto   name = proc.tuning.tuningName();
+    if (mts != lastMtsState || name != lastTuningName) {
+        lastMtsState  = mts;
+        lastTuningName = name;
         sendTuningState();
     }
 
