@@ -69,6 +69,10 @@ set(PLUGIN_BASE_PROPS
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    # App / plugin icon (Standalone .app, AUv3, installer).  JUCE generates the
+    # platform icon sets (.icns / .ico) from these two PNGs.
+    ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-1024.png"
+    ICON_SMALL                  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-128.png"
     # COPY_PLUGIN_AFTER_BUILD is set per-platform below — it must be FALSE for
     # iOS cross-compiles (there is no plugin install location on the build host).
 )
