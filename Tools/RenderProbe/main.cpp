@@ -3,6 +3,7 @@
 // Purpose: reproduce the "sub-bass / no sustained tone" report headlessly.
 #include "../../Source/PluginProcessor.h"
 #include "../../Source/Synth/Oscillator.h"
+#include "../../Source/Synth/TransientLibrary.h"
 #include <juce_dsp/juce_dsp.h>
 #include <cstdio>
 #include <cmath>
@@ -45,6 +46,8 @@ int main()
         if (auto* p = proc.apvts.getParameter("velocityMix"))
             p->setValueNotifyingHost (1.0f);
 
+    const bool transientTest = std::getenv("TRANSIENT") != nullptr;
+
     juce::AudioBuffer<float> buf (2, bs);
 
     const int   note = 55;            // G3 ~196 Hz
@@ -55,30 +58,100 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Transient test: choose sample 1, gain 2.0, trigger Always; measure the
+    // attack-window energy (should spike if the transient fires).
+    if (transientTest) {
+        auto setNorm = [&](const char* id, float v){ if (auto* p = proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        int pick = std::getenv("TCHOICE") ? atoi(std::getenv("TCHOICE")) : 1;
+        if (auto* cp = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("transientChoice"))) {
+            std::printf ("[transient] choice list (%d): ", cp->choices.size());
+            for (auto& c : cp->choices) std::printf ("'%s' ", c.toRawUTF8());
+            std::printf ("\n");
+            *cp = pick;   // pick sample (env TCHOICE)
+        }
+        setNorm ("transientGain", 1.0f);      // normalised 1.0 → max (gain 2.0)
+        setNorm ("transientTrigger", 0.0f);   // Always
+        setNorm ("velocityMix", 1.0f);        // steady VCA so we hear the note too
+        if (std::getenv("MONO")) { setNorm ("monoMode", 1.0f); std::printf ("[transient] MONO legato mode\n"); }
+        std::printf ("[transient] gain=%.2f decay=%.1f trig=%.0f choice=%.0f\n",
+                     pv("transientGain"), pv("transientDecay"), pv("transientTrigger"), pv("transientChoice"));
+        // Inspect the library samples directly (own instance, same ctor).
+        TransientLibrary lib;
+        std::printf ("[transient] library entries=%d\n", lib.numEntries());
+        for (int i = 1; i < lib.numEntries(); ++i)
+            if (auto* s = lib.getSample(i)) {
+                const float* d = s->buffer.getReadPointer(0);
+                int ns = s->buffer.getNumSamples();
+                float pk=0,sq=0; int firstLoud=-1;
+                for (int j=0;j<ns;++j){ float v=std::abs(d[j]); pk=std::max(pk,v); sq+=(double)v*v; if(firstLoud<0&&v>0.1f)firstLoud=j; }
+                std::printf ("    [%d] '%s' n=%d sr=%.0f nativeHz=%.1f peak=%.4f rms=%.4f firstLoud@%d (%.1fms)\n",
+                             i, s->name.toRawUTF8(), ns, s->sampleRate, s->nativeHz,
+                             pk, std::sqrt(sq/ns), firstLoud, firstLoud<0?-1.0:firstLoud*1000.0/s->sampleRate);
+            }
+            else std::printf ("    [%d] NULL\n", i);
+    }
+
     // Accumulate ~1.5 s of sustained output (after a short settle) into one vector.
     std::vector<float> out;
     const int totalBlocks = (int) (sr * 2.0 / bs);
     const int noteOnBlock  = 2;
     const int captureStart = (int) (sr * 0.5 / bs);   // skip attack/settle
 
+    std::vector<float> fromNoteOn;   // full capture from the note-on (for transient attack analysis)
     for (int b = 0; b < totalBlocks; ++b) {
         buf.clear();
         juce::MidiBuffer midi;
         if (b == noteOnBlock)
             midi.addEvent (juce::MidiMessage::noteOn (chan, note, vel), 0);
-        if (!velVca) {   // breath/pressure drive the VCA (default wind mode)
+        // MONO legato test: hold breath, then play a 2nd note legato at ~0.25s.
+        const bool monoTest = transientTest && std::getenv("MONO");
+        const int legatoBlock = (int)(sr * 0.25 / bs);
+        if (monoTest) {
+            midi.addEvent (juce::MidiMessage::controllerEvent (1, 2, 110), 0);
+            midi.addEvent (juce::MidiMessage::channelPressureChange (chan, 100), 0);
+            if (b == legatoBlock) {
+                midi.addEvent (juce::MidiMessage::noteOn (chan, note + 5, vel), 0);  // legato 2nd note
+                std::printf ("[transient] 2nd (legato) note at block %d (~250ms)\n", b);
+            }
+        }
+        const bool driveVca = !velVca && !transientTest;  // transientTest uses steady velVca
+        if (driveVca) {   // breath/pressure drive the VCA (default wind mode)
             if (b >= noteOnBlock) {
                 midi.addEvent (juce::MidiMessage::controllerEvent (1, 2, 110), 0);
                 midi.addEvent (juce::MidiMessage::channelPressureChange (chan, 100), 0);
             }
         }
         proc.processBlock (buf, midi);
+        if (b >= noteOnBlock)
+            for (int i = 0; i < bs; ++i) fromNoteOn.push_back (buf.getReadPointer(0)[i]);
         if (b == noteOnBlock || b == captureStart || b == totalBlocks/2) {
             double r = 0; for (int i=0;i<bs;++i){ float v=buf.getReadPointer(0)[i]; r+=(double)v*v; }
             std::printf ("  block %d rms=%.5f\n", b, std::sqrt(r/bs));
         }
         if (b >= captureStart)
             for (int i = 0; i < bs; ++i) out.push_back (buf.getReadPointer(0)[i]);
+    }
+
+    if (transientTest) {
+        // Attack window = first 60 ms after note-on; sustain = 300-500 ms.
+        auto winPeakRms = [&](double t0, double t1){
+            int a=(int)(sr*t0), z=(int)(sr*t1); double pk=0,sq=0; int n=0;
+            for (int i=a;i<z && i<(int)fromNoteOn.size();++i){ float v=fromNoteOn[i]; pk=std::max(pk,(double)std::abs(v)); sq+=(double)v*v; ++n; }
+            return std::pair<double,double>(pk, std::sqrt(sq/std::max(1,n)));
+        };
+        if (std::getenv("MONO")) {
+            // Measure transient spike around the 2nd (legato) note at 250ms.
+            auto before = winPeakRms(0.18, 0.245);
+            auto onLeg  = winPeakRms(0.25, 0.31);
+            std::printf ("[transient] MONO: before-legato(180-245ms) peak=%.4f rms=%.4f | on-legato(250-310ms) peak=%.4f rms=%.4f | ratio=%.2fx\n",
+                         before.first, before.second, onLeg.first, onLeg.second, onLeg.second/(before.second+1e-9));
+        } else {
+            auto atk = winPeakRms(0.0, 0.06);
+            auto sus = winPeakRms(0.30, 0.50);
+            std::printf ("[transient] attack(0-60ms) peak=%.4f rms=%.4f | sustain(300-500ms) peak=%.4f rms=%.4f | attack/sustain rms=%.2fx\n",
+                         atk.first, atk.second, sus.first, sus.second, atk.second/(sus.second+1e-9));
+        }
+        return 0;
     }
 
     // Print zero-crossings of a 0.1s window to estimate the true fundamental.

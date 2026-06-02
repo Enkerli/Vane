@@ -64,6 +64,7 @@ private:
     void sendTuningState();             // full tuning state (source, name, deviation table) → UI
     void sendWavetableStrip();          // overview filmstrip of the table's frames → UI
     void sendLibrary();                 // factory library catalogue → UI
+    void sendTransientList();           // transient sample names → UI
     std::unique_ptr<juce::FileChooser> fileChooser;   // kept alive during async pick
     bool                       probeOn { false };   // diagnostics panel active
     int                        probeTick { 0 };     // throttle source enum to ~2 Hz

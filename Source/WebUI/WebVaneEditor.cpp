@@ -552,6 +552,15 @@ void WebVaneEditor::sendTuningState()
     }));
 }
 
+void WebVaneEditor::sendTransientList()
+{
+    juce::Array<juce::var> names;
+    for (const auto& n : proc.getTransientLibrary().names())   // includes "None" at 0
+        names.add (n);
+    webView.emitEventIfBrowserIsVisible ("transientList",
+        makeObj ({ { "names", juce::var (names) } }));
+}
+
 void WebVaneEditor::sendLibrary()
 {
     juce::Array<juce::var> entries;
@@ -666,6 +675,7 @@ void WebVaneEditor::sendInitialState()
     sendProfileList();
     sendWavetableInfo (true);
     sendLibrary();
+    sendTransientList();
     sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));

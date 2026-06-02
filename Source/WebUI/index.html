@@ -469,6 +469,7 @@ const state = {
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
   wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false, strip:null, stripCols:0},   // active morph wavetable
   library:[],   // factory table catalogue
+  transients:['None'],   // transient sample names (index 0 = None)
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -728,8 +729,8 @@ function renderPatch(){
     </div>
     <div class="group"><span class="eyebrow">Transient</span>
       <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Sample</span>
-          <span class="val num">${['None',...(state.library||[]).map(t=>t.title)][Math.round(state.patch.TrChoice)]||'None'}</span></div>
-        <div class="seg" style="flex-wrap:wrap">${['None',...(state.library||[]).map(t=>t.title)].map((n,i)=>`<button class="${Math.round(state.patch.TrChoice)===i?'active':''}" onclick="trChoice(${i})">${n}</button>`).join('')}</div>
+          <span class="val num">${(state.transients||['None'])[Math.round(state.patch.TrChoice)]||'None'}</span></div>
+        <div class="seg" style="flex-wrap:wrap">${(state.transients||['None']).map((n,i)=>`<button class="${Math.round(state.patch.TrChoice)===i?'active':''}" onclick="trChoice(${i})">${n}</button>`).join('')}</div>
       </div>
       ${pslider('TrGain','Gain','--vn-vel')}${pslider('TrDecay','Decay','--vn-vel')}
       <div class="pslider"><div class="top"><span class="lbl">Trigger</span></div>
@@ -1397,6 +1398,8 @@ const MORPH_INTENT_LABELS = {
 };
 Bridge.on('libraryData',({tables})=>{ if(Array.isArray(tables)) state.library=tables;
   const el=$('#libRows'); if(el) renderLibRows(el); });
+Bridge.on('transientList',({names})=>{ if(Array.isArray(names)&&names.length){ state.transients=names;
+  if(tab==='patch') renderPatch(); } });
 function renderLibRows(el){
   el.innerHTML=(state.library||[]).map(t=>`
     <div class="lib-row ${t.active?'active':''}" onclick="pickLibTable('${t.id}')">

@@ -329,6 +329,9 @@ private:
     // Constructed once; all voices hold a const pointer into it.
     // Never mutated after the processor constructor returns.
     TransientLibrary transientLib;
+public:
+    const TransientLibrary& getTransientLibrary() const { return transientLib; }
+private:
 
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.
