@@ -44,6 +44,17 @@ TransientLibrary::TransientLibrary()
     loadFromMemory(BinaryDataTrn::trumpet_stac_A4_wav,
                    BinaryDataTrn::trumpet_stac_A4_wavSize,
                    "Trumpet Attack", 440.0f);
+
+    // ── Inharmonic (noise-based) transients ─────────────────────────────────────
+    // Synthesised CC0 (Assets/transients/gen_inharmonic.py).  pitched=false: these
+    // play at a fixed speed regardless of note, so the attack is identical across
+    // the keyboard and there is no harmonic series to smear under transposition.
+    loadFromMemory(BinaryDataTrn::gen_tongue_wav, BinaryDataTrn::gen_tongue_wavSize, "Tongue",     440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_click_wav,  BinaryDataTrn::gen_click_wavSize,  "Key Click",  440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_chiff_wav,  BinaryDataTrn::gen_chiff_wavSize,  "Air Chiff",  440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_knock_wav,  BinaryDataTrn::gen_knock_wavSize,  "Wood Knock", 440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_pick_wav,   BinaryDataTrn::gen_pick_wavSize,   "Pick Noise", 440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_buzz_wav,   BinaryDataTrn::gen_buzz_wavSize,   "Reed Buzz",  440.0f, false);
 }
 
 const TransientSample* TransientLibrary::getSample(int index) const noexcept
@@ -54,7 +65,7 @@ const TransientSample* TransientLibrary::getSample(int index) const noexcept
 }
 
 void TransientLibrary::loadFromMemory(const char* data, int size,
-                                       const char* name, float nativeHz)
+                                       const char* name, float nativeHz, bool pitched)
 {
     juce::AudioFormatManager fmt;
     fmt.registerBasicFormats();
@@ -71,6 +82,7 @@ void TransientLibrary::loadFromMemory(const char* data, int size,
     ts.name       = name;
     ts.sampleRate = reader->sampleRate;
     ts.nativeHz   = nativeHz;
+    ts.pitched    = pitched;
     ts.buffer.setSize(1, numSamples, false, true, false);
 
     // Read all channels into a temp buffer and mix down to mono.

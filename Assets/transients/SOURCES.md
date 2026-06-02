@@ -3,6 +3,21 @@
 All files in this directory are released under **CC0 1.0 Universal (Public Domain)**.
 No attribution is legally required, but the sources are documented here for reference.
 
+## Inharmonic transients (gen_*.wav)
+
+Synthesised from filtered noise + fast envelopes by `gen_inharmonic.py` (seeded,
+reproducible).  These have no harmonic series (autocorrelation periodicity < 0.27
+vs ~0.98 for a tonal note), so they layer cleanly under any oscillator pitch and
+are loaded with `pitched = false` (no pitch-tracking — the attack is identical
+across the keyboard, with no smearing under transposition).
+
+  - `gen_tongue.wav`  Tongue     — bandpass noise, wind articulation "tut"
+  - `gen_click.wav`   Key Click  — broadband, ultra-short mechanical click
+  - `gen_chiff.wav`   Air Chiff  — highpassed breath noise
+  - `gen_knock.wav`   Wood Knock — lowpass resonant noise, woody thunk
+  - `gen_pick.wav`    Pick Noise — bright bandpass burst, string friction
+  - `gen_buzz.wav`    Reed Buzz  — gritty soft-clipped mid noise
+
 ## Flute, Clarinet, Cello, Trumpet
 
 **Versilian Studios Chamber Orchestra 2 — Community Edition (VSCO-2-CE)**

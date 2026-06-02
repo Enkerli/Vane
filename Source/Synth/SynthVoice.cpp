@@ -386,11 +386,14 @@ void SynthVoice::noteStarted()
         if (shouldTrigger) {
             int choice = static_cast<int>(std::round(paramTransientChoice->load()));
             if (const TransientSample* ts = transientLib->getSample(choice)) {
-                // Pitch-track the sample: speed = voiceHz / nativeHz, adjusted
-                // for any difference between the sample's native sample rate and
-                // the current plugin sample rate.
-                float speedRatio = juce::jlimit(0.125f, 8.0f,
-                                               baseHz / ts->nativeHz)
+                // Pitched (tonal) samples track the note: speed = voiceHz / nativeHz.
+                // Inharmonic (noise) samples play at a fixed speed — the attack is
+                // identical across the keyboard and there is no harmonic series to
+                // smear under transposition.  Both still correct for sample-rate.
+                const float pitchTrack = ts->pitched
+                    ? juce::jlimit(0.125f, 8.0f, baseHz / ts->nativeHz)
+                    : 1.0f;
+                float speedRatio = pitchTrack
                                    * static_cast<float>(ts->sampleRate / sampleRate);
                 transientPlayer.setSample(ts->buffer.getReadPointer(0),
                                           ts->buffer.getNumSamples());

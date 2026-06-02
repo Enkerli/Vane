@@ -50,7 +50,7 @@ int main()
 
     juce::AudioBuffer<float> buf (2, bs);
 
-    const int   note = 55;            // G3 ~196 Hz
+    const int   note = std::getenv("NOTE") ? atoi(std::getenv("NOTE")) : 55;
     const int   chan = 2;             // MPE member channel
     const float vel  = std::getenv("VEL") ? (float)atof(std::getenv("VEL")) : 0.8f;
     auto pv = [&](const char* id){ auto* p = proc.apvts.getRawParameterValue(id); return p ? p->load() : -999.0f; };

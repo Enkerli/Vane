@@ -10,6 +10,11 @@ struct TransientSample {
     juce::AudioBuffer<float> buffer;    // 1 channel, float
     double                   sampleRate = 44100.0;
     float                    nativeHz   = 440.0f;   // default: A4
+    // pitched: tonal samples (instrument notes) track the played note's pitch by
+    // resampling.  Inharmonic samples (noise bursts) set this false so they play
+    // at a fixed speed — the attack sounds identical across the keyboard and there
+    // is no harmonic series to smear when transposing far from nativeHz.
+    bool                     pitched    = true;
 };
 
 // Owns the collection of bundled transient samples.
@@ -33,8 +38,10 @@ public:
 
     // Load a factory sample from raw WAV bytes and add it to the library.
     // Called during construction from BinaryData once WAV files are bundled.
+    // pitched=false marks inharmonic samples that should not pitch-track.
     void loadFromMemory(const char* data, int size,
-                        const char* name, float nativeHz = 440.0f);
+                        const char* name, float nativeHz = 440.0f,
+                        bool pitched = true);
 
 private:
     // entries[0] is an empty sentinel corresponding to "None".

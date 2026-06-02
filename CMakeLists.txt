@@ -213,7 +213,13 @@ juce_add_binary_data(VaneTransients
         Assets/transients/recorder_stac_D4.wav
         Assets/transients/clarinet_stac_D4.wav
         Assets/transients/cello_spic_C3.wav
-        Assets/transients/trumpet_stac_A4.wav)
+        Assets/transients/trumpet_stac_A4.wav
+        Assets/transients/gen_tongue.wav
+        Assets/transients/gen_click.wav
+        Assets/transients/gen_chiff.wav
+        Assets/transients/gen_knock.wav
+        Assets/transients/gen_pick.wav
+        Assets/transients/gen_buzz.wav)
 target_link_libraries(Vane PRIVATE VaneTransients)
 
 target_compile_definitions(Vane PUBLIC
