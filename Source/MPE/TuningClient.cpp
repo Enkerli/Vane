@@ -21,6 +21,11 @@ static const float kDiat7[12]      = { 0,kHole, 203.9f,kHole,386.3f,498.0f,kHole
 
 TuningClient::TuningClient()
 {
+    // CRITICAL: fill internalCentsTable before any note can be sounded.  Without
+    // this, the table is all-zeros; with the default FollowMTS source and no MTS
+    // master, rawHz() reads 0 cents for every note and returns ~8.18 Hz (MIDI 0)
+    // for the entire keyboard — every note plays as sub-audio rumble.
+    setInternalTuning(internalId);   // default "edo12" → transparent 12-EDO fallback
 #if VANE_HAS_MTS
     mtsClient = MTS_RegisterClient();
 #endif

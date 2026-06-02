@@ -32,6 +32,7 @@ public:
         equalTemperamentA4();
         octaveSymmetry();
         noMtsMasterFallsBackToET();
+        internalTableInitialisedOnConstruction();
         oscillatorOutputBoundedAboveNyquist();
         oscillatorPhaseStaysInUnitInterval();
         oscillatorEdgeCaseExactSampleRate();
@@ -67,6 +68,25 @@ private:
     // noteToHz() must return the equal-temperament value for every note.
     // This guards against a future MTS integration inadvertently breaking the
     // no-master path and silencing notes.
+    void internalTableInitialisedOnConstruction()
+    {
+        // Regression: a default-constructed TuningClient must have its internal
+        // cents table filled to 12-EDO.  When it was left all-zeros, the Internal
+        // source (and the FollowMTS no-master fallback) returned ~8.18 Hz (MIDI 0)
+        // for EVERY note — the whole keyboard played as sub-audio rumble.
+        // This test forces Internal source so it does not depend on whether an
+        // MTS master happens to be present on the test machine.
+        beginTest("TuningClient: internal table is 12-EDO on construction");
+        TuningClient tc;
+        tc.setTuningSource(TuningSource::Internal);
+        for (int note : { 0, 48, 55, 60, 69, 96, 127 })
+        {
+            float expected = TuningClient::equalTemperamentHz(note);
+            float actual   = tc.noteToHz(note, 1);
+            expectWithinAbsoluteError(actual, expected, expected * 0.0005f);
+        }
+    }
+
     void noMtsMasterFallsBackToET()
     {
         beginTest("TuningClient: no MTS master falls back to equal temperament");

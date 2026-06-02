@@ -101,7 +101,7 @@ public:
 
 private:
     TuningSource source   { TuningSource::FollowMTS };
-    juce::String internalId { "just" };
+    juce::String internalId { "edo12" };   // 12-EDO so the no-master fallback is transparent ET
 
 #if VANE_HAS_MTS
     ::MTSClient* mtsClient = nullptr;

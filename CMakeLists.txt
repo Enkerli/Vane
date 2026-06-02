@@ -246,3 +246,45 @@ target_link_libraries(Vane PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# ── Offline render probe (headless diagnostics) ───────────────────────────────
+# Instantiates VaneProcessor and renders audio with no GUI, so engine behaviour
+# can be measured without a host.  Reuses the plugin's own source files.
+juce_add_console_app(VaneRenderProbe PRODUCT_NAME VaneRenderProbe)
+set_target_properties(VaneRenderProbe PROPERTIES EXCLUDE_FROM_ALL TRUE)  # build on demand only
+target_sources(VaneRenderProbe PRIVATE
+    Tools/RenderProbe/main.cpp
+    Source/PluginProcessor.cpp
+    Source/Synth/Oscillator.cpp
+    Source/Synth/Wavetable.cpp
+    Source/Synth/SynthVoice.cpp
+    Source/Synth/SamplePlayer.cpp
+    Source/Synth/TransientLibrary.cpp
+    Source/Modulation/ModMatrix.cpp
+    Source/MPE/TuningClient.cpp
+    Source/Preset/PresetManager.cpp
+    Source/Profile/ProfileManager.cpp
+    Source/WebUI/WebVaneEditor.cpp
+    Source/Tests/ModMatrixTests.cpp
+    Source/Tests/StringSafetyTests.cpp
+    Source/Tests/TuningTests.cpp
+    Source/Tests/TransientTests.cpp
+    Source/Tests/WavetableTests.cpp
+)
+target_include_directories(VaneRenderProbe PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(VaneRenderProbe PUBLIC
+    JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JucePlugin_Name="Vane")
+add_dependencies(VaneRenderProbe Vane_GenBuildStamp)
+if(VANE_HAS_MTS)
+    target_compile_definitions(VaneRenderProbe PUBLIC VANE_HAS_MTS=1)
+    target_link_libraries(VaneRenderProbe PRIVATE VaneMTS)
+endif()
+target_link_libraries(VaneRenderProbe PRIVATE
+    VaneWebUI VaneLibrary VaneTransients
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_processors juce::juce_audio_utils juce::juce_core
+    juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
