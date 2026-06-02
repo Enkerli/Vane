@@ -219,7 +219,11 @@ juce_add_binary_data(VaneTransients
         Assets/transients/gen_chiff.wav
         Assets/transients/gen_knock.wav
         Assets/transients/gen_pick.wav
-        Assets/transients/gen_buzz.wav)
+        Assets/transients/gen_buzz.wav
+        Assets/transients/gen_ping.wav
+        Assets/transients/gen_squeak.wav
+        Assets/transients/gen_scratch.wav
+        Assets/transients/gen_tick.wav)
 target_link_libraries(Vane PRIVATE VaneTransients)
 
 target_compile_definitions(Vane PUBLIC

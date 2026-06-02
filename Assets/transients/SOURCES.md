@@ -15,8 +15,12 @@ across the keyboard, with no smearing under transposition).
   - `gen_click.wav`   Key Click  — broadband, ultra-short mechanical click
   - `gen_chiff.wav`   Air Chiff  — highpassed breath noise
   - `gen_knock.wav`   Wood Knock — lowpass resonant noise, woody thunk
-  - `gen_pick.wav`    Pick Noise — bright bandpass burst, string friction
-  - `gen_buzz.wav`    Reed Buzz  — gritty soft-clipped mid noise
+  - `gen_pick.wav`    Pick Noise    — bright bandpass burst, string friction
+  - `gen_buzz.wav`    Reed Buzz     — gritty soft-clipped mid noise
+  - `gen_ping.wav`    Metallic Ping — narrow high bandpass, longer ring
+  - `gen_squeak.wav`  Finger Squeak — mid bandpass, gentle onset
+  - `gen_scratch.wav` Bow Scratch   — gritty soft-clipped low-mid noise
+  - `gen_tick.wav`    Snare Tick    — broadband, very short, bright
 
 ## Flute, Clarinet, Cello, Trumpet
 

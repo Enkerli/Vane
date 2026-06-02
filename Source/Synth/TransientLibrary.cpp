@@ -55,6 +55,10 @@ TransientLibrary::TransientLibrary()
     loadFromMemory(BinaryDataTrn::gen_knock_wav,  BinaryDataTrn::gen_knock_wavSize,  "Wood Knock", 440.0f, false);
     loadFromMemory(BinaryDataTrn::gen_pick_wav,   BinaryDataTrn::gen_pick_wavSize,   "Pick Noise", 440.0f, false);
     loadFromMemory(BinaryDataTrn::gen_buzz_wav,   BinaryDataTrn::gen_buzz_wavSize,   "Reed Buzz",  440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_ping_wav,    BinaryDataTrn::gen_ping_wavSize,    "Metallic Ping", 440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_squeak_wav,  BinaryDataTrn::gen_squeak_wavSize,  "Finger Squeak", 440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_scratch_wav, BinaryDataTrn::gen_scratch_wavSize, "Bow Scratch",   440.0f, false);
+    loadFromMemory(BinaryDataTrn::gen_tick_wav,    BinaryDataTrn::gen_tick_wavSize,    "Snare Tick",    440.0f, false);
 }
 
 const TransientSample* TransientLibrary::getSample(int index) const noexcept

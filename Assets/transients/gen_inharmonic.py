@@ -62,3 +62,15 @@ n=int(SR*0.05); x=bp(noise(n),2500,6000)*env(n,0.3,16); write('gen_pick.wav', fi
 
 # 6. Reed buzz — gritty mid noise (soft-clipped), reedy bite (inharmonic)
 n=int(SR*0.10); x=bp(noise(n),900,3000); x=np.tanh(x*3.0); x*=env(n,2,42); write('gen_buzz.wav', finish(x,95))
+
+# 7. Metallic ping — narrow high bandpass, longer ring
+n=int(SR*0.16); x=bp(noise(n),3500,5000)*env(n,0.3,90);  write('gen_ping.wav',    finish(x,150))
+
+# 8. Finger squeak — mid bandpass, gentle onset, medium decay
+n=int(SR*0.12); x=bp(noise(n),1800,3200)*env(n,8,55);    write('gen_squeak.wav',  finish(x,110))
+
+# 9. Bow scratch — gritty low-mid noise, soft-clipped
+n=int(SR*0.10); x=np.tanh(bp(noise(n),400,1800)*2.5)*env(n,3,45); write('gen_scratch.wav', finish(x,90))
+
+# 10. Snare tick — broadband, very short, bright
+n=int(SR*0.04); x=hp(noise(n),1200)*env(n,0.2,14);       write('gen_tick.wav',    finish(x,35))
