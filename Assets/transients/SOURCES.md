@@ -30,3 +30,8 @@ Each sample was:
 3. Normalised to 0.85 peak
 4. A 40 ms linear fade-out applied at the tail to prevent clicks
 5. Written as 16-bit PCM WAV (recorder: 48 kHz native, others: 44.1 kHz)
+
+The flute was re-trimmed (2026-06) to remove a ~80 ms breathy pre-attack so its
+loud onset lands ~10 ms in, matching the other samples; a 2 ms fade-in avoids a
+click at the new start.  This makes it usable as a punchy transient layer
+(before, the loud part arrived after the decay envelope had faded it out).
