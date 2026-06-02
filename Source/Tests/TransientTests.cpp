@@ -11,7 +11,7 @@ public:
         beginTest("SamplePlayer: idle when not triggered");
         {
             SamplePlayer p;
-            expectEquals(p.isPlaying(), false);
+            expect(!p.isPlaying());
 
             float buf[8] = {};
             float env = 1.0f;
@@ -23,7 +23,7 @@ public:
         {
             SamplePlayer p;
             p.trigger();
-            expectEquals(p.isPlaying(), false);
+            expect(!p.isPlaying());
         }
 
         beginTest("SamplePlayer: renders non-zero and stops at end");
@@ -55,7 +55,7 @@ public:
             p.setSample(data, 8);
             p.trigger(1.0f);
             p.stop();
-            expectEquals(p.isPlaying(), false);
+            expect(!p.isPlaying());
 
             float buf[8] = {};
             float env = 1.0f;
