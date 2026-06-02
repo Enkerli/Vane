@@ -191,6 +191,7 @@ void VaneProcessor::parseLibraryManifest()
     for (const auto& t : *tables) {
         LibraryEntry e;
         e.id          = t["id"].toString();
+        e.file        = t["file"].toString();
         e.title       = t["title"].toString();
         e.family      = t["family"].toString();
         e.morphIntent = t["morphIntent"].toString();
@@ -202,21 +203,26 @@ void VaneProcessor::parseLibraryManifest()
     }
 }
 
-// Binary-data lookup: id → resource name (e.g. "akwf_violin" → "AKWF_violin_wav").
-// juce_add_binary_data mangles filenames: dots→underscores, prefix preserved.
+// Map a source filename to the symbol juce_add_binary_data generates for it.
+// JUCE replaces every character that is not a letter or digit with '_', and
+// preserves the original case.  So "AKWF_violin.wav" -> "AKWF_violin_wav".
+// (Must match BinaryDataBuilder exactly, or getNamedResource returns nullptr.)
+static juce::String binaryDataSymbol (const juce::String& filename)
+{
+    juce::String s;
+    for (auto c : filename)
+        s << (juce::CharacterFunctions::isLetterOrDigit (c) ? c : (juce::juce_wchar) '_');
+    return s;
+}
+
+// Binary-data lookup: manifest file name -> resource symbol (case preserved).
 bool VaneProcessor::loadLibraryTable (const juce::String& id)
 {
-    // Build the expected resource name from the id.
-    // ids are like "akwf_violin"; files are "AKWF_violin.wav" → resource "AKWF_violin_wav"
+    // Derive the resource symbol from the manifest's file name, not the id:
+    // ids are lowercase ("akwf_violin") but files keep case ("AKWF_violin.wav").
     juce::String resName;
-    for (const auto& e : library) {
-        if (e.id == id) {
-            // Match the file entry in the manifest to find the expected BinaryData name.
-            // Convention: AKWF_violin.wav → AKWF_violin_wav; dots → underscores.
-            resName = e.id.toUpperCase().replace ("-", "_") + "_wav";
-            break;
-        }
-    }
+    for (const auto& e : library)
+        if (e.id == id) { resName = binaryDataSymbol (e.file); break; }
     if (resName.isEmpty()) return false;
     int sz = 0;
     const char* data = BinaryDataLib::getNamedResource (resName.toRawUTF8(), sz);

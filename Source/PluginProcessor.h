@@ -212,7 +212,7 @@ public:
     // thread and hands the new pointer to every voice.
     // ── Factory wavetable library ─────────────────────────────────────────────
     struct LibraryEntry {
-        juce::String id, title, family, morphIntent, license;
+        juce::String id, file, title, family, morphIntent, license;
         juce::StringArray tags;
         int frameCount { 0 };
     };
