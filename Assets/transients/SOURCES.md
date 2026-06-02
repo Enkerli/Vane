@@ -31,7 +31,9 @@ Each sample was:
 4. A 40 ms linear fade-out applied at the tail to prevent clicks
 5. Written as 16-bit PCM WAV (recorder: 48 kHz native, others: 44.1 kHz)
 
-The flute was re-trimmed (2026-06) to remove a ~80 ms breathy pre-attack so its
-loud onset lands ~10 ms in, matching the other samples; a 2 ms fade-in avoids a
-click at the new start.  This makes it usable as a punchy transient layer
-(before, the loud part arrived after the decay envelope had faded it out).
+The flute, trumpet and clarinet were re-trimmed (2026-06) to remove slow
+breathy/brassy pre-attacks so their loud onset lands ~2-10 ms in, matching the
+recorder and cello; a 2 ms fade-in avoids a click at each new start.  This makes
+all five usable as punchy transient layers with consistent onset timing (before,
+the loud part of these three arrived tens of ms late — under the decay envelope
+it was inaudible).  Trim points: flute 80 ms, trumpet 25 ms, clarinet 20 ms.

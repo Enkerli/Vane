@@ -52,7 +52,7 @@ int main()
 
     const int   note = 55;            // G3 ~196 Hz
     const int   chan = 2;             // MPE member channel
-    const float vel  = 0.8f;
+    const float vel  = std::getenv("VEL") ? (float)atof(std::getenv("VEL")) : 0.8f;
     auto pv = [&](const char* id){ auto* p = proc.apvts.getRawParameterValue(id); return p ? p->load() : -999.0f; };
     std::printf ("outputLevel=%.3f veloMix=%.3f | morph=%.3f pw=%.3f fold=%.3f inharm=%.3f sync=%.3f detune=%.3f noise=%.3f\n",
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
@@ -70,9 +70,16 @@ int main()
             *cp = pick;   // pick sample (env TCHOICE)
         }
         setNorm ("transientGain", 1.0f);      // normalised 1.0 → max (gain 2.0)
-        setNorm ("transientTrigger", 0.0f);   // Always
-        setNorm ("velocityMix", 1.0f);        // steady VCA so we hear the note too
+        // Trigger mode: default Always; TRIG=1 → Non-legato (Sylphyo default).
+        const float trigMode = std::getenv("TRIG") ? (float)atoi(std::getenv("TRIG")) : 0.0f;
+        setNorm ("transientTrigger", trigMode);   // 0=Always 1=Non-legato (normalised: 0 or 1)
+        // BREATH=1 → wind-controller realism: veloMix=0, breath drives the VCA
+        // (ramps from 0 at note-on).  Otherwise steady velocity VCA.
+        const bool breathMode = std::getenv("BREATH") != nullptr;
+        setNorm ("velocityMix", breathMode ? 0.0f : 1.0f);
         if (std::getenv("MONO")) { setNorm ("monoMode", 1.0f); std::printf ("[transient] MONO legato mode\n"); }
+        std::printf ("[transient] mode: %s VCA, trigger=%s\n",
+                     breathMode?"breath":"velocity", trigMode>0.5f?"Non-legato":"Always");
         std::printf ("[transient] gain=%.2f decay=%.1f trig=%.0f choice=%.0f\n",
                      pv("transientGain"), pv("transientDecay"), pv("transientTrigger"), pv("transientChoice"));
         // Inspect the library samples directly (own instance, same ctor).
@@ -114,8 +121,10 @@ int main()
                 std::printf ("[transient] 2nd (legato) note at block %d (~250ms)\n", b);
             }
         }
-        const bool driveVca = !velVca && !transientTest;  // transientTest uses steady velVca
-        if (driveVca) {   // breath/pressure drive the VCA (default wind mode)
+        // Drive breath when: default (non-transient) wind mode, OR transient BREATH mode.
+        const bool driveVca = (!velVca && !transientTest)
+                            || (transientTest && std::getenv("BREATH"));
+        if (driveVca && !monoTest) {   // breath/pressure drive the VCA (wind mode)
             if (b >= noteOnBlock) {
                 midi.addEvent (juce::MidiMessage::controllerEvent (1, 2, 110), 0);
                 midi.addEvent (juce::MidiMessage::channelPressureChange (chan, 100), 0);
