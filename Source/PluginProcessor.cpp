@@ -70,10 +70,11 @@ VaneProcessor::VaneProcessor()
         auto* pTrTrigger = apvts.getRawParameterValue("transientTrigger");
         auto* pTrVar     = apvts.getRawParameterValue("transientVariation");
         auto* pTrFilt    = apvts.getRawParameterValue("transientFilter");
+        auto* pTrDyn     = apvts.getRawParameterValue("transientDynamics");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
-                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt);
+                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn);
             }
         }
     }
@@ -862,6 +863,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // pasted on post-filter.  Default on — the whole point of the coupling.
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"transientFilter", 1}, "Transient Filter Route", true));
+
+    // Dynamics: how much the transient level follows the breath/VCA envelope.
+    //   0 = fixed gain (pokes out above a breath-ramped note at the attack)
+    //   1 = fully breath-tracked (never louder than the sustained sound; a fast
+    //       breath rise lifts the transient while it rings = loud attack, a slow
+    //       rise leaves it soft).  The fix for fixed-velocity wind controllers.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientDynamics", 1}, "Transient Dynamics",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.75f));
 
     // ── Modulation route amounts ──────────────────────────────────────────────
     // How far each source sweeps its destination.  All are live parameters —

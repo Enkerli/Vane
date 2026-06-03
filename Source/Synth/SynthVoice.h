@@ -80,13 +80,15 @@ public:
                             std::atomic<float>* choice,
                             std::atomic<float>* trigger,
                             std::atomic<float>* variation = nullptr,
-                            std::atomic<float>* filterRoute = nullptr) noexcept {
+                            std::atomic<float>* filterRoute = nullptr,
+                            std::atomic<float>* dynamics = nullptr) noexcept {
         paramTransientGain      = gain;
         paramTransientDecay     = decay;
         paramTransientChoice    = choice;
         paramTransientTrigger   = trigger;
         paramTransientVariation = variation;
         paramTransientFilter    = filterRoute;
+        paramTransientDynamics  = dynamics;
     }
 
     // MPESynthesiserVoice overrides
@@ -286,4 +288,5 @@ private:
     std::atomic<float>* paramTransientTrigger   = nullptr; // 0=Always, 1=Non-legato only
     std::atomic<float>* paramTransientVariation = nullptr; // 0..1 per-trigger round-robin amount
     std::atomic<float>* paramTransientFilter    = nullptr; // 0/1 route transient through voice filter
+    std::atomic<float>* paramTransientDynamics  = nullptr; // 0..1 how much transient follows breath VCA
 };

@@ -657,6 +657,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 transientFilter.setResonance(resonance);   // match the voice filter
         }
     }
+    // Dynamics: 0 = fixed transient level, 1 = fully gated by the breath/VCA
+    // envelope (so the transient never exceeds the sustained sound and tracks the
+    // breath attack — the fix for fixed-velocity wind controllers).
+    const float transientDyn = paramTransientDynamics ? paramTransientDynamics->load() : 0.0f;
 
     auto* left  = buffer.getWritePointer(0, startSample);
     auto* right = buffer.getNumChannels() > 1
@@ -782,6 +786,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 transientFilter.setCutoff(cutoffNow);
                 t = transientFilter.process(t, filterMode);
             }
+            // Breath/VCA gating: blend between fixed level and breath-tracked.
+            t *= (1.0f - transientDyn) + transientDyn * gain;
             sample += t;
         }
 

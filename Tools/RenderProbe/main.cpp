@@ -80,7 +80,9 @@ int main()
         // Filter route + variation (normalised: bool 0/1, var 0..1).
         setNorm ("transientFilter",    std::getenv("TFILT") ? (float)atof(std::getenv("TFILT")) : 1.0f);
         setNorm ("transientVariation", std::getenv("TVAR")  ? (float)atof(std::getenv("TVAR"))  : 0.0f);
-        std::printf ("[transient] filterRoute=%.0f variation=%.2f\n", pv("transientFilter"), pv("transientVariation"));
+        setNorm ("transientDynamics",  std::getenv("TDYN")  ? (float)atof(std::getenv("TDYN"))  : 0.0f);
+        std::printf ("[transient] filterRoute=%.0f variation=%.2f dynamics=%.2f\n",
+                     pv("transientFilter"), pv("transientVariation"), pv("transientDynamics"));
         if (std::getenv("MONO")) { setNorm ("monoMode", 1.0f); std::printf ("[transient] MONO legato mode\n"); }
         std::printf ("[transient] mode: %s VCA, trigger=%s\n",
                      breathMode?"breath":"velocity", trigMode>0.5f?"Non-legato":"Always");
@@ -129,9 +131,10 @@ int main()
         const bool driveVca = (!velVca && !transientTest)
                             || (transientTest && std::getenv("BREATH"));
         if (driveVca && !monoTest) {   // breath/pressure drive the VCA (wind mode)
+            const int bval = std::getenv("BVAL") ? atoi(std::getenv("BVAL")) : 110;
             if (b >= noteOnBlock) {
-                midi.addEvent (juce::MidiMessage::controllerEvent (1, 2, 110), 0);
-                midi.addEvent (juce::MidiMessage::channelPressureChange (chan, 100), 0);
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 2, bval), 0);
+                midi.addEvent (juce::MidiMessage::channelPressureChange (chan, bval), 0);
             }
         }
         proc.processBlock (buf, midi);
