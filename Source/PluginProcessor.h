@@ -220,6 +220,15 @@ public:
     // Load a factory table by id (from BinaryData); returns false on bad id.
     bool loadLibraryTable (const juce::String& id);
 
+    // ── Editable mod-curve anchors (Bezier mod-curves) ─────────────────────────
+    // Anchors persist in apvts.state as "modSlotN_anchors" = "x,y;x,y;...".
+    static std::vector<std::pair<float, float>> parseAnchors (const juce::String& s);
+    static juce::String serializeAnchors (const std::vector<std::pair<float, float>>& pts);
+    // Store a slot's anchors in state and rebuild its ModMatrix curve LUT.
+    void setSlotCurveAnchors (int slot, const std::vector<std::pair<float, float>>& pts);
+    // Re-apply every slot's stored anchors to the matrix (call after state load).
+    void restoreAllSlotCurves();
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as

@@ -1,6 +1,8 @@
 #include "ModMatrix.h"
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 // Apply per-route curve shaping to the slewed value.
 // For bipolar sources the sign is preserved so curves are symmetric.
@@ -20,6 +22,81 @@ static float applyCurve(float x, ModRoute::CurveShape curve)
         }
     }
     return x;
+}
+
+// Apply an editable response curve via its LUT.  Bipolar: index by |x|, restore
+// sign (odd symmetry through the origin), matching the unipolar curve editor.
+static float applyCurveLUT(float x, const std::array<float, ModRoute::kCurveLUT>& lut)
+{
+    float u = std::abs(x);
+    if (u > 1.0f) u = 1.0f;
+    const float f  = u * static_cast<float>(ModRoute::kCurveLUT - 1);
+    int         i0 = static_cast<int>(f);
+    if (i0 >= ModRoute::kCurveLUT - 1)
+        return std::copysign(lut[ModRoute::kCurveLUT - 1], x);
+    const float fr = f - static_cast<float>(i0);
+    const float y  = lut[(size_t) i0] + fr * (lut[(size_t)(i0 + 1)] - lut[(size_t) i0]);
+    return std::copysign(y, x);
+}
+
+// Fritsch-Carlson monotone tangents for a set of (x,y) knots.
+static void monotoneTangents(const std::vector<float>& xs, const std::vector<float>& ys,
+                             std::vector<float>& m)
+{
+    const int n = static_cast<int>(xs.size());
+    std::vector<float> d(static_cast<size_t>(n - 1));
+    for (int i = 0; i < n - 1; ++i) d[(size_t) i] = (ys[(size_t)(i+1)] - ys[(size_t) i]) / (xs[(size_t)(i+1)] - xs[(size_t) i]);
+    m.assign((size_t) n, 0.0f);
+    m[0] = d[0]; m[(size_t)(n-1)] = d[(size_t)(n-2)];
+    for (int i = 1; i < n - 1; ++i)
+        m[(size_t) i] = (d[(size_t)(i-1)] * d[(size_t) i] <= 0.0f) ? 0.0f
+                                                                   : (d[(size_t)(i-1)] + d[(size_t) i]) * 0.5f;
+    for (int i = 0; i < n - 1; ++i) {
+        if (d[(size_t) i] == 0.0f) { m[(size_t) i] = 0.0f; m[(size_t)(i+1)] = 0.0f; continue; }
+        const float a = m[(size_t) i] / d[(size_t) i], b = m[(size_t)(i+1)] / d[(size_t) i];
+        const float h = std::hypot(a, b);
+        if (h > 3.0f) { const float t = 3.0f / h; m[(size_t) i] = t*a*d[(size_t) i]; m[(size_t)(i+1)] = t*b*d[(size_t) i]; }
+    }
+}
+
+void ModMatrix::buildCurveLUT(const std::vector<std::pair<float, float>>& anchors,
+                              std::array<float, ModRoute::kCurveLUT>& out)
+{
+    std::vector<std::pair<float, float>> a;
+    for (const auto& p : anchors)
+        a.emplace_back(std::clamp(p.first, 0.012f, 0.988f), std::clamp(p.second, 0.0f, 1.0f));
+    if (a.empty()) a.emplace_back(0.5f, 0.5f);
+    std::sort(a.begin(), a.end(), [](const auto& p, const auto& q){ return p.first < q.first; });
+
+    std::vector<float> xs, ys;
+    xs.push_back(0.0f); ys.push_back(0.0f);
+    for (const auto& p : a) { xs.push_back(p.first); ys.push_back(p.second); }
+    xs.push_back(1.0f); ys.push_back(1.0f);
+
+    std::vector<float> m; monotoneTangents(xs, ys, m);
+    const int n = static_cast<int>(xs.size());
+    for (int k = 0; k < ModRoute::kCurveLUT; ++k) {
+        const float x = static_cast<float>(k) / static_cast<float>(ModRoute::kCurveLUT - 1);
+        int i = 0; while (i < n - 2 && x > xs[(size_t)(i+1)]) ++i;
+        const float x0 = xs[(size_t) i], x1 = xs[(size_t)(i+1)], y0 = ys[(size_t) i], y1 = ys[(size_t)(i+1)];
+        const float h = x1 - x0;
+        float y;
+        if (h <= 0.0f) y = y0;
+        else {
+            const float t = (x - x0) / h, t2 = t*t, t3 = t2*t;
+            y = (2*t3 - 3*t2 + 1)*y0 + (t3 - 2*t2 + t)*h*m[(size_t) i]
+              + (-2*t3 + 3*t2)*y1 + (t3 - t2)*h*m[(size_t)(i+1)];
+        }
+        out[(size_t) k] = std::clamp(y, 0.0f, 1.0f);
+    }
+}
+
+void ModMatrix::setRouteCurve(int routeIndex, const std::vector<std::pair<float, float>>& anchors)
+{
+    if (routeIndex < 0 || routeIndex >= static_cast<int>(routes.size())) return;
+    if (anchors.empty()) { routes[(size_t) routeIndex].curveLUTactive = false; return; }
+    buildCurveLUT(anchors, routes[(size_t) routeIndex].curveLUT);
+    routes[(size_t) routeIndex].curveLUTactive = true;
 }
 
 // Effective destination of a route (slot-aware).  -1 = invalid.
@@ -163,7 +240,9 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
             if (ci >= 0 && ci <= 2)
                 effectiveCurve = static_cast<ModRoute::CurveShape>(ci);
         }
-        float shaped       = applyCurve(slewed, effectiveCurve);
+        // Editable response curve (LUT) takes precedence over the discrete enum.
+        float shaped       = route.curveLUTactive ? applyCurveLUT(slewed, route.curveLUT)
+                                                   : applyCurve(slewed, effectiveCurve);
         float eff_amount   = route.amountParam ? route.amountParam->load() : route.amount;
         float contribution = shaped * eff_amount;
 

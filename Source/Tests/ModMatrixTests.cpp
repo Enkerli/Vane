@@ -26,6 +26,32 @@ public:
         exponentialCurveShaping();
         amountParamOverridesAmount();
         genericSlotRouting();
+        bezierCurveLUT();
+    }
+
+    void bezierCurveLUT()
+    {
+        beginTest("Bezier curve LUT (monotone spline)");
+        std::array<float, ModRoute::kCurveLUT> lut {};
+        constexpr int N = ModRoute::kCurveLUT;
+
+        // Linear: a single mid anchor at (0.5,0.5) must reproduce the identity.
+        ModMatrix::buildCurveLUT({ {0.5f, 0.5f} }, lut);
+        expectWithinAbsoluteError(lut[0], 0.0f, 1e-4f);
+        expectWithinAbsoluteError(lut[N-1], 1.0f, 1e-4f);
+        expectWithinAbsoluteError(lut[(N-1)/2], 0.5f, 0.02f);
+
+        // Endpoints are always pinned and the curve is monotonic for any anchors.
+        ModMatrix::buildCurveLUT({ {0.32f, 0.16f}, {0.68f, 0.84f} }, lut);   // S-curve
+        expectWithinAbsoluteError(lut[0], 0.0f, 1e-4f);
+        expectWithinAbsoluteError(lut[N-1], 1.0f, 1e-4f);
+        bool monotonic = true;
+        for (int k = 1; k < N; ++k) if (lut[(size_t) k] < lut[(size_t)(k-1)] - 1e-4f) monotonic = false;
+        expect(monotonic, "S-curve LUT must be non-decreasing");
+
+        // Exponential-ish anchor (0.5, 0.27): below the diagonal at the midpoint.
+        ModMatrix::buildCurveLUT({ {0.5f, 0.27f} }, lut);
+        expect(lut[(N-1)/2] < 0.45f, "exp anchor should sit below linear at midpoint");
     }
 
 private:

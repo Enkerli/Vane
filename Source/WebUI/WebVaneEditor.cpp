@@ -103,6 +103,13 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             setActual (b + "_dst",   static_cast<float> (static_cast<int> (o["dst"])));
             setActual (b + "_amt",   static_cast<float> (static_cast<double> (o["amt"])));
             setActual (b + "_curve", static_cast<float> (static_cast<int> (o["curve"])));
+            // Editable response-curve anchors → engine LUT + state persistence.
+            std::vector<std::pair<float, float>> pts;
+            if (auto* arr = o["anchors"].getArray())
+                for (auto& p : *arr)
+                    pts.emplace_back (static_cast<float> (static_cast<double> (p["x"])),
+                                      static_cast<float> (static_cast<double> (p["y"])));
+            owner->proc.setSlotCurveAnchors (n, pts);
         })
         .withEventListener ("presetLoad", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
@@ -111,6 +118,7 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (id >= 0 && id < names.size()) {
                 owner->proc.presetManager.loadPreset (names[id]);
                 owner->proc.restoreWavetableFromState();   // preset's table (or built-in)
+                owner->proc.restoreAllSlotCurves();        // rebuild mod-curve LUTs
                 owner->sendSlotState();      // patch params echo via parameterChanged
                 owner->sendControllerState(); // the preset carries its own bindings
                 owner->sendWavetableInfo (true);
@@ -646,11 +654,17 @@ void WebVaneEditor::sendSlotState()
         const juce::String b = "modSlot" + juce::String (n);
         auto get = [&] (const char* s) {
             auto* p = proc.apvts.getRawParameterValue (b + s); return p ? p->load() : 0.0f; };
+        // Editable response-curve anchors (persisted in state, not a param).
+        juce::Array<juce::var> anchors;
+        const auto aStr = proc.apvts.state.getProperty (b + "_anchors", "").toString();
+        for (const auto& p : VaneProcessor::parseAnchors (aStr))
+            anchors.add (makeObj ({ { "x", p.first }, { "y", p.second } }));
         slots.add (makeObj ({
             { "src",   static_cast<int> (get ("_src")) },
             { "dst",   static_cast<int> (get ("_dst")) },
             { "amt",   get ("_amt") },
             { "curve", static_cast<int> (get ("_curve")) },
+            { "anchors", juce::var (anchors) },
         }));
     }
     webView.emitEventIfBrowserIsVisible ("slotState", makeObj ({ { "slots", juce::var (slots) } }));

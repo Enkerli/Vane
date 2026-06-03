@@ -15,6 +15,16 @@ struct ModRoute {
     //              Useful where you want a "committed" feel at the extremes of a sweep.
     enum class CurveShape : uint8_t { Linear = 0, Exponential, SCurve };
 
+    // ── Editable response curve (Bezier mod-curves) ───────────────────────────
+    // A per-route lookup table for the unipolar response x in [0,1] -> y in [0,1],
+    // built from 1..3 draggable anchors via a monotone cubic spline (see
+    // ModMatrix::buildCurveLUT).  When curveLUTactive, evaluate() uses this instead
+    // of the discrete CurveShape enum.  Bipolar sources index by |x| and restore
+    // the sign (odd symmetry), so the curve always passes through the origin.
+    static constexpr int kCurveLUT = 65;
+    std::array<float, kCurveLUT> curveLUT {};   // filled by buildCurveLUT
+    bool       curveLUTactive = false;
+
     int        source    = 0;
     int        dest      = 0;
     float      amount    = 0.0f;   // -1..1; fallback when amountParam is null
@@ -140,6 +150,18 @@ public:
 
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
+
+    // ── Editable response curves ──────────────────────────────────────────────
+    // Build a monotone cubic-spline LUT from 1..3 interior anchors (x,y in (0,1),
+    // endpoints (0,0)/(1,1) implied) into the given route, and activate it.  An
+    // empty anchor list deactivates the LUT (falls back to the CurveShape enum).
+    // Called on the message thread (slot edit / state load); the audio thread
+    // reads the LUT lock-free (a torn read during an edit is harmless for a curve).
+    void setRouteCurve(int routeIndex, const std::vector<std::pair<float, float>>& anchors);
+
+    // Fill a 65-point LUT from anchors (static helper, also used by tests).
+    static void buildCurveLUT(const std::vector<std::pair<float, float>>& anchors,
+                              std::array<float, ModRoute::kCurveLUT>& out);
 
 private:
     float getSourceValue(int sourceID,

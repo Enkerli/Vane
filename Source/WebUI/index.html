@@ -185,6 +185,30 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .slot .ar{grid-column:2/3;grid-row:3;flex-direction:row !important;gap:10px;align-items:center;justify-self:end}
 .slot .tog{grid-column:3/4;grid-row:3;justify-self:end}
 .slot .del{grid-column:4/5;grid-row:3;justify-self:end}
+/* ── Bézier mod-curve editor ── */
+.slot .curve-thumb{grid-column:1/2;grid-row:3;justify-self:start;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--vn-line);background:var(--vn-field);border-radius:8px;padding:3px 5px;cursor:pointer}
+.slot .curve-thumb.open{border-color:currentColor;background:var(--vn-panel)}
+.slot .curve-thumb svg{width:46px;height:22px;display:block}
+.slot .curve-thumb .tline{fill:none;stroke:var(--vn-muted-2);stroke-width:1;opacity:.5}
+.curve-ed{grid-column:1/-1;grid-row:4;margin-top:6px;border-top:1px solid var(--vn-line-soft);padding-top:8px}
+.curve-ed .ce-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.curve-ed .ce-head .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--vn-muted)}
+.curve-ed .ce-head .biCh{font-family:var(--vn-mono);font-size:9.5px;font-weight:700;color:var(--vn-bend)}
+.curve-ed .ce-head .sp{flex:1}
+.curve-ed .pbtn{border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-muted);border-radius:6px;font-size:11px;padding:3px 9px;cursor:pointer}
+.curve-ed .pbtn:disabled{opacity:.38;cursor:default}
+.curve-svg{width:100%;display:block;touch-action:none;border-radius:8px;background:var(--vn-panel);border:1px solid var(--vn-line-soft)}
+.curve-svg .grid{stroke:var(--vn-line-soft);stroke-width:1}
+.curve-svg .axis{stroke:var(--vn-muted-2);stroke-width:1;stroke-dasharray:2 4;opacity:.6}
+.curve-svg .crv{fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.curve-svg .crvfill{opacity:.10}
+.curve-svg .anchor{fill:var(--vn-panel);stroke-width:2.5;cursor:grab}
+.curve-svg .anchor.sel{stroke-width:3.5}
+.curve-svg .hit{fill:transparent;cursor:grab}
+.curve-svg .live{fill:currentColor;stroke:var(--vn-panel);stroke-width:1.5}
+.curve-ed .ce-foot{display:flex;align-items:center;gap:8px;margin-top:7px}
+.curve-ed .ce-foot .hint{font-size:10px;color:var(--vn-muted);flex:1;line-height:1.45}
 .slot .srccell{display:flex;flex-direction:column;gap:5px;min-width:0}
 .slot .srctop{display:flex;align-items:center;gap:7px;min-width:0}
 .slot select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
@@ -462,7 +486,7 @@ const state = {
           TrGain:0.0,TrDecay:200,TrChoice:0,TrTrigger:1,TrVar:0.3,TrFilt:1,TrDyn:0.75,TrReso:0.3,TrDamp:0.5,TrMorph:12,
           Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
           Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0 },
-  slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true})),
+  slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true,anchors:[]})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   profiles:[], profileName:'',   // saved controller profiles
@@ -604,6 +628,7 @@ function tickMeters(){
     const s=el.getAttribute('data-rowmeter'); const v=clamp(state.meters[s]||0,0,1);
     el.style.width=(v*100)+'%';
   });
+  curveUpdateLive();
   drawVis();
   $('#visT').textContent='t = '+simT.toFixed(3)+'s · ch 1';
 }
@@ -805,7 +830,114 @@ function renderMatrix(){
     ${body}
     <p class="fine-hint">Drag the amount bar · <kbd>Shift</kbd>/vertical for fine · double-click a number to type · toggle enables a route without deleting its settings.</p>`;
   shown.forEach(({i})=>wireSlot(i));
+  if(curveOpen>=0 && shown.some(x=>x.i===curveOpen)) curveWire(curveOpen);
 }
+// ── Mod-curve editor (Bézier response curves) — monotone cubic spline ────────
+let curveOpen = -1;        // slot whose inline editor is expanded (-1 = none)
+const curveSel = {};       // per-slot selected anchor index
+function anchorsForSlot(s){
+  if(Array.isArray(s.anchors) && s.anchors.length) return s.anchors;
+  s.anchors = s.curve===1 ? [{x:.5,y:.27}]            // legacy Exp → bend down
+            : s.curve===2 ? [{x:.32,y:.16},{x:.68,y:.84}] // legacy S → S-curve
+            :               [{x:.5,y:.5}];             // Lin → identity
+  return s.anchors;
+}
+const curveIsBipolar = name => name==='Pitchbend';
+function curvePts(a){
+  const p=(a&&a.length?a:[{x:.5,y:.5}]).map(q=>({x:clamp(q.x,.012,.988),y:clamp(q.y,0,1)})).sort((u,v)=>u.x-v.x);
+  return [{x:0,y:0},...p,{x:1,y:1}];
+}
+function curveTangents(pts){
+  const n=pts.length,d=[],m=[];
+  for(let i=0;i<n-1;i++) d[i]=(pts[i+1].y-pts[i].y)/(pts[i+1].x-pts[i].x);
+  m[0]=d[0]; m[n-1]=d[n-2];
+  for(let i=1;i<n-1;i++) m[i]=(d[i-1]*d[i]<=0)?0:(d[i-1]+d[i])/2;
+  for(let i=0;i<n-1;i++){ if(d[i]===0){m[i]=0;m[i+1]=0;continue;}
+    const a=m[i]/d[i],b=m[i+1]/d[i],h=Math.hypot(a,b); if(h>3){const t=3/h;m[i]=t*a*d[i];m[i+1]=t*b*d[i];} }
+  return m;
+}
+function curveEvalUni(a,x){
+  const pts=curvePts(a),m=curveTangents(pts),n=pts.length; x=clamp(x,0,1);
+  let i=0; while(i<n-2 && x>pts[i+1].x) i++;
+  const x0=pts[i].x,x1=pts[i+1].x,y0=pts[i].y,y1=pts[i+1].y,h=x1-x0;
+  if(h<=0) return y0;
+  const t=(x-x0)/h,t2=t*t,t3=t2*t;
+  return clamp((2*t3-3*t2+1)*y0+(t3-2*t2+t)*h*m[i]+(-2*t3+3*t2)*y1+(t3-t2)*h*m[i+1],0,1);
+}
+function curveEval(a,u,bip){ if(!bip)return curveEvalUni(a,u); const s=u<0?-1:1; return s*curveEvalUni(a,Math.abs(clamp(u,-1,1))); }
+function curvePath(a,W,H,pad,bip){
+  const N=48; let d=''; const X=u=>bip?pad+(u+1)/2*(W-2*pad):pad+u*(W-2*pad), Y=y=>bip?(H/2)-y*(H/2-pad):(H-pad)-y*(H-2*pad);
+  const lo=bip?-1:0;
+  for(let k=0;k<=N;k++){const u=lo+(k/N)*(1-lo);d+=(k?'L':'M')+X(u).toFixed(1)+','+Y(curveEval(a,u,bip)).toFixed(1);}
+  return d;
+}
+function curveThumb(s,name){
+  const W=46,H=22,pad=3,bip=curveIsBipolar(name),col=cssv(SRC_COLOR[name]||'--vn-muted');
+  const base=bip?`<line class="tline" x1="${pad}" y1="${H/2}" x2="${W-pad}" y2="${H/2}"/>`:`<line class="tline" x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${pad}"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${base}<path d="${curvePath(anchorsForSlot(s),W,H,pad,bip)}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+}
+function curveEditorHTML(i){
+  const s=state.slots[i],name=SOURCES[s.src],bip=curveIsBipolar(name),col=SRC_COLOR[name]||'--vn-muted',W=360,H=150,nA=anchorsForSlot(s).length;
+  return `<div class="curve-ed" style="color:var(${col})">
+    <div class="ce-head"><span class="lbl">Response curve</span>${bip?'<span class="biCh">bipolar ±1</span>':''}<span class="sp"></span>
+      <button class="pbtn" onclick="curveAddPoint(${i})" ${nA>=3?'disabled':''}>+ point</button>
+      <button class="pbtn" onclick="curveRemovePoint(${i})" ${nA<=1?'disabled':''}>− point</button></div>
+    <svg class="curve-svg" data-slot="${i}" data-bip="${bip?1:0}" viewBox="0 0 ${W} ${H}" style="height:${H}px" preserveAspectRatio="none"></svg>
+    <div class="ce-foot"><span class="hint">Drag a point to shape the response · amount × curve(source).${bip?' Negative input mirrors.':''}</span></div></div>`;
+}
+function curveDraw(svg,i){
+  const s=state.slots[i],bip=svg.dataset.bip==='1',anchors=anchorsForSlot(s);
+  const vb=svg.viewBox.baseVal,W=vb.width,H=vb.height,pad=16;
+  const X=u=>bip?pad+(u+1)/2*(W-2*pad):pad+u*(W-2*pad), Y=y=>bip?(H/2)-y*(H/2-pad):(H-pad)-y*(H-2*pad);
+  let g='';
+  for(let k=1;k<4;k++){const gx=pad+k/4*(W-2*pad);g+=`<line class="grid" x1="${gx}" y1="${pad}" x2="${gx}" y2="${H-pad}"/>`;}
+  for(let k=1;k<4;k++){const gy=pad+k/4*(H-2*pad);g+=`<line class="grid" x1="${pad}" y1="${gy}" x2="${W-pad}" y2="${gy}"/>`;}
+  if(bip)g+=`<line class="axis" x1="${pad}" y1="${H/2}" x2="${W-pad}" y2="${H/2}"/><line class="axis" x1="${W/2}" y1="${pad}" x2="${W/2}" y2="${H-pad}"/>`;
+  const dPath=curvePath(anchors,W,H,pad,bip),baseY=bip?H/2:H-pad;
+  g+=`<path class="crv crvfill" d="${dPath} L ${X(1)},${baseY} L ${X(bip?-1:0)},${baseY} Z" fill="currentColor" stroke="none"/>`;
+  g+=`<path class="crv" d="${dPath}" stroke="currentColor"/>`;
+  const si=curveSel[i]==null?anchors.length-1:curveSel[i];
+  anchors.forEach((a,ai)=>{const cx=X(bip?Math.abs(a.x):a.x),cy=Y(a.y);
+    g+=`<circle class="anchor ${ai===si?'sel':''}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="6.5" stroke="currentColor"/><circle class="hit" data-ai="${ai}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="17"/>`;});
+  g+=`<circle class="live" data-live cx="-99" cy="-99" r="4.5"/>`;
+  svg.innerHTML=g;
+}
+function curvePaintThumb(i){ const b=document.querySelector(`.curve-thumb[data-cthumb="${i}"]`);
+  if(b){const s=state.slots[i];b.innerHTML=curveThumb(s,SOURCES[s.src]);b.style.color=cssv(SRC_COLOR[SOURCES[s.src]]||'--vn-muted');} }
+function curveWire(i){
+  const svg=document.querySelector(`.curve-svg[data-slot="${i}"]`); if(!svg)return;
+  curveDraw(svg,i); const bip=svg.dataset.bip==='1';
+  const ptr=e=>{const r=svg.getBoundingClientRect(),vb=svg.viewBox.baseVal,pad=16;
+    const vx=(e.clientX-r.left)/r.width*vb.width, vy=(e.clientY-r.top)/r.height*vb.height;
+    let x=(vx-pad)/(vb.width-2*pad),y;
+    if(bip){x=x*2-1;x=Math.abs(x);y=((vb.height/2)-vy)/(vb.height/2-pad);}else{y=((vb.height-pad)-vy)/(vb.height-2*pad);}
+    return {x:clamp(x,.012,.988),y:clamp(y,0,1)};};
+  let drag=-1;
+  svg.addEventListener('pointerdown',e=>{const hit=e.target.closest('.hit');if(!hit)return;
+    drag=+hit.dataset.ai;curveSel[i]=drag;svg.setPointerCapture(e.pointerId);curveDraw(svg,i);e.preventDefault();});
+  svg.addEventListener('pointermove',e=>{if(drag<0)return;const arr=anchorsForSlot(state.slots[i]),a=arr[drag];if(!a)return;
+    const p=ptr(e),loX=drag>0?arr[drag-1].x+0.03:0.02,hiX=drag<arr.length-1?arr[drag+1].x-0.03:0.98;
+    a.x=clamp(p.x,loX,hiX);a.y=p.y;curveDraw(svg,i);curvePaintThumb(i);curveCommit(i);});
+  const up=()=>{drag=-1;};
+  svg.addEventListener('pointerup',up); svg.addEventListener('pointercancel',up);
+}
+function curveCommit(i){ const s=state.slots[i],a=anchorsForSlot(s); s.curve=(a.length>1)?2:(a[0].y<0.45?1:0); pushSlot(i); markDirty(); }
+function toggleCurve(i){ curveOpen=(curveOpen===i?-1:i); renderMatrix(); }
+function curveAddPoint(i){ const arr=anchorsForSlot(state.slots[i]); if(arr.length>=3)return;
+  const pts=[{x:0},...arr,{x:1}]; let gi=0,gw=-1; for(let k=0;k<pts.length-1;k++){const w=pts[k+1].x-pts[k].x;if(w>gw){gw=w;gi=k;}}
+  const nx=(pts[gi].x+pts[gi+1].x)/2; arr.splice(gi,0,{x:nx,y:curveEvalUni(arr,nx)}); arr.sort((p,q)=>p.x-q.x);
+  curveSel[i]=arr.findIndex(p=>p.x===nx); curveCommit(i); renderMatrix(); }
+function curveRemovePoint(i){ const arr=anchorsForSlot(state.slots[i]); if(arr.length<=1)return;
+  const si=curveSel[i]==null?arr.length-1:curveSel[i]; arr.splice(si,1); curveSel[i]=Math.max(0,si-1); curveCommit(i); renderMatrix(); }
+function curveUpdateLive(){ if(curveOpen<0)return;
+  const svg=document.querySelector(`.curve-svg[data-slot="${curveOpen}"]`); if(!svg)return;
+  const s=state.slots[curveOpen]; if(!s)return; const bip=svg.dataset.bip==='1', dot=svg.querySelector('[data-live]'); if(!dot)return;
+  let m=state.meters[SOURCES[s.src]]; if(m==null){dot.setAttribute('cx',-99);return;}
+  const u=bip?clamp(m*2-1,-1,1):clamp(m,0,1);
+  const vb=svg.viewBox.baseVal,W=vb.width,H=vb.height,pad=16,y=curveEval(anchorsForSlot(s),u,bip);
+  dot.setAttribute('cx',(bip?pad+(u+1)/2*(W-2*pad):pad+u*(W-2*pad)).toFixed(1));
+  dot.setAttribute('cy',(bip?(H/2)-y*(H/2-pad):(H-pad)-y*(H-2*pad)).toFixed(1)); }
+
 function slotRow(s,i){
   const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';
   const isAux = s.src>=7;
@@ -836,13 +968,14 @@ function slotRow(s,i){
         <div class="thumb" data-bipthumb></div>
       </div>
     </div>
-    <div class="miniseg">${CURVES.map((c,k)=>`<button class="${s.curve===k?'active':''}" onclick="slotSet(${i},'curve',${k})">${c.toLowerCase()}</button>`).join('')}</div>
+    <button class="curve-thumb ${curveOpen===i?'open':''}" data-cthumb="${i}" onclick="toggleCurve(${i})" aria-label="response curve" title="edit response curve" style="color:var(${col})">${curveThumb(s,srcName)}</button>
     <div class="ar">
       <span class="arf">↑<span class="arv" ondblclick="arEdit(${i},'atk',this)">${s.atk}</span>ms</span>
       <span class="arf">↓<span class="arv" ondblclick="arEdit(${i},'rel',this)">${s.rel}</span>ms</span>
     </div>
     <button class="tog ${s.on?'on':''}" onclick="slotSet(${i},'on',${s.on?0:1})" aria-label="enable route" title="${s.on?'enabled':'disabled'}"></button>
     <button class="del" title="remove route" onclick="slotDelete(${i})">✕</button>
+    ${curveOpen===i?curveEditorHTML(i):''}
   </div>`;
 }
 function wireSlot(i){
@@ -856,8 +989,8 @@ function wireSlot(i){
   upd();
 }
 function addSlot(){ const i=state.slots.findIndex(s=>s.src===0); if(i<0)return;
-  state.slots[i]={src:1,dst:1,amt:0.3,curve:0,atk:5,rel:80,on:true}; pushSlot(i); markDirty(); renderMatrix(); }
-function slotDelete(i){ state.slots[i]={src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true}; pushSlot(i); markDirty(); renderMatrix(); }
+  state.slots[i]={src:1,dst:1,amt:0.3,curve:0,atk:5,rel:80,on:true,anchors:[]}; pushSlot(i); markDirty(); renderMatrix(); }
+function slotDelete(i){ state.slots[i]={src:0,dst:0,amt:0,curve:0,atk:5,rel:80,on:true,anchors:[]}; if(curveOpen===i)curveOpen=-1; pushSlot(i); markDirty(); renderMatrix(); }
 function slotSet(i,field,val){ state.slots[i][field]= field==='on'?!!val:val; pushSlot(i); markDirty(); renderMatrix(); }
 function slotType(i,el){ const cur=state.slots[i].amt;
   el.innerHTML=`<input class="field-num" style="width:60px" value="${cur.toFixed(2)}" />`;
@@ -881,7 +1014,7 @@ function ccEdit(i,src,el){ const cur=state.cc[src];
   inp.addEventListener('blur',commit);
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderMatrix(); });
 }
-function pushSlot(i){ const s=state.slots[i]; Bridge.send('slotEdit',{slot:i,src:s.src,dst:s.dst,amt:s.amt,curve:s.curve,atk:s.atk,rel:s.rel,on:s.on}); }
+function pushSlot(i){ const s=state.slots[i]; Bridge.send('slotEdit',{slot:i,src:s.src,dst:s.dst,amt:s.amt,curve:s.curve,atk:s.atk,rel:s.rel,on:s.on,anchors:anchorsForSlot(s).map(a=>({x:a.x,y:a.y}))}); }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Presets tab (E1) — filters, favorites, rename, delete, import/export
@@ -1509,7 +1642,7 @@ function applySuggestedProfile(){ const b=$('#profileBanner'); const n=b.dataset
 function dismissProfileBanner(){ $('#profileBanner').classList.remove('on'); }
 // Full slot snapshot (on boot + after preset load) → refresh the matrix.
 Bridge.on('slotState',({slots})=>{ if(!Array.isArray(slots))return;
-  slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true},s); });
+  slots.forEach((s,i)=>{ if(i<NUM_SLOTS) state.slots[i]=Object.assign({atk:5,rel:80,on:true,anchors:[]},s); });
   if(tab==='matrix')renderMatrix(); });
 // Real preset library from PresetManager.
 Bridge.on('presetList',({presets,selected,current})=>{ if(!Array.isArray(presets))return;

@@ -185,6 +185,42 @@ void VaneProcessor::computeSpectrum()
     specReady = true;
 }
 
+// ── Editable mod-curve anchors ──────────────────────────────────────────────
+std::vector<std::pair<float, float>> VaneProcessor::parseAnchors (const juce::String& s)
+{
+    std::vector<std::pair<float, float>> pts;
+    auto tokens = juce::StringArray::fromTokens (s, ";", "");
+    for (auto& t : tokens) {
+        auto xy = juce::StringArray::fromTokens (t.trim(), ",", "");
+        if (xy.size() == 2)
+            pts.emplace_back (xy[0].getFloatValue(), xy[1].getFloatValue());
+    }
+    return pts;
+}
+
+juce::String VaneProcessor::serializeAnchors (const std::vector<std::pair<float, float>>& pts)
+{
+    juce::String s;
+    for (const auto& p : pts) s << juce::String (p.first, 4) << "," << juce::String (p.second, 4) << ";";
+    return s;
+}
+
+void VaneProcessor::setSlotCurveAnchors (int slot, const std::vector<std::pair<float, float>>& pts)
+{
+    if (slot < 0 || slot >= ModSlots::NumSlots) return;
+    apvts.state.setProperty ("modSlot" + juce::String (slot) + "_anchors",
+                             serializeAnchors (pts), nullptr);
+    modMatrix.setRouteCurve (slot, pts);   // slot N == route N (slots added in order)
+}
+
+void VaneProcessor::restoreAllSlotCurves()
+{
+    for (int n = 0; n < ModSlots::NumSlots; ++n) {
+        const auto s = apvts.state.getProperty ("modSlot" + juce::String (n) + "_anchors", "").toString();
+        modMatrix.setRouteCurve (n, parseAnchors (s));   // empty → LUT off (enum fallback)
+    }
+}
+
 void VaneProcessor::parseLibraryManifest()
 {
     library.clear();
@@ -618,6 +654,7 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     // Rebuild the embedded wavetable (or fall back to the built-in) before the
     // param migrations below, which may early-return.
     restoreWavetableFromState();
+    restoreAllSlotCurves();   // rebuild each slot's editable response-curve LUT
 
     // ── Routing migration (pre-slot → generic slots) ─────────────────────────
     // Presets saved before the slot system carry no routingV tag and store the
