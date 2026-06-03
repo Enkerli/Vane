@@ -58,6 +58,29 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Stereo-unison test: set voices, render with steady VCA, capture L+R, report
+    // per-channel RMS (level parity) and L/R correlation (1 = mono, <1 = width).
+    if (std::getenv("UNISON")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        if (auto* cp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("unisonVoices")))
+            *cp = std::getenv("UVOX") ? atoi(std::getenv("UVOX")) : 4;   // choice index
+        setNorm("unisonDetune", std::getenv("UDET")?(float)atof(std::getenv("UDET")):0.28f); // ~14c
+        setNorm("unisonWidth",  std::getenv("UWID")?(float)atof(std::getenv("UWID")):0.7f);
+        setNorm("velocityMix", 1.0f);
+        std::printf("[unison] voices=%.0f(idx) detune=%.1fc width=%.2f\n",
+                    pv("unisonVoices"), pv("unisonDetune"), pv("unisonWidth"));
+        std::vector<float> L, R;
+        for (int b=0;b<(int)(sr*1.5/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            if(b==2) m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            proc.processBlock(buf,m);
+            if(b>=(int)(sr*0.4/bs)) for(int i=0;i<bs;++i){ L.push_back(buf.getReadPointer(0)[i]); R.push_back(buf.getReadPointer(1)[i]); } }
+        double sl=0,sr2=0,sx=0; for(size_t i=0;i<L.size();++i){ sl+=(double)L[i]*L[i]; sr2+=(double)R[i]*R[i]; sx+=(double)L[i]*R[i]; }
+        double rmsL=std::sqrt(sl/L.size()), rmsR=std::sqrt(sr2/L.size());
+        double corr=sx/(std::sqrt(sl*sr2)+1e-12);
+        std::printf("[unison] rmsL=%.4f rmsR=%.4f  L/R corr=%.3f (1=mono, lower=wider)\n", rmsL, rmsR, corr);
+        return 0;
+    }
+
     // Transient test: choose sample 1, gain 2.0, trigger Always; measure the
     // attack-window energy (should spike if the transient fires).
     if (transientTest) {

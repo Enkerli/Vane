@@ -74,11 +74,15 @@ VaneProcessor::VaneProcessor()
         auto* pTrReso    = apvts.getRawParameterValue("transientResonate");
         auto* pTrDamp    = apvts.getRawParameterValue("transientDamping");
         auto* pTrMorph   = apvts.getRawParameterValue("transientMorph");
+        auto* pUniV      = apvts.getRawParameterValue("unisonVoices");
+        auto* pUniD      = apvts.getRawParameterValue("unisonDetune");
+        auto* pUniW      = apvts.getRawParameterValue("unisonWidth");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
                 v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn,
                                       pTrReso, pTrDamp, pTrMorph);
+                v->setUnisonParams(pUniV, pUniD, pUniW);
             }
         }
     }
@@ -804,6 +808,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"oscSync", 1}, "Osc Sync",
         juce::NormalisableRange<float>(1.0f, 8.0f), 1.0f));
+
+    // ── Stereo unison ─────────────────────────────────────────────────────────
+    // Detuned oscillator copies spread across the stereo field (Vane was dual-mono).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"unisonVoices", 1}, "Unison Voices",
+        juce::StringArray{"1", "2", "3", "4", "6"}, 0));   // index → {1,2,3,4,6}
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"unisonDetune", 1}, "Unison Detune",
+        juce::NormalisableRange<float>(0.0f, 50.0f), 14.0f));   // cents spread
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"unisonWidth", 1}, "Unison Width",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.7f));
 
     // Phase-distortion pulse width: 0.5 = identity (no warp), 0.999 = near-Dirac.
     //

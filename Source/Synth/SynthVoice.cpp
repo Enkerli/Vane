@@ -52,7 +52,9 @@ void SynthVoice::prepare(double sr, int blockSize)
 {
     sampleRate = sr;
     osc.prepare(sr);
+    for (auto& o : unisonOscs) o.prepare(sr);
     filter.prepare(sr);
+    filterR.prepare(sr);
     transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
     transientReso.prepare(sr);     // pitch resonator delay line
 
@@ -374,6 +376,17 @@ void SynthVoice::noteStarted()
         }
     }
 
+    // Spread the unison oscillators' phases around the centre osc so the detuned
+    // stack doesn't start phase-coherent (which would comb/flam at the attack).
+    {
+        float baseP = osc.getPhase();
+        for (size_t k = 0; k < unisonOscs.size(); ++k) {
+            float p = baseP + static_cast<float>(k + 1) / static_cast<float>(kMaxUnison);
+            p -= std::floor(p);
+            unisonOscs[k].reset(p);
+        }
+    }
+
     // ── Transient trigger ────────────────────────────────────────────────────────
     // "Always" fires on every note-on (legato or not) — useful for key clicks or
     // string bow attacks that should repeat with every articulation.
@@ -649,6 +662,36 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     filter.setResonance(resonance);
     smoothedCutoff.setTargetValue(juce::jlimit(20.0f, 20000.0f, targetCutoff));
 
+    // ── Stereo unison ───────────────────────────────────────────────────────────
+    // Spread `uN` detuned voices across the field; each channel gets its own filter
+    // so the detune becomes a true stereo image.  uN == 1 → the original mono path.
+    static constexpr int kUnisonChoice[] = { 1, 2, 3, 4, 6 };
+    int uN = 1;
+    if (paramUnisonVoices) {
+        int ci = juce::jlimit(0, 4, static_cast<int>(std::round(paramUnisonVoices->load())));
+        uN = kUnisonChoice[ci];
+    }
+    const float uDetune = paramUnisonDetune ? paramUnisonDetune->load() : 0.0f;   // cents
+    const float uWidth  = paramUnisonWidth  ? paramUnisonWidth->load()  : 0.0f;   // 0..1
+    const bool  unisonOn = uN > 1;
+    float uDetMul[kMaxUnison], uPanL[kMaxUnison], uPanR[kMaxUnison];
+    {
+        float pwr = 0.0f;
+        for (int j = 0; j < uN; ++j) {
+            const float spread = (uN > 1) ? (static_cast<float>(j) / static_cast<float>(uN - 1)) * 2.0f - 1.0f : 0.0f;
+            uDetMul[j] = std::pow(2.0f, spread * uDetune / 1200.0f);
+            const float ang = (spread * uWidth + 1.0f) * 0.25f * juce::MathConstants<float>::pi;  // equal-power
+            uPanL[j] = std::cos(ang);
+            uPanR[j] = std::sin(ang);
+            pwr += uPanL[j] * uPanL[j] + uPanR[j] * uPanR[j];
+        }
+        // Normalise so the average PER-CHANNEL power matches a single centre voice,
+        // so engaging unison doesn't drop the level (pwr is the L+R total → ÷2).
+        const float norm = (pwr > 0.0f) ? std::sqrt(2.0f / pwr) : 1.0f;
+        for (int j = 0; j < uN; ++j) { uPanL[j] *= norm; uPanR[j] *= norm; }
+    }
+    if (unisonOn) filterR.setResonance(resonance);
+
     // ── Transient: pre-render this block into the scratch buffer ─────────────────
     // Rendered up front (env × gain × per-trigger jitter, but NOT tailLevel and NOT
     // the filter) so it can be mixed sample-by-sample inside the loop.  When the
@@ -732,7 +775,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 hzBase = smoothedHz.getNextValue();
             }
             const float reqHz = hzBase * smoothedPitchMult.getNextValue();
-            osc.setFrequency(reqHz);
+            osc.setFrequency(reqHz * uDetMul[0]);
+            for (int j = 1; j < uN; ++j) unisonOscs[j - 1].setFrequency(reqHz * uDetMul[j]);
 
             // Anti-DC-thump: setFrequency() floors hz at 1, so a gesture that
             // drives the pitch sub-audio (a deep glide or a large pitchbend with
@@ -746,14 +790,29 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         float gain = smoothedVCA.getNextValue();
 
         // Oscillator output (morphed wavetable + PD warp + FM inharmonicity).
-        float wave = osc.nextMorphed(activeMorphPos, smoothedPW.getNextValue(),
-                                     smoothedInharm.getNextValue(),
-                                     smoothedSync.getNextValue());
+        // Smoothers advance once per sample and are shared by every unison voice.
+        const float pwNow = smoothedPW.getNextValue();
+        const float ihNow = smoothedInharm.getNextValue();
+        const float syNow = smoothedSync.getNextValue();
+        float waveL, waveR;
+        if (!unisonOn) {
+            float w = osc.nextMorphed(activeMorphPos, pwNow, ihNow, syNow);
+            waveL = waveR = w;
+        } else {
+            // Detuned voices panned across the field → genuine stereo image.
+            float w0 = osc.nextMorphed(activeMorphPos, pwNow, ihNow, syNow);
+            waveL = w0 * uPanL[0]; waveR = w0 * uPanR[0];
+            for (int j = 1; j < uN; ++j) {
+                float w = unisonOscs[j - 1].nextMorphed(activeMorphPos, pwNow, ihNow, syNow);
+                waveL += w * uPanL[j]; waveR += w * uPanR[j];
+            }
+        }
 
         // Noise blend: mix noise pre-filter so both wave and noise share the same
         // tonal character from the SVF.  Generation is skipped when blend is off
-        // (the branch is fully predicted after the first block).
-        float rawSample = wave;
+        // (the branch is fully predicted after the first block).  Noise is mono
+        // (centred) — added equally to both channels.
+        float rawL = waveL, rawR = waveR;
         if (activeNoiseMix > 0.0005f)
         {
             // White noise: 64-bit LCG, uniform [-1, 1].
@@ -792,8 +851,9 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 noiseOut = white;  // White: use LCG output directly.
             }
 
-            rawSample = wave * (1.0f - activeNoiseMix)
-                       + noiseOut * activeNoiseMix;
+            const float dry = 1.0f - activeNoiseMix, wet = noiseOut * activeNoiseMix;
+            rawL = waveL * dry + wet;
+            rawR = waveR * dry + wet;
         }
 
         // Wavefold (pre-filter): reshapes the osc+noise signal, multiplying
@@ -801,22 +861,33 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         // brightness.  wavefold() early-outs when drive is negligible.
         // subGain mutes the pre-filter signal when the pitch is sub-audio, so the
         // filter settles to zero (no DC charge) instead of holding a thump.
-        float folded = Oscillator::wavefold(rawSample, smoothedFoldDrive.getNextValue())
-                       * subGain;
+        const float foldDrive = smoothedFoldDrive.getNextValue();
+        const float foldedL = Oscillator::wavefold(rawL, foldDrive) * subGain;
 
-        float sample = filter.process(folded, filterMode) * gain * tailLevel;
+        // Filter L (and R separately when unison is active → true stereo width).
+        const float vgain = gain * tailLevel;
+        float sampleL = filter.process(foldedL, filterMode) * vgain;
+        float sampleR;
+        if (unisonOn) {
+            filterR.setCutoff(cutoffNow);
+            const float foldedR = Oscillator::wavefold(rawR, foldDrive) * subGain;
+            sampleR = filterR.process(foldedR, filterMode) * vgain;
+        } else {
+            sampleR = sampleL;
+        }
 
         // Noise→tone morph: duck the note body so the oscillator emerges from
         // under the transient rather than starting alongside it.
         if (oscMorphArmed && oscMorphRamp < 1.0f) {
-            sample *= oscMorphRamp;
+            sampleL *= oscMorphRamp; sampleR *= oscMorphRamp;
             oscMorphRamp += oscMorphInc;
             if (oscMorphRamp > 1.0f) oscMorphRamp = 1.0f;
         }
 
         // Transient path: excitation (the noise sample) → pitch resonator (rings
         // at the note pitch, continues after the sample ends) → filter coupling
-        // (shared spectral space) → breath/VCA gating.  Scaled by tailLevel.
+        // (shared spectral space) → breath/VCA gating.  Scaled by tailLevel.  The
+        // transient is mono — added equally to both channels.
         if (transientOn) {
             float t = (i < transientN) ? transientScratch[(size_t) i] * tailLevel : 0.0f;
             if (resoOn) {
@@ -830,11 +901,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 t = transientFilter.process(t, filterMode);
             }
             t *= (1.0f - transientDyn) + transientDyn * gain;   // breath/VCA gating
-            sample += t;
+            sampleL += t; sampleR += t;
         }
 
-        left[i] += sample;
-        if (right) right[i] += sample;
+        if (right) { left[i] += sampleL; right[i] += sampleR; }
+        else        left[i] += 0.5f * (sampleL + sampleR);   // mono bus: fold the field down
     }
 
     // Publish state for the next voice to inherit.

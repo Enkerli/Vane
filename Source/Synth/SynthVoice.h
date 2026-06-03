@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <array>
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
 #include "Synth/Oscillator.h"
@@ -66,7 +67,17 @@ public:
 
     // Point this voice's oscillator at a morph wavetable (shared, owned by the
     // processor).  nullptr → the built-in default.
-    void setWavetable(const Wavetable* w) { osc.setWavetable(w); }
+    void setWavetable(const Wavetable* w) {
+        osc.setWavetable(w);
+        for (auto& o : unisonOscs) o.setWavetable(w);
+    }
+
+    // Wire the stereo-unison APVTS pointers (voices count, detune cents, width).
+    // All may be null — unison gracefully disables (single centre oscillator).
+    void setUnisonParams(std::atomic<float>* voices, std::atomic<float>* detune,
+                         std::atomic<float>* width) noexcept {
+        paramUnisonVoices = voices; paramUnisonDetune = detune; paramUnisonWidth = width;
+    }
 
     // Wire the transient library (owned by VaneProcessor, shared across all voices).
     // Safe to call before prepare() — used in the processor constructor.
@@ -200,8 +211,17 @@ private:
     // cross-contaminate simultaneous notes through the shared route slewers.
     std::vector<Slewer> voiceSlewers;
 
+    // Stereo unison: `osc` is voice 0; unisonOscs holds the extra detuned voices.
+    // The voices are panned across the field and each channel gets its own filter
+    // so the detune spread becomes a genuine stereo image (Vane was dual-mono).
+    static constexpr int kMaxUnison = 6;
     Oscillator osc;
-    SVFilter   filter;
+    std::array<Oscillator, kMaxUnison - 1> unisonOscs;
+    SVFilter   filter;     // left / centre channel
+    SVFilter   filterR;    // right channel (used only when unison voices > 1)
+    std::atomic<float>* paramUnisonVoices = nullptr;  // choice index → {1,2,3,4,6}
+    std::atomic<float>* paramUnisonDetune = nullptr;  // 0..50 cents spread
+    std::atomic<float>* paramUnisonWidth  = nullptr;  // 0..1 stereo spread
     double sampleRate = 44100.0;
 
     // Per-sample cutoff interpolation — eliminates block-boundary coefficient steps

@@ -17,6 +17,7 @@ const ParamPair kParamMap[] = {
     { "Mode",    "filterMode"  }, { "Output",  "outputLevel" }, { "VelVCA", "velocityMix" },
     { "Glide",   "glideTime"   }, { "GlideMode","glideMode"  }, { "GlideCurve","glideCurve" },
     { "MasterTune","masterTune"}, { "monoMode","monoMode"    },
+    { "UniVox",  "unisonVoices"}, { "UniDet","unisonDetune"  }, { "UniWid","unisonWidth" },
     { "TrGain",  "transientGain"  }, { "TrDecay","transientDecay"  },
     { "TrChoice","transientChoice"}, { "TrTrigger","transientTrigger"},
     { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
