@@ -5,6 +5,7 @@
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
 #include "Synth/SamplePlayer.h"
+#include "Synth/CombResonator.h"
 #include "Synth/TransientLibrary.h"
 
 class SynthVoice : public juce::MPESynthesiserVoice {
@@ -81,7 +82,10 @@ public:
                             std::atomic<float>* trigger,
                             std::atomic<float>* variation = nullptr,
                             std::atomic<float>* filterRoute = nullptr,
-                            std::atomic<float>* dynamics = nullptr) noexcept {
+                            std::atomic<float>* dynamics = nullptr,
+                            std::atomic<float>* resonate = nullptr,
+                            std::atomic<float>* damping = nullptr,
+                            std::atomic<float>* morphMs = nullptr) noexcept {
         paramTransientGain      = gain;
         paramTransientDecay     = decay;
         paramTransientChoice    = choice;
@@ -89,6 +93,9 @@ public:
         paramTransientVariation = variation;
         paramTransientFilter    = filterRoute;
         paramTransientDynamics  = dynamics;
+        paramTransientResonate  = resonate;
+        paramTransientDamping   = damping;
+        paramTransientMorph     = morphMs;
     }
 
     // MPESynthesiserVoice overrides
@@ -280,6 +287,12 @@ private:
     std::vector<float>      transientScratch;            // mono render scratch, sized in prepare()
     float                   transientGainMul  = 1.0f;   // per-trigger gain jitter (round-robin)
     SVFilter                transientFilter;             // shares the voice filter's coeffs when routed
+    CombResonator           transientReso;               // pitch resonator (Karplus-Strong excitation)
+    bool                    transientResoActive = false; // ring is sounding (excited this note)
+    int                     transientResoSilent = 0;     // consecutive near-silent samples → stop
+    float                   oscMorphRamp = 1.0f;         // note body fade-in under the transient (0..1)
+    float                   oscMorphInc  = 0.0f;         // per-sample increment for the morph ramp
+    bool                    oscMorphArmed = false;       // morph active for this note (transient fired)
 
     // Transient APVTS parameter pointers — set via setTransientParams().
     std::atomic<float>* paramTransientGain      = nullptr; // 0..2, default 0 (off)
@@ -289,4 +302,7 @@ private:
     std::atomic<float>* paramTransientVariation = nullptr; // 0..1 per-trigger round-robin amount
     std::atomic<float>* paramTransientFilter    = nullptr; // 0/1 route transient through voice filter
     std::atomic<float>* paramTransientDynamics  = nullptr; // 0..1 how much transient follows breath VCA
+    std::atomic<float>* paramTransientResonate  = nullptr; // 0..1 pitch-resonator depth (comb feedback)
+    std::atomic<float>* paramTransientDamping    = nullptr; // 0..1 resonator damping (bright→dark)
+    std::atomic<float>* paramTransientMorph      = nullptr; // 0..50 ms note-body fade-in under transient
 };

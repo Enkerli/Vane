@@ -71,10 +71,14 @@ VaneProcessor::VaneProcessor()
         auto* pTrVar     = apvts.getRawParameterValue("transientVariation");
         auto* pTrFilt    = apvts.getRawParameterValue("transientFilter");
         auto* pTrDyn     = apvts.getRawParameterValue("transientDynamics");
+        auto* pTrReso    = apvts.getRawParameterValue("transientResonate");
+        auto* pTrDamp    = apvts.getRawParameterValue("transientDamping");
+        auto* pTrMorph   = apvts.getRawParameterValue("transientMorph");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
-                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn);
+                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn,
+                                      pTrReso, pTrDamp, pTrMorph);
             }
         }
     }
@@ -872,6 +876,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"transientDynamics", 1}, "Transient Dynamics",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.75f));
+
+    // Resonate: pitch-resonator depth.  Runs the transient noise through a comb
+    // tuned to the played note (Karplus-Strong excitation) so the attack rings at
+    // the note's pitch and fuses harmonically.  0 = dry noise, 1 = strong pluck.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientResonate", 1}, "Transient Resonate",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+
+    // Damping: resonator loop damping — 0 = bright/metallic, 1 = dark/string-like.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientDamping", 1}, "Transient Damping",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+
+    // Morph: note-body fade-in time under the transient (ms).  The oscillator
+    // emerges from under the attack instead of starting alongside it (spectral
+    // flux continuity).  0 = off.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientMorph", 1}, "Transient Morph (ms)",
+        juce::NormalisableRange<float>(0.0f, 50.0f, 0.0f, 0.7f), 12.0f));
 
     // ── Modulation route amounts ──────────────────────────────────────────────
     // How far each source sweeps its destination.  All are live parameters —

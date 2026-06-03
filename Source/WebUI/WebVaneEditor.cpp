@@ -21,6 +21,7 @@ const ParamPair kParamMap[] = {
     { "TrChoice","transientChoice"}, { "TrTrigger","transientTrigger"},
     { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
     { "TrDyn",   "transientDynamics" },
+    { "TrReso",  "transientResonate" }, { "TrDamp","transientDamping" }, { "TrMorph","transientMorph" },
 };
 juce::String uiToApvts (const juce::String& ui) {
     for (auto& p : kParamMap) if (ui == p.ui) return p.apvts;

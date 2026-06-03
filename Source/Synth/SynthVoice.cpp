@@ -54,6 +54,7 @@ void SynthVoice::prepare(double sr, int blockSize)
     osc.prepare(sr);
     filter.prepare(sr);
     transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
+    transientReso.prepare(sr);     // pitch resonator delay line
 
     // Build per-voice slewers matching each route's attack/release config.
     // Routes are finalized in the VaneProcessor constructor before prepare() is
@@ -423,6 +424,24 @@ void SynthVoice::noteStarted()
                 transientEnvLevel = 1.0f;
                 transientFilter.reset();   // clear stale state from a previous note
                 transientPlayer.trigger(speedRatio, startOff);
+
+                // Pitch resonator: tune to the played note so the noise rings at
+                // its pitch (Karplus-Strong excitation → harmonic fusion).
+                transientReso.reset();
+                transientReso.setTuning(baseHz > 0.0f ? baseHz : 110.0f);
+                transientResoActive = true;
+                transientResoSilent = 0;
+
+                // Noise→tone morph: arm the note-body fade-in so the oscillator
+                // emerges from under the transient instead of starting alongside it.
+                const float morphMs = paramTransientMorph ? paramTransientMorph->load() : 0.0f;
+                if (morphMs > 0.5f) {
+                    oscMorphRamp  = 0.0f;
+                    oscMorphInc   = 1.0f / (morphMs * 0.001f * static_cast<float>(sampleRate));
+                    oscMorphArmed = true;
+                } else {
+                    oscMorphRamp = 1.0f; oscMorphArmed = false;
+                }
             }
         }
     }
@@ -662,6 +681,16 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // breath attack — the fix for fixed-velocity wind controllers).
     const float transientDyn = paramTransientDynamics ? paramTransientDynamics->load() : 0.0f;
 
+    // Pitch resonator (Karplus-Strong): feedback from the Resonate depth, loop
+    // damping from the Damping knob (bright→dark).  The comb keeps ringing after
+    // the noise sample ends, so process the transient path while it is active.
+    const float resoDepth = paramTransientResonate ? paramTransientResonate->load() : 0.0f;
+    const float resoFb     = 0.90f * resoDepth;                       // up to 0.9 feedback
+    const float resoDamp   = 1.0f - 0.95f * (paramTransientDamping ? paramTransientDamping->load() : 0.5f);
+    const bool  resoOn     = resoDepth > 1.0e-4f && transientResoActive;
+    // The transient path runs this block if the sample is feeding or the ring is alive.
+    const bool  transientOn = (transientN > 0) || resoOn;
+
     auto* left  = buffer.getWritePointer(0, startSample);
     auto* right = buffer.getNumChannels() > 1
                   ? buffer.getWritePointer(1, startSample) : nullptr;
@@ -777,17 +806,30 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
         float sample = filter.process(folded, filterMode) * gain * tailLevel;
 
-        // Transient mix: scaled by tailLevel so it fades on release.  When routed,
-        // pass it through transientFilter with the SAME per-sample cutoff as the
-        // voice filter, so the attack shares the note's spectral envelope.
-        if (i < transientN) {
-            float t = transientScratch[(size_t) i] * tailLevel;
+        // Noise→tone morph: duck the note body so the oscillator emerges from
+        // under the transient rather than starting alongside it.
+        if (oscMorphArmed && oscMorphRamp < 1.0f) {
+            sample *= oscMorphRamp;
+            oscMorphRamp += oscMorphInc;
+            if (oscMorphRamp > 1.0f) oscMorphRamp = 1.0f;
+        }
+
+        // Transient path: excitation (the noise sample) → pitch resonator (rings
+        // at the note pitch, continues after the sample ends) → filter coupling
+        // (shared spectral space) → breath/VCA gating.  Scaled by tailLevel.
+        if (transientOn) {
+            float t = (i < transientN) ? transientScratch[(size_t) i] * tailLevel : 0.0f;
+            if (resoOn) {
+                t = transientReso.process(t, resoFb, resoDamp);
+                if (std::abs(t) < 1.0e-4f) { if (++transientResoSilent > (int) (sampleRate * 0.05))
+                                                 transientResoActive = false; }
+                else transientResoSilent = 0;
+            }
             if (transientRouteFilter) {
                 transientFilter.setCutoff(cutoffNow);
                 t = transientFilter.process(t, filterMode);
             }
-            // Breath/VCA gating: blend between fixed level and breath-tracked.
-            t *= (1.0f - transientDyn) + transientDyn * gain;
+            t *= (1.0f - transientDyn) + transientDyn * gain;   // breath/VCA gating
             sample += t;
         }
 

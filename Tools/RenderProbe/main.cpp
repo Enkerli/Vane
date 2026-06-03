@@ -76,13 +76,22 @@ int main()
         // BREATH=1 → wind-controller realism: veloMix=0, breath drives the VCA
         // (ramps from 0 at note-on).  Otherwise steady velocity VCA.
         const bool breathMode = std::getenv("BREATH") != nullptr;
-        setNorm ("velocityMix", breathMode ? 0.0f : 1.0f);
+        // ISOLATE: silence the note (no VCA, no breath, no dynamics gating) so the
+        // output is ONLY the transient — lets us measure its pitch from the resonator.
+        const bool isolate = std::getenv("ISOLATE") != nullptr;
+        setNorm ("velocityMix", (breathMode || isolate) ? 0.0f : 1.0f);
         // Filter route + variation (normalised: bool 0/1, var 0..1).
         setNorm ("transientFilter",    std::getenv("TFILT") ? (float)atof(std::getenv("TFILT")) : 1.0f);
         setNorm ("transientVariation", std::getenv("TVAR")  ? (float)atof(std::getenv("TVAR"))  : 0.0f);
-        setNorm ("transientDynamics",  std::getenv("TDYN")  ? (float)atof(std::getenv("TDYN"))  : 0.0f);
-        std::printf ("[transient] filterRoute=%.0f variation=%.2f dynamics=%.2f\n",
-                     pv("transientFilter"), pv("transientVariation"), pv("transientDynamics"));
+        setNorm ("transientDynamics",  isolate ? 0.0f : (std::getenv("TDYN") ? (float)atof(std::getenv("TDYN")) : 0.0f));
+        setNorm ("transientResonate",  std::getenv("TRESO") ? (float)atof(std::getenv("TRESO")) : 0.0f);
+        setNorm ("transientDamping",   std::getenv("TDAMP") ? (float)atof(std::getenv("TDAMP")) : 0.5f);
+        // Morph is normalised on a skewed range; pass 0 unless asked.
+        if (auto* mp = dynamic_cast<juce::AudioParameterFloat*>(proc.apvts.getParameter("transientMorph")))
+            *mp = std::getenv("TMORPH") ? (float)atof(std::getenv("TMORPH")) : 0.0f;
+        std::printf ("[transient] filter=%.0f var=%.2f dyn=%.2f reso=%.2f damp=%.2f morph=%.1fms\n",
+                     pv("transientFilter"), pv("transientVariation"), pv("transientDynamics"),
+                     pv("transientResonate"), pv("transientDamping"), pv("transientMorph"));
         if (std::getenv("MONO")) { setNorm ("monoMode", 1.0f); std::printf ("[transient] MONO legato mode\n"); }
         std::printf ("[transient] mode: %s VCA, trigger=%s\n",
                      breathMode?"breath":"velocity", trigMode>0.5f?"Non-legato":"Always");
@@ -172,6 +181,12 @@ int main()
             double num=0,den=0; for(int k=1;k<2048;++k){double fr=(double)k*sr/4096; num+=fr*sp[k]; den+=sp[k];}
             std::printf ("[transient] attack(0-60ms) peak=%.4f rms=%.4f | sustain peak=%.4f rms=%.4f | attack/sustain=%.2fx | attackCentroid=%.0fHz\n",
                          atk.first, atk.second, sus.first, sus.second, atk.second/(sus.second+1e-9), num/(den+1e-9));
+            // Periodicity of the transient (0-150ms) at the note period — rises with Resonate.
+            double noteHz = 440.0*std::pow(2.0,(note-69)/12.0); int D=(int)(sr/noteHz);
+            int w0=0,w1=std::min((int)(sr*0.15),(int)fromNoteOn.size());
+            double r0=0,rD=0; for(int i=w0;i<w1-D;++i){ r0+=fromNoteOn[i]*fromNoteOn[i]; rD+=fromNoteOn[i]*fromNoteOn[i+D]; }
+            std::printf ("[transient] noteHz=%.0f period-autocorr=%.3f (rises with Resonate = acquiring pitch)\n",
+                         noteHz, rD/(r0+1e-9));
         }
         return 0;
     }
