@@ -77,6 +77,10 @@ int main()
         // (ramps from 0 at note-on).  Otherwise steady velocity VCA.
         const bool breathMode = std::getenv("BREATH") != nullptr;
         setNorm ("velocityMix", breathMode ? 0.0f : 1.0f);
+        // Filter route + variation (normalised: bool 0/1, var 0..1).
+        setNorm ("transientFilter",    std::getenv("TFILT") ? (float)atof(std::getenv("TFILT")) : 1.0f);
+        setNorm ("transientVariation", std::getenv("TVAR")  ? (float)atof(std::getenv("TVAR"))  : 0.0f);
+        std::printf ("[transient] filterRoute=%.0f variation=%.2f\n", pv("transientFilter"), pv("transientVariation"));
         if (std::getenv("MONO")) { setNorm ("monoMode", 1.0f); std::printf ("[transient] MONO legato mode\n"); }
         std::printf ("[transient] mode: %s VCA, trigger=%s\n",
                      breathMode?"breath":"velocity", trigMode>0.5f?"Non-legato":"Always");
@@ -157,8 +161,14 @@ int main()
         } else {
             auto atk = winPeakRms(0.0, 0.06);
             auto sus = winPeakRms(0.30, 0.50);
-            std::printf ("[transient] attack(0-60ms) peak=%.4f rms=%.4f | sustain(300-500ms) peak=%.4f rms=%.4f | attack/sustain rms=%.2fx\n",
-                         atk.first, atk.second, sus.first, sus.second, atk.second/(sus.second+1e-9));
+            // Spectral centroid of the attack window (filter route should lower it).
+            int a0=0, a1=(int)(sr*0.06); std::vector<float> aw(fromNoteOn.begin()+a0, fromNoteOn.begin()+std::min(a1,(int)fromNoteOn.size()));
+            for (size_t i=0;i<aw.size();++i) aw[i]*=0.5f-0.5f*std::cos(juce::MathConstants<float>::twoPi*i/(aw.size()-1));
+            juce::dsp::FFT f2(12); std::vector<float> sp(8192,0.f); std::copy(aw.begin(),aw.begin()+std::min((size_t)4096,aw.size()),sp.begin());
+            f2.performFrequencyOnlyForwardTransform(sp.data());
+            double num=0,den=0; for(int k=1;k<2048;++k){double fr=(double)k*sr/4096; num+=fr*sp[k]; den+=sp[k];}
+            std::printf ("[transient] attack(0-60ms) peak=%.4f rms=%.4f | sustain peak=%.4f rms=%.4f | attack/sustain=%.2fx | attackCentroid=%.0fHz\n",
+                         atk.first, atk.second, sus.first, sus.second, atk.second/(sus.second+1e-9), num/(den+1e-9));
         }
         return 0;
     }

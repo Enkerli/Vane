@@ -68,10 +68,12 @@ VaneProcessor::VaneProcessor()
         auto* pTrDecay   = apvts.getRawParameterValue("transientDecay");
         auto* pTrChoice  = apvts.getRawParameterValue("transientChoice");
         auto* pTrTrigger = apvts.getRawParameterValue("transientTrigger");
+        auto* pTrVar     = apvts.getRawParameterValue("transientVariation");
+        auto* pTrFilt    = apvts.getRawParameterValue("transientFilter");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
-                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger);
+                v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt);
             }
         }
     }
@@ -848,6 +850,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"transientTrigger", 1}, "Transient Trigger",
         juce::StringArray{"Always", "Non-legato"}, 1));
+
+    // Variation: per-trigger round-robin amount (0 = identical every hit, 1 = max
+    // gain/pitch/start jitter).  Breaks the "machine-gun" sameness of a fixed sample.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"transientVariation", 1}, "Transient Variation",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+
+    // Filter route: when on, the transient passes through the voice's filter (same
+    // cutoff/res) so the attack sits in the note's spectral space instead of being
+    // pasted on post-filter.  Default on — the whole point of the coupling.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"transientFilter", 1}, "Transient Filter Route", true));
 
     // ── Modulation route amounts ──────────────────────────────────────────────
     // How far each source sweeps its destination.  All are live parameters —

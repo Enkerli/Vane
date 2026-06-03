@@ -8,11 +8,15 @@ void SamplePlayer::setSample(const float* data, int numSamples) noexcept
     playhead     = 0.0f;
 }
 
-void SamplePlayer::trigger(float speedRatio) noexcept
+void SamplePlayer::trigger(float speedRatio, int startSample) noexcept
 {
     if (sampleData == nullptr || totalSamples < 2) return;
     speed    = speedRatio > 0.0f ? speedRatio : 1.0f;
-    playhead = 0.0f;
+    // Clamp the start offset so two-point interpolation stays in bounds and at
+    // least a few samples remain to play.
+    if (startSample < 0)                 startSample = 0;
+    if (startSample > totalSamples - 2)  startSample = totalSamples - 2;
+    playhead = (float) startSample;
     playing  = true;
 }
 

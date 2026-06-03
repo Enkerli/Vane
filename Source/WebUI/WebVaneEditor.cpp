@@ -19,6 +19,7 @@ const ParamPair kParamMap[] = {
     { "MasterTune","masterTune"}, { "monoMode","monoMode"    },
     { "TrGain",  "transientGain"  }, { "TrDecay","transientDecay"  },
     { "TrChoice","transientChoice"}, { "TrTrigger","transientTrigger"},
+    { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
 };
 juce::String uiToApvts (const juce::String& ui) {
     for (auto& p : kParamMap) if (ui == p.ui) return p.apvts;

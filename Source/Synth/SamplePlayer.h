@@ -13,9 +13,10 @@ public:
     // Stops any current playback and resets the playhead.
     void setSample(const float* data, int numSamples) noexcept;
 
-    // Start playback from the beginning.
-    //   speedRatio: 1.0 = original pitch; 2.0 = one octave up.
-    void trigger(float speedRatio = 1.0f) noexcept;
+    // Start playback.
+    //   speedRatio:  1.0 = original pitch; 2.0 = one octave up.
+    //   startSample: playhead start offset (per-trigger round-robin variation).
+    void trigger(float speedRatio = 1.0f, int startSample = 0) noexcept;
 
     void stop() noexcept { playing = false; }
     bool isPlaying() const noexcept { return playing; }

@@ -78,11 +78,15 @@ public:
     void setTransientParams(std::atomic<float>* gain,
                             std::atomic<float>* decay,
                             std::atomic<float>* choice,
-                            std::atomic<float>* trigger) noexcept {
-        paramTransientGain    = gain;
-        paramTransientDecay   = decay;
-        paramTransientChoice  = choice;
-        paramTransientTrigger = trigger;
+                            std::atomic<float>* trigger,
+                            std::atomic<float>* variation = nullptr,
+                            std::atomic<float>* filterRoute = nullptr) noexcept {
+        paramTransientGain      = gain;
+        paramTransientDecay     = decay;
+        paramTransientChoice    = choice;
+        paramTransientTrigger   = trigger;
+        paramTransientVariation = variation;
+        paramTransientFilter    = filterRoute;
     }
 
     // MPESynthesiserVoice overrides
@@ -272,10 +276,14 @@ private:
     SamplePlayer            transientPlayer;
     float                   transientEnvLevel = 0.0f;   // current decay envelope (0..1)
     std::vector<float>      transientScratch;            // mono render scratch, sized in prepare()
+    float                   transientGainMul  = 1.0f;   // per-trigger gain jitter (round-robin)
+    SVFilter                transientFilter;             // shares the voice filter's coeffs when routed
 
     // Transient APVTS parameter pointers — set via setTransientParams().
-    std::atomic<float>* paramTransientGain    = nullptr; // 0..2, default 0 (off)
-    std::atomic<float>* paramTransientDecay   = nullptr; // 10..2000 ms
-    std::atomic<float>* paramTransientChoice  = nullptr; // index into TransientLibrary
-    std::atomic<float>* paramTransientTrigger = nullptr; // 0=Always, 1=Non-legato only
+    std::atomic<float>* paramTransientGain      = nullptr; // 0..2, default 0 (off)
+    std::atomic<float>* paramTransientDecay     = nullptr; // 10..2000 ms
+    std::atomic<float>* paramTransientChoice    = nullptr; // index into TransientLibrary
+    std::atomic<float>* paramTransientTrigger   = nullptr; // 0=Always, 1=Non-legato only
+    std::atomic<float>* paramTransientVariation = nullptr; // 0..1 per-trigger round-robin amount
+    std::atomic<float>* paramTransientFilter    = nullptr; // 0/1 route transient through voice filter
 };

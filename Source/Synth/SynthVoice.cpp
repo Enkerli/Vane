@@ -53,6 +53,7 @@ void SynthVoice::prepare(double sr, int blockSize)
     sampleRate = sr;
     osc.prepare(sr);
     filter.prepare(sr);
+    transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
 
     // Build per-voice slewers matching each route's attack/release config.
     // Routes are finalized in the VaneProcessor constructor before prepare() is
@@ -395,10 +396,33 @@ void SynthVoice::noteStarted()
                     : 1.0f;
                 float speedRatio = pitchTrack
                                    * static_cast<float>(ts->sampleRate / sampleRate);
+
+                // ── Per-trigger variation (round-robin) ──────────────────────────────
+                // Decorrelate successive hits so a fixed sample stops sounding like a
+                // looped object: jitter gain, micro-pitch, and (for noise) the start
+                // offset, which reads a fresh excerpt.  Uses the per-voice noise LCG.
+                const float var = paramTransientVariation ? paramTransientVariation->load() : 0.0f;
+                auto rnd = [this]() {   // uniform in [-1, 1]
+                    noiseWhiteState = noiseWhiteState * 6364136223846793005ULL
+                                                      + 1442695040888963407ULL;
+                    return static_cast<float>(static_cast<int32_t>(noiseWhiteState >> 33))
+                           / 2147483648.0f;
+                };
+                transientGainMul = 1.0f + var * 0.30f * rnd();        // ~±2.5 dB at var=1
+                speedRatio      *= 1.0f + var * 0.05f * rnd();         // ±5% micro-pitch
+                // Start offset only for inharmonic noise (no defined attack to skip);
+                // up to ~4 ms of fresh excerpt.  Tonal samples keep their onset intact.
+                int startOff = 0;
+                if (!ts->pitched) {
+                    const float u = 0.5f * (rnd() + 1.0f);             // [0,1]
+                    startOff = static_cast<int>(var * u * 0.004f * static_cast<float>(ts->sampleRate));
+                }
+
                 transientPlayer.setSample(ts->buffer.getReadPointer(0),
                                           ts->buffer.getNumSamples());
                 transientEnvLevel = 1.0f;
-                transientPlayer.trigger(speedRatio);
+                transientFilter.reset();   // clear stale state from a previous note
+                transientPlayer.trigger(speedRatio, startOff);
             }
         }
     }
@@ -606,6 +630,34 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     filter.setResonance(resonance);
     smoothedCutoff.setTargetValue(juce::jlimit(20.0f, 20000.0f, targetCutoff));
 
+    // ── Transient: pre-render this block into the scratch buffer ─────────────────
+    // Rendered up front (env × gain × per-trigger jitter, but NOT tailLevel and NOT
+    // the filter) so it can be mixed sample-by-sample inside the loop.  When the
+    // "Filter Route" is on, each transient sample passes through transientFilter,
+    // which shares the voice filter's coefficients — so the attack sits in the
+    // note's spectral space instead of being pasted on post-filter.
+    int   transientN = 0;
+    bool  transientRouteFilter = false;
+    if (paramTransientGain != nullptr && transientPlayer.isPlaying()
+        && !transientScratch.empty()) {
+        const float tGain = paramTransientGain->load();
+        const float tMod  = mods[ModDestID::TransientLevel];   // e.g. velocity → transient
+        const float gain0 = std::clamp(tGain + tMod, 0.0f, 2.0f) * transientGainMul;
+        if (gain0 > 1.0e-6f) {
+            const float tDecayMs   = paramTransientDecay ? paramTransientDecay->load() : 200.0f;
+            const float decayCoeff = tDecayMs > 0.0f
+                ? std::exp(-1.0f / (tDecayMs * 0.001f * static_cast<float>(sampleRate)))
+                : 0.0f;
+            transientN = juce::jmin(numSamples, static_cast<int>(transientScratch.size()));
+            std::fill(transientScratch.begin(), transientScratch.begin() + transientN, 0.0f);
+            transientPlayer.renderAdding(transientScratch.data(), transientN,
+                                         transientEnvLevel, decayCoeff, gain0);
+            transientRouteFilter = paramTransientFilter && paramTransientFilter->load() > 0.5f;
+            if (transientRouteFilter)
+                transientFilter.setResonance(resonance);   // match the voice filter
+        }
+    }
+
     auto* left  = buffer.getWritePointer(0, startSample);
     auto* right = buffer.getNumChannels() > 1
                   ? buffer.getWritePointer(1, startSample) : nullptr;
@@ -625,7 +677,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             }
         }
         // Advance all smoothers one sample each.
-        filter.setCutoff(smoothedCutoff.getNextValue());
+        const float cutoffNow = smoothedCutoff.getNextValue();
+        filter.setCutoff(cutoffNow);
         float subGain = 1.0f;
         {
             float hzBase;
@@ -719,38 +772,21 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                        * subGain;
 
         float sample = filter.process(folded, filterMode) * gain * tailLevel;
+
+        // Transient mix: scaled by tailLevel so it fades on release.  When routed,
+        // pass it through transientFilter with the SAME per-sample cutoff as the
+        // voice filter, so the attack shares the note's spectral envelope.
+        if (i < transientN) {
+            float t = transientScratch[(size_t) i] * tailLevel;
+            if (transientRouteFilter) {
+                transientFilter.setCutoff(cutoffNow);
+                t = transientFilter.process(t, filterMode);
+            }
+            sample += t;
+        }
+
         left[i] += sample;
         if (right) right[i] += sample;
-    }
-
-    // ── Transient sample rendering (post-filter, additive) ──────────────────────
-    // Rendered after the main loop so it doesn't disturb the per-sample filter
-    // state.  Scaled by tailLevel (end-of-block value) so it fades on note release;
-    // the approximation is fine — tail-off ramps over tens of milliseconds.
-    // The scratch buffer is pre-allocated in prepare() to avoid heap allocation here.
-    if (paramTransientGain != nullptr && transientPlayer.isPlaying()
-        && !transientScratch.empty()) {
-        float tGain    = paramTransientGain->load();
-        float tMod     = mods[ModDestID::TransientLevel];   // e.g. velocity → transient
-        float finalGain = std::clamp(tGain + tMod, 0.0f, 2.0f) * tailLevel;
-
-        if (finalGain > 1e-6f) {
-            float tDecayMs  = paramTransientDecay ? paramTransientDecay->load() : 200.0f;
-            float decayCoeff = tDecayMs > 0.0f
-                ? std::exp(-1.0f / (tDecayMs * 0.001f * static_cast<float>(sampleRate)))
-                : 0.0f;
-
-            // Zero the scratch range we will use (may be less than full buffer size).
-            const int n = juce::jmin(numSamples, static_cast<int>(transientScratch.size()));
-            std::fill(transientScratch.begin(), transientScratch.begin() + n, 0.0f);
-
-            transientPlayer.renderAdding(transientScratch.data(), n,
-                                         transientEnvLevel, decayCoeff, finalGain);
-
-            buffer.addFrom(0, startSample, transientScratch.data(), n);
-            if (buffer.getNumChannels() > 1)
-                buffer.addFrom(1, startSample, transientScratch.data(), n);
-        }
     }
 
     // Publish state for the next voice to inherit.
