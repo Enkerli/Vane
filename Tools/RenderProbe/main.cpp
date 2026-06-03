@@ -58,6 +58,28 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Keytrack test: route Keytrack→Cutoff on a spare slot, play NOTE, measure the
+    // output spectral centroid (higher note should be brighter when keytrack works).
+    if (std::getenv("KEYTRACK")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        // slot 23: src = Keytrack (choice 15), dst = Cutoff (choice 1), amount +1.
+        if (auto* sp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot23_src"))) *sp=15;
+        if (auto* dp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot23_dst"))) *dp=1;
+        setNorm("modSlot23_amt", 1.0f);   // normalised → +1
+        setNorm("velocityMix", 1.0f);
+        std::vector<float> o;
+        for (int b=0;b<(int)(sr*1.2/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            if(b==2) m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            proc.processBlock(buf,m);
+            if(b>=(int)(sr*0.4/bs)) for(int i=0;i<bs;++i) o.push_back(buf.getReadPointer(0)[i]); }
+        const int M=16384; std::vector<float> w(2*M, 0.f);
+        for(int i=0;i<M&&i<(int)o.size();++i) w[i]=o[(size_t)i]*(0.5f-0.5f*std::cos(juce::MathConstants<float>::twoPi*i/(M-1)));
+        juce::dsp::FFT f(14); f.performFrequencyOnlyForwardTransform(w.data());
+        double num=0,den=0; for(int k=1;k<M/2;++k){double fr=(double)k*sr/M; num+=fr*w[(size_t)k]; den+=w[(size_t)k];}
+        std::printf("[keytrack] note=%d centroid=%.0f Hz\n", note, num/(den+1e-9));
+        return 0;
+    }
+
     // Stereo-unison test: set voices, render with steady VCA, capture L+R, report
     // per-channel RMS (level parity) and L/R correlation (1 = mono, <1 = width).
     if (std::getenv("UNISON")) {

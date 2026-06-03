@@ -139,6 +139,9 @@ void SynthVoice::noteStarted()
                 : note.pitchbend.asSignedFloat();
 
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
+    // Keytrack: note pitch as a bipolar mod source, centred on C4 (MIDI 60),
+    // ±48 semitones → ±1, so a route can make cutoff/etc. follow the keyboard.
+    keytrackVal = juce::jlimit(-1.0f, 1.0f, (static_cast<float>(note.initialNote) - 60.0f) / 48.0f);
 
     // Snap the pitchbend smoother to the current PB so note-on is click-free
     // even when PB was already active before the note started.
@@ -214,7 +217,7 @@ void SynthVoice::noteStarted()
     if (!isLegato) {
         float slideBp = (slide - 0.5f) * 2.0f;
         const std::array<float, ModSourceID::NumVoiceSources> noteOnVals {
-            pressure, slideBp, pitchbend, velocity
+            pressure, slideBp, pitchbend, velocity, keytrackVal
         };
         modMatrix.resetVoiceSlewers(voiceSlewers, noteOnVals);
 
@@ -552,7 +555,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float slideBipolar = (slide - 0.5f) * 2.0f;
 
     const std::array<float, ModSourceID::NumVoiceSources> voiceVals {
-        pressure, slideBipolar, pitchbend, velocity
+        pressure, slideBipolar, pitchbend, velocity, keytrackVal
     };
     auto mods = modMatrix.evaluate(voiceVals, voiceSlewers);
 
@@ -671,7 +674,10 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         int ci = juce::jlimit(0, 4, static_cast<int>(std::round(paramUnisonVoices->load())));
         uN = kUnisonChoice[ci];
     }
-    const float uDetune = paramUnisonDetune ? paramUnisonDetune->load() : 0.0f;   // cents
+    // Detune spread (cents), with the matrix UnisonDetune destination added
+    // (±1 mod → ±50 cents) so breath/keytrack/etc. can sweep the spread live.
+    const float uDetune = juce::jlimit(0.0f, 50.0f,
+        (paramUnisonDetune ? paramUnisonDetune->load() : 0.0f) + mods[ModDestID::UnisonDetune] * 50.0f);
     const float uWidth  = paramUnisonWidth  ? paramUnisonWidth->load()  : 0.0f;   // 0..1
     const bool  unisonOn = uN > 1;
     float uDetMul[kMaxUnison], uPanL[kMaxUnison], uPanR[kMaxUnison];

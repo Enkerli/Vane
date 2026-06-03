@@ -17,8 +17,9 @@ struct ModSourceID {
     static constexpr int MPE_Slide     = 1;   // CC74 / Y axis, 0..1
     static constexpr int MPE_Pitchbend = 2;   // signed, -1..1
     static constexpr int Velocity      = 3;   // note-on velocity, 0..1
+    static constexpr int Keytrack      = 4;   // note pitch, bipolar around C4 (±4 oct → ±1)
 
-    static constexpr int NumVoiceSources = 4;
+    static constexpr int NumVoiceSources = 5;
 
     // ── Global CC values ──────────────────────────────────────────────────────
     // Index = CC + ccNumber, e.g. CC + 2 for breath controller
@@ -77,7 +78,11 @@ struct ModDestID {
     //   Useful for velocity → transient loudness or breath → attack emphasis.
     static constexpr int TransientLevel = 11; // transient sample gain
 
-    static constexpr int NumDests = 12;
+    // UnisonDetune: additive offset (in normalised units) to the unison detune
+    //   spread.  activeDetune = clamp(unisonDetune + mods[UnisonDetune]·50c, 0, 50)
+    static constexpr int UnisonDetune  = 12;  // unison detune spread
+
+    static constexpr int NumDests = 13;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -103,20 +108,23 @@ namespace ModSlots {
     // per-note MPE set + breath/expr; 7.. = configurable global aux sources.
     // IMPORTANT: only ever APPEND — APVTS stores the actual index, so appending
     // keeps existing presets' slot sources valid (no migration).
+    // Keytrack (note pitch) appended after the aux block as a per-note source.
+    static constexpr int KeytrackChoice = FirstAuxChoice + NumAux;   // = 15
     inline const char* const kSourceNames[] = {
         "Off", "Breath", "Expression", "Pressure", "Slide", "Pitchbend", "Velocity",
-        "Aux 1", "Aux 2", "Aux 3", "Aux 4", "Aux 5", "Aux 6", "Aux 7", "Aux 8"
+        "Aux 1", "Aux 2", "Aux 3", "Aux 4", "Aux 5", "Aux 6", "Aux 7", "Aux 8",
+        "Keytrack"
     };
-    static constexpr int NumSourceChoices = 7 + NumAux;
+    static constexpr int NumSourceChoices = 7 + NumAux + 1;
 
     // Destination choice list.  Maps to ModDestID values.
     // IMPORTANT: only ever APPEND — APVTS stores the choice index, so inserting
     // would shift existing presets' destination assignments.
     inline const char* const kDestNames[] = {
         "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync",
-        "Transient"
+        "Transient", "Uni Detune"
     };
-    static constexpr int NumDestChoices = 11;
+    static constexpr int NumDestChoices = 12;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -131,6 +139,7 @@ namespace ModSlots {
             case 4: return ModSourceID::MacroSlide;
             case 5: return ModSourceID::MacroPitchbend;
             case 6: return ModSourceID::Velocity;
+            case KeytrackChoice: return ModSourceID::Keytrack;
             default: return -1;   // Off
         }
     }
@@ -149,6 +158,7 @@ namespace ModSlots {
             case 8: return ModDestID::OscInharm;
             case 9: return ModDestID::OscSync;
             case 10: return ModDestID::TransientLevel;
+            case 11: return ModDestID::UnisonDetune;
             default: return -1;
         }
     }
@@ -159,6 +169,7 @@ namespace ModSlots {
     // the per-slot param count down while matching the old fixed-route feel.
     // (A future revision can expose per-slot atk/rel once the WebView UI is ready.)
     inline void slewRates(int sourceChoice, float& atkMs, float& relMs) {
+        if (sourceChoice == KeytrackChoice) { atkMs = 0.0f; relMs = 0.0f; return; }    // per-note constant
         if (sourceChoice >= FirstAuxChoice) { atkMs = 5.0f; relMs = 80.0f; return; }  // aux: smooth global
         switch (sourceChoice) {
             case 1: case 2: atkMs = 5.0f; relMs = 80.0f; break;  // Breath / Expression

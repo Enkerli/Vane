@@ -290,6 +290,7 @@ private:
     float slide     = 0.0f;   // 0..1 (CC74)
     float pitchbend = 0.0f;   // -1..1
     float velocity  = 0.0f;   // 0..1
+    float keytrackVal = 0.0f; // note pitch, bipolar around C4 (note 60), ±4 oct → ±1
     float activeMorphForMeter = 0.0f;   // last block's modulated morph 0..1
 
     // Render state
