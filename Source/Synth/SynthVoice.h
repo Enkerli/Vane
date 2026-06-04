@@ -92,6 +92,10 @@ public:
         sharedUnisonPhase = uniPhase; sharedFilterRS1 = fRS1; sharedFilterRS2 = fRS2;
     }
 
+    // Editable glide curve (Bezier mode): a 65-point time→progress LUT owned by the
+    // processor.  Shaping how pitch travels old→new over the glide.  May be null.
+    void setGlideLUT(const float* lut) noexcept { glideLUT = lut; }
+
     // Wire the transient library (owned by VaneProcessor, shared across all voices).
     // Safe to call before prepare() — used in the processor constructor.
     void setTransientLibrary(const TransientLibrary* lib) noexcept { transientLib = lib; }
@@ -206,6 +210,12 @@ private:
     float glideExpCoeff    = 0.0f;   // 1-pole coeff for Exp mode
     float glideRcHz        = 0.0f;   // current Hz, stepped each sample (RC mode)
     float glideRcCoeff     = 0.0f;   // 1-pole coeff for RC mode
+    // Bezier glide (time-driven): pitch = lerp(startLog, targetLog, curve(elapsed/dur)).
+    const float* glideLUT  = nullptr;   // processor-owned 65-point time→progress LUT
+    float glideBezStartLog = 0.0f;
+    float glideBezTargetLog = 0.0f;
+    int   glideBezSamples  = 0;      // total glide duration (samples); 0 = snapped/inactive
+    int   glideBezElapsed  = 0;
 
     uint32_t myLegatoGen = 0;  // generation this voice was born into
 

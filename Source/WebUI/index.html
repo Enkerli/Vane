@@ -516,6 +516,7 @@ const state = {
   wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false, strip:null, stripCols:0},   // active morph wavetable
   library:[],   // factory table catalogue
   transients:['None'],   // transient sample names (index 0 = None)
+  glideAnchors:[],       // Bézier glide trajectory anchors (time→progress)
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -789,8 +790,9 @@ function renderPatch(){
         <div class="pslider"><div class="top"><span class="lbl">Glide Mode</span></div>
           <div class="seg">${["Time","Rate"].map((n,i)=>`<button class="${state.patch.GlideMode===i?'active':''}" onclick="setChoice('GlideMode',${i})">${n}</button>`).join('')}</div></div>
         <div class="pslider"><div class="top"><span class="lbl">Glide Curve</span></div>
-          <div class="seg">${["Lin","Exp","RC"].map((n,i)=>`<button class="${state.patch.GlideCurve===i?'active':''}" onclick="setChoice('GlideCurve',${i})">${n}</button>`).join('')}</div></div>
+          <div class="seg">${["Lin","Exp","RC","Béz"].map((n,i)=>`<button class="${state.patch.GlideCurve===i?'active':''}" onclick="setChoice('GlideCurve',${i})">${n}</button>`).join('')}</div></div>
       </div>
+      ${Math.round(state.patch.GlideCurve)===3?glideEditorHTML():''}
     </div>
     <div class="group"><span class="eyebrow">Transient</span>
       <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Sample</span>
@@ -809,6 +811,7 @@ function renderPatch(){
     <p class="fine-hint">Drag any slider to adjust · hold <kbd>Shift</kbd>/<kbd>Alt</kbd> or drag vertically for fine control · double-click the value to type · <kbd>↑</kbd><kbd>↓</kbd> to nudge · hover for ± steppers.</p>
   </div>`;
   document.querySelectorAll('.pslider[data-pk]').forEach(wirePatchSlider);
+  if(Math.round(state.patch.GlideCurve)===3) glideCurveWire();   // glide trajectory editor
   if(state.wt.strip) renderStrip(state.wt.strip);   // repaint the table overview
   $('#tabbody').scrollTop=_sc;
 }
@@ -981,6 +984,55 @@ function curveUpdateLive(){ if(curveOpen<0)return;
   const vb=svg.viewBox.baseVal,W=vb.width,H=vb.height,pad=16,y=curveEval(anchorsForSlot(s),u,bip);
   dot.setAttribute('cx',(bip?pad+(u+1)/2*(W-2*pad):pad+u*(W-2*pad)).toFixed(1));
   dot.setAttribute('cy',(bip?(H/2)-y*(H/2-pad):(H-pad)-y*(H-2*pad)).toFixed(1)); }
+
+// ── Glide trajectory curve (Bézier glide) — reuses the curve math, unipolar ──
+let glideSel = null;
+function glideAnchors(){ const a=state.glideAnchors; return (Array.isArray(a)&&a.length)?a:[{x:.5,y:.5}]; }
+Bridge.on('glideCurve',({anchors})=>{ if(Array.isArray(anchors)) state.glideAnchors=anchors;
+  if(tab==='patch'&&Math.round(state.patch.GlideCurve)===3) renderPatch(); });
+function glideEditorHTML(){
+  return `<div class="curve-ed" style="color:var(--vn-pressure);grid-column:1/-1">
+    <div class="ce-head"><span class="lbl">Glide trajectory · time → pitch</span><span class="sp"></span>
+      <button class="pbtn" onclick="glideAddPoint()" ${glideAnchors().length>=3?'disabled':''}>+ point</button>
+      <button class="pbtn" onclick="glideRemovePoint()" ${glideAnchors().length<=1?'disabled':''}>− point</button></div>
+    <svg class="curve-svg glide-svg" viewBox="0 0 360 150" style="height:150px" preserveAspectRatio="none"></svg>
+    <div class="ce-foot"><span class="hint">Shape how pitch travels from the old note to the new one over the glide time. Diagonal = linear.</span></div></div>`;
+}
+function glideCurveDraw(svg){
+  const anchors=glideAnchors(), vb=svg.viewBox.baseVal,W=vb.width,H=vb.height,pad=16;
+  const X=u=>pad+u*(W-2*pad), Y=y=>(H-pad)-y*(H-2*pad);
+  let g='';
+  for(let k=1;k<4;k++){const gx=pad+k/4*(W-2*pad);g+=`<line class="grid" x1="${gx}" y1="${pad}" x2="${gx}" y2="${H-pad}"/>`;}
+  for(let k=1;k<4;k++){const gy=pad+k/4*(H-2*pad);g+=`<line class="grid" x1="${pad}" y1="${gy}" x2="${W-pad}" y2="${gy}"/>`;}
+  const dPath=curvePath(anchors,W,H,pad,false);
+  g+=`<path class="crv crvfill" d="${dPath} L ${X(1)},${H-pad} L ${X(0)},${H-pad} Z" fill="currentColor" stroke="none"/>`;
+  g+=`<path class="crv" d="${dPath}" stroke="currentColor"/>`;
+  const si=glideSel==null?anchors.length-1:glideSel;
+  anchors.forEach((a,ai)=>{const cx=X(a.x),cy=Y(a.y);
+    g+=`<circle class="anchor ${ai===si?'sel':''}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="6.5" stroke="currentColor"/><circle class="hit" data-ai="${ai}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="17"/>`;});
+  svg.innerHTML=g;
+}
+function glideCurveWire(){
+  const svg=document.querySelector('.glide-svg'); if(!svg)return; glideCurveDraw(svg);
+  const ptr=e=>{const r=svg.getBoundingClientRect(),vb=svg.viewBox.baseVal,pad=16;
+    const vx=(e.clientX-r.left)/r.width*vb.width, vy=(e.clientY-r.top)/r.height*vb.height;
+    return {x:clamp((vx-pad)/(vb.width-2*pad),.012,.988), y:clamp(((vb.height-pad)-vy)/(vb.height-2*pad),0,1)};};
+  let drag=-1;
+  svg.addEventListener('pointerdown',e=>{const hit=e.target.closest('.hit');if(!hit)return;
+    drag=+hit.dataset.ai;glideSel=drag;svg.setPointerCapture(e.pointerId);glideCurveDraw(svg);e.preventDefault();});
+  svg.addEventListener('pointermove',e=>{if(drag<0)return;const arr=glideAnchors(),a=arr[drag];if(!a)return;
+    const p=ptr(e),loX=drag>0?arr[drag-1].x+0.03:0.02,hiX=drag<arr.length-1?arr[drag+1].x-0.03:0.98;
+    a.x=clamp(p.x,loX,hiX);a.y=p.y;glideCurveDraw(svg);glideCommit();});
+  const up=()=>{drag=-1;};
+  svg.addEventListener('pointerup',up); svg.addEventListener('pointercancel',up);
+}
+function glideCommit(){ state.glideAnchors=glideAnchors(); Bridge.send('glideCurveEdit',{anchors:state.glideAnchors.map(a=>({x:a.x,y:a.y}))}); markDirty(); }
+function glideAddPoint(){ const arr=glideAnchors(); if(arr.length>=3)return;
+  const pts=[{x:0},...arr,{x:1}]; let gi=0,gw=-1; for(let k=0;k<pts.length-1;k++){const w=pts[k+1].x-pts[k].x;if(w>gw){gw=w;gi=k;}}
+  const nx=(pts[gi].x+pts[gi+1].x)/2; arr.splice(gi,0,{x:nx,y:curveEvalUni(arr,nx)}); arr.sort((p,q)=>p.x-q.x);
+  state.glideAnchors=arr; glideSel=arr.findIndex(p=>p.x===nx); glideCommit(); renderPatch(); }
+function glideRemovePoint(){ const arr=glideAnchors(); if(arr.length<=1)return;
+  const si=glideSel==null?arr.length-1:glideSel; arr.splice(si,1); glideSel=Math.max(0,si-1); state.glideAnchors=arr; glideCommit(); renderPatch(); }
 
 function slotRow(s,i){
   const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';

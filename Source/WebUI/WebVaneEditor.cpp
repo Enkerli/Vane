@@ -112,6 +112,16 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                                       static_cast<float> (static_cast<double> (p["y"])));
             owner->proc.setSlotCurveAnchors (n, pts);
         })
+        // Glide trajectory curve (Bézier glide mode): {anchors:[{x,y}…]}.
+        .withEventListener ("glideCurveEdit", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            std::vector<std::pair<float, float>> pts;
+            if (auto* arr = a[0]["anchors"].getArray())
+                for (auto& p : *arr)
+                    pts.emplace_back (static_cast<float> (static_cast<double> (p["x"])),
+                                      static_cast<float> (static_cast<double> (p["y"])));
+            owner->proc.setGlideAnchors (pts);
+        })
         .withEventListener ("presetLoad", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             const int id = static_cast<int> (a[0]["id"]);
@@ -120,6 +130,8 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                 owner->proc.presetManager.loadPreset (names[id]);
                 owner->proc.restoreWavetableFromState();   // preset's table (or built-in)
                 owner->proc.restoreAllSlotCurves();        // rebuild mod-curve LUTs
+                owner->proc.restoreGlideCurve();           // rebuild glide trajectory LUT
+                owner->sendGlideCurve();
                 owner->sendSlotState();      // patch params echo via parameterChanged
                 owner->sendControllerState(); // the preset carries its own bindings
                 owner->sendWavetableInfo (true);
@@ -564,6 +576,16 @@ void WebVaneEditor::sendTuningState()
     }));
 }
 
+void WebVaneEditor::sendGlideCurve()
+{
+    juce::Array<juce::var> anchors;
+    const auto s = proc.apvts.state.getProperty ("glideAnchors", "").toString();
+    for (const auto& p : VaneProcessor::parseAnchors (s))
+        anchors.add (makeObj ({ { "x", p.first }, { "y", p.second } }));
+    webView.emitEventIfBrowserIsVisible ("glideCurve",
+        makeObj ({ { "anchors", juce::var (anchors) } }));
+}
+
 void WebVaneEditor::sendTransientList()
 {
     juce::Array<juce::var> names;
@@ -694,6 +716,7 @@ void WebVaneEditor::sendInitialState()
     sendWavetableInfo (true);
     sendLibrary();
     sendTransientList();
+    sendGlideCurve();
     sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));

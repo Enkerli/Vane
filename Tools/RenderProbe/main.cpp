@@ -58,6 +58,33 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Glide-curve test: mono legato glide note A→B over a long time with Bézier
+    // mode; measure the instantaneous pitch ~30% in.  An ease-in curve should keep
+    // the pitch nearer the START than a linear (identity) trajectory.
+    if (std::getenv("GLIDE")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        setNorm("monoMode", 1.0f); setNorm("velocityMix", 1.0f);
+        if(auto* gc=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("glideCurve"))) *gc=3; // Bézier
+        // glide time → ~1s (normalised on a 0..2000 skewed range; set raw via the param object)
+        if(auto* gp=dynamic_cast<juce::AudioParameterFloat*>(proc.apvts.getParameter("glideTime"))) *gp=1000.0f;
+        if(std::getenv("EASE")) proc.setGlideAnchors({{0.5f,0.12f}});   // slow start
+        else                    proc.setGlideAnchors({});               // identity (linear-in-log)
+        const int A=48, B=60; const double gA=440*std::pow(2.0,(A-69)/12.0), gB=440*std::pow(2.0,(B-69)/12.0);
+        std::vector<float> o;
+        for(int b=0;b<(int)(sr*1.4/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            if(b==2) m.addEvent(juce::MidiMessage::noteOn(2,A,vel),0);
+            if(b==(int)(sr*0.20/bs)) m.addEvent(juce::MidiMessage::noteOn(2,B,vel),0);  // legato glide start @0.2s
+            proc.processBlock(buf,m);
+            for(int i=0;i<bs;++i) o.push_back(buf.getReadPointer(0)[i]); }
+        // pitch via zero-crossings in a 60ms window centred at 30% of the 1s glide (≈0.2+0.3=0.5s)
+        auto pitchAt=[&](double t){ int a=(int)(sr*(t-0.03)),z=(int)(sr*(t+0.03)); int zc=0;
+            for(int i=a+1;i<z&&i<(int)o.size();++i) if((o[i-1]<0)!=(o[i]<0))++zc; return zc/2.0/0.06; };
+        std::printf("[glide] %s  startHz=%.0f targetHz=%.0f  pitch@30%%=%.0fHz (linear-expect~%.0f)\n",
+                    std::getenv("EASE")?"ease-in":"identity", gA, gB, pitchAt(0.50),
+                    std::exp2(std::log2(gA)+0.30*(std::log2(gB)-std::log2(gA))));
+        return 0;
+    }
+
     // Legato-continuity test: mono mode, sustained breath, slur note A→B; measure
     // the worst sample-to-sample jump at the boundary vs the steady-state slope.
     // A clean handoff → boundary jump ≈ steady slope (ratio ~1); a click → ratio≫1.

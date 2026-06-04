@@ -308,6 +308,20 @@ void SynthVoice::noteStarted()
         smoothedHz.reset(sampleRate, 0.0);
         smoothedHz.setCurrentAndTargetValue(baseHz);
 
+    } else if (glideCurv == 3 /* Bézier — time-driven trajectory through the LUT */) {
+        glideBezTargetLog = glideTargetLogHz;       // = log2(baseHz)
+        if (isLegato && effGlideMs > 0.0f && prevHz > 0.0f) {
+            glideBezStartLog = std::log2f(prevHz);
+            glideBezSamples  = static_cast<int>(effGlideMs * 0.001f * static_cast<float>(sampleRate));
+            glideBezElapsed  = 0;
+        } else {
+            glideBezSamples  = 0;                    // snap (non-legato attack)
+        }
+        glideExpLogHz = glideTargetLogHz;  glideExpCoeff = 0.0f;
+        glideRcHz = baseHz;               glideRcCoeff = 0.0f;
+        smoothedHz.reset(sampleRate, 0.0);
+        smoothedHz.setCurrentAndTargetValue(baseHz);
+
     } else /* Linear in semitones — Multiplicative smoother */ {
         smoothedHz.reset(sampleRate, static_cast<double>(effGlideMs) * 0.001);
         if (isLegato && effGlideMs > 0.0f && prevHz > 0.0f) {
@@ -567,6 +581,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                        ? static_cast<int>(std::round(paramGlideCurve->load())) : 0;
     bool useExpGlide   = (glideCurveNow == 1);
     bool useRcGlide    = (glideCurveNow == 2);
+    bool useBezGlide   = (glideCurveNow == 3);
 
     // MPE slide (CC74) is unipolar 0..1 with neutral at 0.5.
     // Convert to bipolar -1..+1 so the ModMatrix route sweeps symmetrically
@@ -797,6 +812,24 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 if (std::abs(glideRcHz - baseHz) < 0.01f)   // 0.01 Hz ≈ 0.04 ¢ at A4
                     glideRcHz = baseHz;
                 hzBase = glideRcHz;
+            } else if (useBezGlide) {
+                // Time-driven: progress = curve(elapsed/duration), pitch interpolated
+                // in log space from start to target.  After the glide, holds target.
+                if (glideBezSamples <= 0 || glideBezElapsed >= glideBezSamples) {
+                    hzBase = std::exp2(glideBezTargetLog);
+                } else {
+                    float t = static_cast<float>(glideBezElapsed) / static_cast<float>(glideBezSamples);
+                    float prog = t;
+                    if (glideLUT) {                       // 65-point LUT, linear interp
+                        float f = t * static_cast<float>(ModRoute::kCurveLUT - 1);
+                        int i0 = static_cast<int>(f);
+                        if (i0 >= ModRoute::kCurveLUT - 1) prog = glideLUT[ModRoute::kCurveLUT - 1];
+                        else { float fr = f - static_cast<float>(i0);
+                               prog = glideLUT[i0] + fr * (glideLUT[i0 + 1] - glideLUT[i0]); }
+                    }
+                    hzBase = std::exp2(glideBezStartLog + prog * (glideBezTargetLog - glideBezStartLog));
+                    ++glideBezElapsed;
+                }
             } else {
                 hzBase = smoothedHz.getNextValue();
             }

@@ -84,6 +84,7 @@ VaneProcessor::VaneProcessor()
                                       pTrReso, pTrDamp, pTrMorph);
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
+                v->setGlideLUT(glideLUT.data());
             }
         }
     }
@@ -110,6 +111,7 @@ VaneProcessor::VaneProcessor()
     }
 
     parseLibraryManifest();   // parse the bundled factory table catalogue
+    restoreGlideCurve();      // glide LUT → identity until a curve is drawn
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
@@ -224,6 +226,18 @@ void VaneProcessor::restoreAllSlotCurves()
         const auto s = apvts.state.getProperty ("modSlot" + juce::String (n) + "_anchors", "").toString();
         modMatrix.setRouteCurve (n, parseAnchors (s));   // empty → LUT off (enum fallback)
     }
+}
+
+void VaneProcessor::setGlideAnchors (const std::vector<std::pair<float, float>>& pts)
+{
+    apvts.state.setProperty ("glideAnchors", serializeAnchors (pts), nullptr);
+    ModMatrix::buildCurveLUT (pts, glideLUT);   // empty → identity (linear) trajectory
+}
+
+void VaneProcessor::restoreGlideCurve()
+{
+    ModMatrix::buildCurveLUT (parseAnchors (apvts.state.getProperty ("glideAnchors", "").toString()),
+                              glideLUT);
 }
 
 void VaneProcessor::parseLibraryManifest()
@@ -660,6 +674,7 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     // param migrations below, which may early-return.
     restoreWavetableFromState();
     restoreAllSlotCurves();   // rebuild each slot's editable response-curve LUT
+    restoreGlideCurve();      // rebuild the glide trajectory LUT
 
     // ── Routing migration (pre-slot → generic slots) ─────────────────────────
     // Presets saved before the slot system carry no routingV tag and store the
@@ -854,7 +869,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     //              high register (larger Hz gap), heavier in the bass.
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"glideCurve", 1}, "Glide Curve",
-        juce::StringArray{"Linear", "Exponential", "RC"}, 0));
+        juce::StringArray{"Linear", "Exponential", "RC", "Bezier"}, 0));
 
     // TODO: masterTune is declared and saved in presets but is NOT yet applied
     // in SynthVoice::renderNextBlock.  To wire it up:

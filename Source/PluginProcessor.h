@@ -229,6 +229,12 @@ public:
     // Re-apply every slot's stored anchors to the matrix (call after state load).
     void restoreAllSlotCurves();
 
+    // ── Glide curve (Bezier glide mode) ────────────────────────────────────────
+    // The glide trajectory curve; anchors persist in state "glideAnchors".
+    void setGlideAnchors (const std::vector<std::pair<float, float>>& pts);
+    void restoreGlideCurve();   // rebuild glideLUT from state (call after load)
+    const float* glideCurveLUT() const { return glideLUT.data(); }
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as
@@ -322,6 +328,8 @@ private:
     std::array<std::atomic<float>, SynthVoice::kMaxUnison - 1> lastUnisonPhase {};
     std::atomic<float> lastFilterRS1  { 0.0f };
     std::atomic<float> lastFilterRS2  { 0.0f };
+    // Glide-curve LUT (Bezier glide), shared read-only with the voices.
+    std::array<float, ModRoute::kCurveLUT> glideLUT {};
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
