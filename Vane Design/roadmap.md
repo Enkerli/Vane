@@ -1,106 +1,100 @@
-# Vane — Roadmap (reassessed)
+# Vane — Roadmap
 
-Replaces the original UI-overhaul plan, which is largely delivered and partly
-stale. This reflects where Vane actually is and where it's going.
+Milestone snapshot (2026-06). The original UI-overhaul plan and the first
+"reassessed" backlog are both **delivered** — what follows records where Vane is
+and what's genuinely next.
 
 ---
 
 ## What Vane is now
 
 A JUCE 8 **MPE + MTS-ESP + CC-first**, mono-capable synthesizer built around
-continuous gestural expression. AU / VST3 / Standalone (+ iPadOS AUv3).
+continuous gestural expression. AU · VST3 · Standalone (+ iPadOS AUv3).
+Single self-contained WebView UI (Stage · Patch · Matrix · Presets), one-pane
+focus reflow on narrow/AUv3 windows.
 
-Delivered:
-- **WebView UI** (WebBrowserComponent), whole-app.
-- **Generic 24-slot mod matrix** (source-pool, slot-based, migration-safe).
-- **Rigs / controller profiles** — multi-controller composition with per-instance
-  Notes/Mod role masks + channel/zone routing (Stage 2a/2b). Grounded in the
-  MIDI-probe findings: channel/zone is the cross-platform identity floor;
-  device-name enumeration works (incl. AUv3) for pairing *suggestions*; Vane
-  can't publish virtual ports as an AUv3, but can direct-open named sources.
-- **Wavetable engine** — load arbitrary `.wav` (Serum/Vital `clm` frame-size
-  detection, FFT band-limiting), normalized morph with filmstrip + live frame +
-  snap-to-frame, **phase-aware morph** (opt-in), **sync-transpose inharmonicity**,
-  per-frame vs global normalization (global kept on branch `wt-global-norm`),
-  table embedded in state for portability.
-- **Real FFT spectrum** + **MPE-aware active-modulation** display.
-- Smooth legato (mono/wind), per-voice expression plumbed to the UI.
+### Delivered
 
-The wavetable work became the new center of gravity — which is why we're
-**dropping modulatable chorus/flange**: the timbral motion now comes from the
-table, not a modulated delay. Their effect wasn't interesting enough to keep.
+**Synthesis**
+- **Wavetable morph oscillator** — load arbitrary `.wav` (Serum/Vital `clm`
+  detection, AKWF), mip-mapped + FFT band-limited; normalised Morph with
+  filmstrip / live frame / snap; opt-in phase-aware morph; table embedded in
+  state for portability + content-hash library dedup.
+- **Wavetable library browser** — bundled CC0 factory set + imports, hash-deduped;
+  iOS-friendly load path (no document picker).
+- PD pulse-width, √2-FM inharmonicity, wavefold, noise blend (white/pink/brown),
+  **sync-transpose** (formant at f0·ratio, non-integer = inharmonic).
+- **Stereo unison** — up to 6 detuned voices, per-channel filter = true stereo
+  image; level-consistent; cross-voice legato handoff (phases + filterR).
+  - **Rotating chords** (Kilgore/Brecker) — chord voice-mode; per-harmony-voice
+    interval sequences advancing one step per note (reset on new phrase);
+    monophonic legato rotation, no extra keys.
+- **Transients** — CC0 per-note attack layer (tonal *and* synthesised inharmonic);
+  per-trigger variation, filter coupling, breath dynamics, Karplus-Strong pitch
+  resonator, noise→tone morph.
+- Cytomic TPT SVF (LP/BP/HP), per-sample-smoothed cutoff.
+
+**Expression & control**
+- MPE (pressure / slide / pitchbend); **MTS-ESP** with hole→nearest quantisation;
+  internal-tuning library (12-EDO, just, pyth, meanqc, werck3, diat7, 19-EDO, BP);
+  **Tuning** stage view (system, deviation map, holes, MTS ▸ Internal ▸ Bypass).
+- **Mono legato** — sample-exact cross-voice handoff (osc/pm phase, SVF state,
+  cutoff, VCA, unison phases, right filter).
+- **Glide** — Linear / Exp / RC / **Bézier** (editable time→pitch trajectory).
+- **Rigs / controller profiles** — multi-controller composition (Stage 2a/2b);
+  channel/zone is the cross-platform identity floor (AUv3 can't publish virtual
+  ports but can direct-open named sources).
+
+**Modulation matrix (24-slot, source-pool, migration-safe)**
+- Sources: breath, expression, MPE dims, velocity, **Keytrack**, 8 aux CCs.
+- Destinations incl. Transient and Uni Detune.
+- **Editable Bézier response curves** per route (monotone cubic spline, inline).
+- **Mod-of-mod** — a route's amount scaled by another source.
+
+**UI** — WebView whole-app; real FFT spectrum; MPE-aware active-modulation display;
+AUv3 focus reflow; single-tap typed entry + global no-select touch fixes.
+
+**Dropped** — modulatable chorus/flange (the wavetable + transient work supplies
+the timbral motion that justified them).
 
 ---
 
-## Wavetable storage (in progress)
+## Forward backlog
 
-Embedding the table in every preset is portable but redundant; the same table in
-N presets is N copies. The fix is a **content-addressed library + reference**,
-which also gives the public-domain-vs-copyright distinction.
+**DSP polish**
+- **BLEP-clean sync** — *investigated and shelved.* The mip-drop already lands
+  non-integer sync at ~−45 dB alias/harmonic (vs a −71 dB table-interp floor); a
+  PolyBLEP on the wavetable reset edge measured *worse*, and a correct fix needs
+  minBLEP tables or 2× oversampling — real work for marginal, filter-masked gain.
+  Revisit only if it sounds rough on a specific patch. See `Oscillator.h`.
+- **Rotating-chord extensions** — rotation reset control (footswitch/CC),
+  direction / step size, scale-quantised intervals (stay diatonic), optional
+  min-note-length gate so fast grace notes don't advance the rotation.
 
-**Phase 1 (now): library + hash dedup + reference**
-- A library folder (`~/Library/Vane/Wavetables/<md5>.wav`). Loading a table
-  stores it once, keyed by content hash → the same table across presets is one
-  file.
-- **Presets** store a *reference* (`wavetableHash` + `wavetableName`), not the
-  bytes — lean, deduped.
-- **DAW projects** stay self-contained: `getStateInformation` keeps the embedded
-  bytes (`wavetableData`), since a project is the portable unit.
-- On load: embedded bytes → else resolve hash from the library → else built-in.
+**Storage / sharing**
+- **WT library P2** — per-table license/source metadata (PD / owned / copyrighted);
+  "export preset with embedded table" gated by it (PD embeds freely, copyrighted →
+  reference-only). Yields shareable-vs-local presets naturally.
+- **State-versioning / stabilisation** — versioned, recallable presets that
+  reproduce the same result by version. The surface (tables + rigs + profiles +
+  presets + curves + sequences) is interaction-heavy; a consolidation pass pays off.
 
-**Phase 2 (later): sharing + license**
-- Per-table license/source metadata (public-domain / owned / copyrighted).
-- "Export preset with embedded table" gated by it: PD/owned embed freely;
-  copyrighted → reference-only ("recipient needs the table"). Yields shareable
-  vs local-only presets naturally.
+**UX**
+- **Preset browser / UX rework** — areas 2/3/5 of the design questions, not yet
+  explored; revisit with Design.
+- **Keytrack centre/threshold** — Keytrack is bipolar around C4; expose the centre
+  (or a threshold) so the "less on low notes" pivot matches a player's range.
 
----
-
-## Prioritized backlog
-
-**Tier 1 — workflow + identity (backend/DSP; survives a UX redesign)**
-1. **WT library** — P1 dedup (in progress), then P2 license/export.
-2. **MTS-ESP completeness** — tuning-name display, internal tunings, and the
-   keymap-"holes" abrupt-note-end fix. Flagged at the very start, never done;
-   the most under-delivered part of Vane's MTS-first identity.
-
-**Tier 2 — Claude Design handoff landed (`Vane Design/claude-design-handoff/`)**
-Decisions (user-picked from the A/B explorations):
-3. **MTS-ESP / tuning → 4th STAGE view (B).** Sources / Spectrum / Pitch /
-   **Tuning**: tuning name·system, internal-tuning library, explicit **holes**,
-   **master ▸ internal ▸ off** precedence (losing layer shown-but-locked, never
-   faked), deviation-profile map (keys × cents-off-ET) with sounding notes lit.
-   Lift from `ext-tuning.js`. *Engine work:* expose tuning name, internal
-   tunings, hole detection from `TuningClient`/MTS-ESP. **(Do first — Tier 1.)**
-4. **Bézier mod-curves → INLINE-EXPAND in the route row (A).** Monotone-cubic
-   curve canvas: drag midpoint to bend, +anchors (≤3) for S-curves, bipolar
-   mirror for Pitchbend, live value-dot. Lift from `ext-curves.js`. *Engine
-   work:* ModMatrix curve evaluator + per-slot control points (replaces the
-   discrete Lin/Exp/S `curve` choice).
-5. **AUv3 reflow → FOCUS, one-pane segmented (B).** Top segmented switch swaps
-   Stage · Patch · Matrix · Presets (no long scroll) on narrow/short windows.
-   Lift `buildFocusbar`/`focusPane` from `ext-reflow.js` + the `ext.css` reflow
-   rules. Pure UI. Touch cross-cutting fixes already shipped (commit 7946ff8).
-6. **Preset browser / UX rework** — areas 2/3/5 of the design questions, not yet
-   explored; revisit with Design.
-
-**Tier 3 — self-contained, whenever**
-5. **BLEP-clean sync** — anti-alias the hardsync reset edge (the one rough edge
-   of sync-transpose).
-6. **Stereo-unison** — make Vane stereo for the first time (per-voice detuned
-   bank + pan spread). The road-not-taken when wavetables took over.
-7. **Keytracking** (mod-by-pitch, e.g. PWM-by-range) — flagged early, low priority.
-
-**Meta**
-- **Stabilization / state-versioning** — versioned, recallable presets (a preset
-  recalled with a version number reproduces the same result). The surface
-  (tables + rigs + profiles + presets) is interaction-heavy; a consolidation
-  pass will pay off.
+**Platform**
+- **AUv3 MIDI identity** — virtual-port publishing is blocked; channel/zone is the
+  floor. Lean further into direct-open of named CoreMIDI sources + pairing
+  suggestions.
 
 ---
 
 ## Sequencing principle
 
-Don't build UI-heavy features right before a UX redesign. Tier 1 (WT library,
-MTS-ESP) is backend/DSP and survives whatever Design changes; do it now. Hold
-Tier 2 (Bézier, preset browser) until Design's input lands.
+Backend/DSP that survives a UX redesign goes first; hold UI-heavy work until
+Design input lands. (The 2026-06 milestone cleared the whole prior backlog, so
+the next big rock is the **preset browser / UX rework** with Design, alongside
+opportunistic DSP polish.)

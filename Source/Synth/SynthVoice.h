@@ -9,6 +9,16 @@
 #include "Synth/CombResonator.h"
 #include "Synth/TransientLibrary.h"
 
+// One MPE voice.  Signal path per sample:
+//   wavetable-morph oscillator (+ PD pulse-width, √2-FM inharmonicity, hard-sync)
+//   × N stereo-unison voices (detune *or* rotating-chord intervals, panned L/R)
+//     → noise blend → wavefold → SVF (per channel) → VCA × tail
+//     + a transient layer (sample → pitch resonator → filter coupling → dynamics)
+//     + a Bézier glide trajectory on the base pitch.
+// Modulation arrives pre-evaluated from the ModMatrix (per-voice + global) each
+// block.  In mono mode the voice publishes its phases/filter state to shared
+// atomics so the next legato voice continues click-free (see the handoff section
+// at the end of renderNextBlock and README "Legato voice handoff").
 class SynthVoice : public juce::MPESynthesiserVoice {
 public:
     // The constructor parameter list is long because voices need live access to
