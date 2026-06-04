@@ -85,6 +85,8 @@ VaneProcessor::VaneProcessor()
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setGlideLUT(glideLUT.data());
+                v->setChordParams(apvts.getRawParameterValue("unisonMode"),
+                                  chordSeq[0].data(), chordLen.data(), &chordRotIndex);
             }
         }
     }
@@ -113,6 +115,7 @@ VaneProcessor::VaneProcessor()
 
     parseLibraryManifest();   // parse the bundled factory table catalogue
     restoreGlideCurve();      // glide LUT → identity until a curve is drawn
+    restoreChordSeqs();       // rotating-chord interval sequences (default until edited)
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately.
@@ -239,6 +242,37 @@ void VaneProcessor::restoreGlideCurve()
 {
     ModMatrix::buildCurveLUT (parseAnchors (apvts.state.getProperty ("glideAnchors", "").toString()),
                               glideLUT);
+}
+
+// ── Rotating-chord sequences ────────────────────────────────────────────────
+void VaneProcessor::setChordSeqs (const juce::String& serialized)
+{
+    apvts.state.setProperty ("chordSeqs", serialized, nullptr);
+    for (auto& row : chordSeq) row.fill (0);
+    chordLen.fill (0);
+    auto voices = juce::StringArray::fromTokens (serialized, ";", "");
+    for (int j = 0; j < SynthVoice::kMaxUnison - 1 && j < voices.size(); ++j) {
+        auto steps = juce::StringArray::fromTokens (voices[j].trim(), ",", "");
+        int n = 0;
+        for (auto& s : steps) {
+            if (s.trim().isEmpty()) continue;
+            if (n >= SynthVoice::kChordSteps) break;
+            chordSeq[(size_t) j][(size_t) n++] = static_cast<int8_t> (juce::jlimit (-48, 48, s.getIntValue()));
+        }
+        chordLen[(size_t) j] = n;
+    }
+}
+
+juce::String VaneProcessor::chordSeqsString() const
+{
+    return apvts.state.getProperty ("chordSeqs", "").toString();
+}
+
+void VaneProcessor::restoreChordSeqs()
+{
+    // Default rotation if none saved: a gently rotating stacked voicing.
+    const juce::String def = "3,4;7,5;10,9;12,7;5,3";
+    setChordSeqs (apvts.state.getProperty ("chordSeqs", def).toString());
 }
 
 void VaneProcessor::parseLibraryManifest()
@@ -676,6 +710,7 @@ void VaneProcessor::setStateInformation(const void* data, int size)
     restoreWavetableFromState();
     restoreAllSlotCurves();   // rebuild each slot's editable response-curve LUT
     restoreGlideCurve();      // rebuild the glide trajectory LUT
+    restoreChordSeqs();       // rebuild rotating-chord sequences
 
     // ── Routing migration (pre-slot → generic slots) ─────────────────────────
     // Presets saved before the slot system carry no routingV tag and store the
@@ -831,6 +866,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"unisonVoices", 1}, "Unison Voices",
         juce::StringArray{"1", "2", "3", "4", "6"}, 0));   // index → {1,2,3,4,6}
+    // Voice mode: Detune (cents) or Chord (rotating intervals — Kilgore/Brecker).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"unisonMode", 1}, "Unison Mode",
+        juce::StringArray{"Detune", "Chord"}, 0));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"unisonDetune", 1}, "Unison Detune",
         juce::NormalisableRange<float>(0.0f, 50.0f), 14.0f));   // cents spread

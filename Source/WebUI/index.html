@@ -214,6 +214,10 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .curve-svg .live{fill:currentColor;stroke:var(--vn-panel);stroke-width:1.5}
 .curve-ed .ce-foot{display:flex;align-items:center;gap:8px;margin-top:7px}
 .curve-ed .ce-foot .hint{font-size:10px;color:var(--vn-muted);flex:1;line-height:1.45}
+.chordrow{display:flex;align-items:center;gap:10px;margin:5px 0}
+.chordrow .cv{font-size:11px;color:var(--vn-muted);min-width:54px;font-weight:600}
+.chordrow input{flex:1;min-width:0;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
+  font-family:var(--vn-mono);font-size:12px;border-radius:7px;padding:0 9px;height:var(--ctl-h)}
 .slot .srccell{display:flex;flex-direction:column;gap:5px;min-width:0}
 .slot .srctop{display:flex;align-items:center;gap:7px;min-width:0}
 .slot select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
@@ -510,7 +514,7 @@ const state = {
   patch:{ Morph:0.0,PW:0.5,Fold:0.0,Inharm:0.0,Sync:1.0,Noise:0.0,NoiseType:0,Detune:0,
           TrGain:0.0,TrDecay:200,TrChoice:0,TrTrigger:1,TrVar:0.3,TrFilt:1,TrDyn:0.75,TrReso:0.3,TrDamp:0.5,TrMorph:12,
           Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
-          Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0,UniVox:0,UniDet:14,UniWid:0.7 },
+          Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0,UniVox:0,UniDet:14,UniWid:0.7,UniMode:0 },
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,scale:0,atk:5,rel:80,on:true,anchors:[]})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
@@ -520,6 +524,7 @@ const state = {
   library:[],   // factory table catalogue
   transients:['None'],   // transient sample names (index 0 = None)
   glideAnchors:[],       // Bézier glide trajectory anchors (time→progress)
+  chordSeqs:'3,4;7,5;10,9;12,7;5,3',   // rotating-chord interval sequences per harmony voice
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -779,7 +784,10 @@ function renderPatch(){
       ${pslider('Detune','Detune','--vn-slide')}
       <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Unison</span></div>
         <div class="seg">${["1","2","3","4","6"].map((n,i)=>`<button class="${Math.round(state.patch.UniVox)===i?'active':''}" onclick="setChoice('UniVox',${i})">${n}</button>`).join('')}</div></div>
-      ${pslider('UniDet','Uni Detune','--vn-slide')}${pslider('UniWid','Uni Width','--vn-slide')}
+      <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Voice Mode</span></div>
+        <div class="seg">${["Detune","Chord"].map((n,i)=>`<button class="${Math.round(state.patch.UniMode)===i?'active':''}" onclick="setChoice('UniMode',${i})">${n}</button>`).join('')}</div></div>
+      ${Math.round(state.patch.UniMode)===1 ? chordSeqEditorHTML() : pslider('UniDet','Uni Detune','--vn-slide')}
+      ${pslider('UniWid','Uni Width','--vn-slide')}
     </div>
     <div class="group"><span class="eyebrow">Filter</span>
       ${pslider('Cutoff','Cutoff','--vn-breath')}${pslider('Reso','Resonance','--vn-breath')}
@@ -1036,6 +1044,27 @@ function glideAddPoint(){ const arr=glideAnchors(); if(arr.length>=3)return;
   state.glideAnchors=arr; glideSel=arr.findIndex(p=>p.x===nx); glideCommit(); renderPatch(); }
 function glideRemovePoint(){ const arr=glideAnchors(); if(arr.length<=1)return;
   const si=glideSel==null?arr.length-1:glideSel; arr.splice(si,1); glideSel=Math.max(0,si-1); state.glideAnchors=arr; glideCommit(); renderPatch(); }
+
+// ── Rotating chords (chord-mode unison) — per-voice interval sequence editor ──
+Bridge.on('chordSeqs',({seqs})=>{ if(typeof seqs==='string'){ state.chordSeqs=seqs;
+  if(tab==='patch'&&Math.round(state.patch.UniMode)===1) renderPatch(); } });
+function chordSeqEditorHTML(){
+  const voices=[1,2,3,4,6][Math.round(state.patch.UniVox)]||1, nH=Math.max(0,voices-1);
+  if(nH===0) return `<div class="hint" style="grid-column:1/-1">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals.</div>`;
+  const seqs=(state.chordSeqs||'').split(';');
+  let rows='';
+  for(let j=0;j<nH;j++){ const v=(seqs[j]||'').trim();
+    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 3 7 10" onchange="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
+  return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">
+    <div class="ce-head"><span class="lbl">Rotating chord · intervals in semitones</span></div>
+    ${rows}
+    <div class="ce-foot"><span class="hint">Each voice cycles its interval list — one step per played note. Different list lengths make the chord rotate; a new phrase restarts it. Voice 1 is your melody.</span></div></div>`;
+}
+function chordSeqSet(j,val){
+  const seqs=(state.chordSeqs||'').split(';'); while(seqs.length<=j) seqs.push('');
+  seqs[j]=val.trim().split(/[\s,]+/).map(x=>parseInt(x,10)).filter(x=>!isNaN(x)).join(',');
+  state.chordSeqs=seqs.join(';'); Bridge.send('chordSeqsEdit',{seqs:state.chordSeqs}); markDirty();
+}
 
 function slotRow(s,i){
   const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';

@@ -18,6 +18,7 @@ const ParamPair kParamMap[] = {
     { "Glide",   "glideTime"   }, { "GlideMode","glideMode"  }, { "GlideCurve","glideCurve" },
     { "MasterTune","masterTune"}, { "monoMode","monoMode"    },
     { "UniVox",  "unisonVoices"}, { "UniDet","unisonDetune"  }, { "UniWid","unisonWidth" },
+    { "UniMode", "unisonMode"  },
     { "TrGain",  "transientGain"  }, { "TrDecay","transientDecay"  },
     { "TrChoice","transientChoice"}, { "TrTrigger","transientTrigger"},
     { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
@@ -123,6 +124,11 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                                       static_cast<float> (static_cast<double> (p["y"])));
             owner->proc.setGlideAnchors (pts);
         })
+        // Rotating-chord interval sequences (chord-mode unison): {seqs:"4,7;12,5;…"}.
+        .withEventListener ("chordSeqsEdit", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            owner->proc.setChordSeqs (a[0]["seqs"].toString());
+        })
         .withEventListener ("presetLoad", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             const int id = static_cast<int> (a[0]["id"]);
@@ -133,6 +139,8 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
                 owner->proc.restoreAllSlotCurves();        // rebuild mod-curve LUTs
                 owner->proc.restoreGlideCurve();           // rebuild glide trajectory LUT
                 owner->sendGlideCurve();
+                owner->proc.restoreChordSeqs();            // rebuild rotating-chord sequences
+                owner->sendChordSeqs();
                 owner->sendSlotState();      // patch params echo via parameterChanged
                 owner->sendControllerState(); // the preset carries its own bindings
                 owner->sendWavetableInfo (true);
@@ -577,6 +585,12 @@ void WebVaneEditor::sendTuningState()
     }));
 }
 
+void WebVaneEditor::sendChordSeqs()
+{
+    webView.emitEventIfBrowserIsVisible ("chordSeqs",
+        makeObj ({ { "seqs", proc.chordSeqsString() } }));
+}
+
 void WebVaneEditor::sendGlideCurve()
 {
     juce::Array<juce::var> anchors;
@@ -719,6 +733,7 @@ void WebVaneEditor::sendInitialState()
     sendLibrary();
     sendTransientList();
     sendGlideCurve();
+    sendChordSeqs();
     sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));

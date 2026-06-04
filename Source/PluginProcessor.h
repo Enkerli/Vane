@@ -235,6 +235,13 @@ public:
     void restoreGlideCurve();   // rebuild glideLUT from state (call after load)
     const float* glideCurveLUT() const { return glideLUT.data(); }
 
+    // ── Rotating chords (chord-mode unison) ────────────────────────────────────
+    // Per harmony voice (kMaxUnison-1): an interval sequence + loop length.  Stored
+    // in state "chordSeqs" as ";"-separated voices, each "i0,i1,…" semitone steps.
+    void setChordSeqs (const juce::String& serialized);
+    void restoreChordSeqs();    // rebuild from state (call after load)
+    juce::String chordSeqsString() const;   // serialize current sequences for the UI
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as
@@ -330,6 +337,10 @@ private:
     std::atomic<float> lastFilterRS2  { 0.0f };
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.
     std::array<float, ModRoute::kCurveLUT> glideLUT {};
+    // Rotating-chord sequences (fixed-capacity so audio-thread reads are realloc-safe).
+    std::array<std::array<int8_t, SynthVoice::kChordSteps>, SynthVoice::kMaxUnison - 1> chordSeq {};
+    std::array<int, SynthVoice::kMaxUnison - 1> chordLen {};
+    std::atomic<int> chordRotIndex { 0 };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

@@ -58,6 +58,34 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Rotating-chord test: chord mode with a known sequence; verify the harmony
+    // interval appears in the spectrum, and that it ROTATES on successive notes.
+    if (std::getenv("CHORD")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        setNorm("monoMode",1.0f); setNorm("velocityMix",1.0f); setNorm("unisonWidth",0.0f);
+        if(auto* cp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("unisonVoices"))) *cp=1; // 2 voices: melody+1 harmony
+        if(auto* mp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("unisonMode"))) *mp=1;   // Chord
+        proc.setChordSeqs("4,7,3");   // one harmony voice cycling +4, +7, +3 semitones
+        const int N0=60; const double f0=440*std::pow(2.0,(N0-69)/12.0);
+        auto energyAt=[&](std::vector<float>& o,double hz){ const int M=16384; std::vector<float> w(2*M,0.f);
+            for(int i=0;i<M&&i<(int)o.size();++i) w[i]=o[(size_t)i]*(0.5f-0.5f*std::cos(juce::MathConstants<float>::twoPi*i/(M-1)));
+            juce::dsp::FFT f(14); f.performFrequencyOnlyForwardTransform(w.data());
+            int k=(int)std::round(hz*M/sr); double e=0; for(int d=-2;d<=2;++d) e+=w[(size_t)(k+d)]; return e; };
+        // Three legato notes (breath held throughout) — rotation: note0=non-legato→step0(+4),
+        // note1→step1(+7), note2→step2(+3).  Measure each note's dominant harmony interval.
+        for(int note_i=0;note_i<3;++note_i){ std::vector<float> o;
+            for(int b=0;b<(int)(sr*0.45/bs);++b){ buf.clear(); juce::MidiBuffer m;
+                m.addEvent(juce::MidiMessage::controllerEvent(1,2,110),0); m.addEvent(juce::MidiMessage::channelPressureChange(2,100),0);
+                if(b==1) m.addEvent(juce::MidiMessage::noteOn(2,N0,vel),0);   // legato (breath already on)
+                proc.processBlock(buf,m);
+                if(b>=(int)(sr*0.15/bs)) for(int i=0;i<bs;++i) o.push_back(buf.getReadPointer(0)[i]); }
+            double e4=energyAt(o,f0*std::pow(2.0,4/12.0)), e7=energyAt(o,f0*std::pow(2.0,7/12.0)), e3=energyAt(o,f0*std::pow(2.0,3/12.0));
+            const char* iv = (e4>e7&&e4>e3)?"+4":(e7>e3?"+7":"+3");
+            std::printf("[chord] note %d harmony peak → %s  (e+4=%.1f e+7=%.1f e+3=%.1f)\n", note_i, iv, e4, e7, e3);
+        }
+        return 0;
+    }
+
     // Mod-of-mod test: Breath→Cutoff on slot 23, optionally SCALED by Keytrack.
     // With scaling, a low note's breath→cutoff is reduced → darker (lower centroid).
     if (std::getenv("MODMOD")) {

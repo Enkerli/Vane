@@ -424,6 +424,19 @@ void SynthVoice::noteStarted()
         }
     }
 
+    // Rotating chords: advance the shared rotation each played note (reset on a new
+    // phrase), then read each harmony voice's interval from its looping sequence.
+    if (paramUnisonMode && paramUnisonMode->load() > 0.5f && chordRot && chordSeqFlat && chordLens) {
+        int idx = isLegato ? chordRot->load() : 0;   // new phrase restarts the rotation
+        chordRot->store(idx + 1);
+        for (int j = 0; j < kMaxUnison - 1; ++j) {
+            const int len = chordLens[j];
+            chordInterval[j] = (len > 0)
+                ? static_cast<float>(chordSeqFlat[j * kChordSteps + (idx % len)])
+                : 0.0f;
+        }
+    }
+
     // ── Transient trigger ────────────────────────────────────────────────────────
     // "Always" fires on every note-on (legato or not) — useful for key clicks or
     // string bow attacks that should repeat with every articulation.
@@ -715,12 +728,17 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         (paramUnisonDetune ? paramUnisonDetune->load() : 0.0f) + mods[ModDestID::UnisonDetune] * 50.0f);
     const float uWidth  = paramUnisonWidth  ? paramUnisonWidth->load()  : 0.0f;   // 0..1
     const bool  unisonOn = uN > 1;
+    // Chord mode: voice 0 is the played note (melody); each extra voice plays the
+    // rotating interval captured at note-on (semitones → pitch multiplier).
+    const bool  chordMode = paramUnisonMode && paramUnisonMode->load() > 0.5f;
     float uDetMul[kMaxUnison], uPanL[kMaxUnison], uPanR[kMaxUnison];
     {
         float pwr = 0.0f;
         for (int j = 0; j < uN; ++j) {
             const float spread = (uN > 1) ? (static_cast<float>(j) / static_cast<float>(uN - 1)) * 2.0f - 1.0f : 0.0f;
-            uDetMul[j] = std::pow(2.0f, spread * uDetune / 1200.0f);
+            uDetMul[j] = chordMode
+                ? ((j == 0) ? 1.0f : std::pow(2.0f, chordInterval[j - 1] / 12.0f))   // melody + harmony intervals
+                : std::pow(2.0f, spread * uDetune / 1200.0f);
             const float ang = (spread * uWidth + 1.0f) * 0.25f * juce::MathConstants<float>::pi;  // equal-power
             uPanL[j] = std::cos(ang);
             uPanR[j] = std::sin(ang);

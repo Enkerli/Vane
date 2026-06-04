@@ -81,7 +81,20 @@ public:
 
     // A/B switch for the unison-legato continuity fix (diagnostics / RenderProbe).
     static inline bool s_unisonLegatoFix = true;
-    static constexpr int kMaxUnison = 6;   // max unison voices (osc + kMaxUnison-1 extra)
+    static constexpr int kMaxUnison  = 6;   // max unison voices (osc + kMaxUnison-1 extra)
+    static constexpr int kChordSteps = 16;  // max steps per rotating-chord voice sequence
+
+    // Rotating chords: the harmony voices follow per-voice interval sequences that
+    // advance one step per played note (resetting on a new phrase), so a legato
+    // line rotates the chord internally — Kilgore/Brecker style, monophonic.
+    //   modeParam : 0 = Detune (cents), 1 = Chord (rotating intervals)
+    //   seqFlat   : (kMaxUnison-1)·kChordSteps int8 semitone intervals, row-major
+    //   lens      : per-voice sequence loop length
+    //   rotIndex  : shared rotation counter (cross-voice; advances per note-on)
+    void setChordParams(std::atomic<float>* modeParam, const int8_t* seqFlat,
+                        const int* lens, std::atomic<int>* rotIndex) noexcept {
+        paramUnisonMode = modeParam; chordSeqFlat = seqFlat; chordLens = lens; chordRot = rotIndex;
+    }
 
     // Cross-voice handoff state for stereo unison (mono legato allocates a NEW
     // voice, so the detuned oscs + right-channel filter need the same continuity
@@ -247,6 +260,12 @@ private:
     std::atomic<float>* sharedUnisonPhase = nullptr;  // kMaxUnison-1 phases (cross-voice handoff)
     std::atomic<float>* sharedFilterRS1   = nullptr;  // right filter integrator state handoff
     std::atomic<float>* sharedFilterRS2   = nullptr;
+    // Rotating chords
+    std::atomic<float>* paramUnisonMode   = nullptr;  // 0 = Detune, 1 = Chord
+    const int8_t*       chordSeqFlat      = nullptr;  // (kMaxUnison-1)·kChordSteps intervals
+    const int*          chordLens         = nullptr;  // per-voice loop length
+    std::atomic<int>*   chordRot          = nullptr;  // shared rotation counter
+    float               chordInterval[kMaxUnison - 1] {};  // this note's harmony intervals (semitones)
     double sampleRate = 44100.0;
 
     // Per-sample cutoff interpolation — eliminates block-boundary coefficient steps
