@@ -118,7 +118,12 @@ VaneProcessor::VaneProcessor()
     restoreChordSeqs();       // rotating-chord interval sequences (default until edited)
 
 #if JUCE_DEBUG
-    // Run unit tests on every Debug build so regressions surface immediately.
+    // Run unit tests on every Debug build so regressions surface immediately while
+    // debugging in a host.  NOTE: in the assembled plugin/standalone these test TUs
+    // can be dead-stripped from the shared-code static lib, so this is a developer
+    // convenience only.  The authoritative pass/fail gate is the dedicated
+    // VaneSelfTest console target (Tools/SelfTest), which compiles the tests in
+    // directly and returns exit code == failure count.
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure(false);
     runner.runAllTests();

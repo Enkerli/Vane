@@ -326,3 +326,37 @@ target_link_libraries(VanePresetGen PRIVATE
     juce::juce_data_structures juce::juce_dsp juce::juce_events
     juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+# ── VaneSelfTest ──────────────────────────────────────────────────────────────
+# Authoritative headless unit-test gate.  Mirrors VanePresetGen's source/link set
+# (so the in-tree tests + their deps compile in directly and are not dead-stripped
+# as they are from the plugin's shared-code lib) but its main() runs UnitTestRunner
+# and returns exit code == failure count.  Build + run on demand:
+#   cmake --build build-mac --target VaneSelfTest && \
+#     ./build-mac/VaneSelfTest_artefacts/<cfg>/VaneSelfTest ; echo $?
+juce_add_console_app(VaneSelfTest PRODUCT_NAME VaneSelfTest)
+set_target_properties(VaneSelfTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_sources(VaneSelfTest PRIVATE
+    Tools/SelfTest/main.cpp
+    Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
+    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp
+    Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
+    Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
+    Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp)
+target_include_directories(VaneSelfTest PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(VaneSelfTest PUBLIC
+    JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
+add_dependencies(VaneSelfTest Vane_GenBuildStamp)
+if(VANE_HAS_MTS)
+    target_compile_definitions(VaneSelfTest PUBLIC VANE_HAS_MTS=1)
+    target_link_libraries(VaneSelfTest PRIVATE VaneMTS)
+endif()
+target_link_libraries(VaneSelfTest PRIVATE
+    VaneWebUI VaneLibrary VaneTransients
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_processors juce::juce_audio_utils juce::juce_core
+    juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
