@@ -52,6 +52,12 @@ struct ModRoute {
     // live source via ModSlots::slewRates.
     std::atomic<float>* sourceParam = nullptr;
     std::atomic<float>* destParam   = nullptr;
+
+    // Mod-of-mod: when set (choice > 0), this route's amount is multiplied by the
+    // value of another source (the same source-choice list).  e.g. Keytrack scaling
+    // a Breath→Cutoff route so low notes get less breath-to-cutoff.  Unipolar
+    // sources scale 0..1; bipolar sources (slide/pitchbend/keytrack) map to 0..1.
+    std::atomic<float>* scaleParam  = nullptr;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -146,7 +152,8 @@ public:
     // pointers: source choice, dest choice, amount (-1..1), curve choice.
     // Stopped-only (mutates the routes vector) — call before audio starts.
     void addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
-                 std::atomic<float>* amountParam, std::atomic<float>* curveParam);
+                 std::atomic<float>* amountParam, std::atomic<float>* curveParam,
+                 std::atomic<float>* scaleParam = nullptr);
 
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }
@@ -170,6 +177,8 @@ private:
     // Resolve a route's live source ID (slot-aware: handles Off, per-note dims,
     // and configurable aux global CC sources).  -1 = inactive.
     int effSource(const ModRoute& r) const;
+    int resolveChoice(int choice) const;            // source-choice index → ModSourceID
+    static bool isBipolarSource(int sourceID);      // −1..1 sources (for scale-source 0..1 mapping)
 
     std::array<float, 128> ccValues {};   // CC 0..127, normalised 0..1
     float aftertouchValue = 0.0f;         // MIDI channel pressure (global, not MPE)

@@ -108,12 +108,25 @@ static int effDest(const ModRoute& r) {
 
 // Effective SOURCE of a route.  A configurable slot reads its live source choice;
 // choices 7.. are aux global sources resolved to their bound CC.  -1 = Off/invalid.
-int ModMatrix::effSource(const ModRoute& r) const {
-    if (! r.sourceParam) return r.source;   // fixed route
-    const int choice = static_cast<int>(std::lround(r.sourceParam->load()));
+// Resolve a slot source-choice index to a ModSourceID (aux → live CC binding).
+int ModMatrix::resolveChoice(int choice) const {
     if (choice >= ModSlots::FirstAuxChoice && choice < ModSlots::FirstAuxChoice + ModSlots::NumAux)
         return ModSourceID::CC + auxCC[static_cast<size_t>(choice - ModSlots::FirstAuxChoice)];
     return ModSlots::sourceId(choice);
+}
+
+int ModMatrix::effSource(const ModRoute& r) const {
+    if (! r.sourceParam) return r.source;   // fixed route
+    return resolveChoice(static_cast<int>(std::lround(r.sourceParam->load())));
+}
+
+// Sources that range −1..+1 (vs 0..1) — used to normalise a scale source to 0..1.
+bool ModMatrix::isBipolarSource(int sourceID) {
+    return sourceID == ModSourceID::MPE_Slide
+        || sourceID == ModSourceID::MPE_Pitchbend
+        || sourceID == ModSourceID::Keytrack
+        || sourceID == ModSourceID::MacroSlide
+        || sourceID == ModSourceID::MacroPitchbend;
 }
 
 void ModMatrix::setAuxCC(int auxIdx, int ccNumber) {
@@ -244,6 +257,18 @@ ModMatrix::evaluate(const std::array<float, ModSourceID::NumVoiceSources>& voice
         float shaped       = route.curveLUTactive ? applyCurveLUT(slewed, route.curveLUT)
                                                    : applyCurve(slewed, effectiveCurve);
         float eff_amount   = route.amountParam ? route.amountParam->load() : route.amount;
+
+        // Mod-of-mod: scale this route's amount by another source's value.
+        if (route.scaleParam) {
+            const int scaleChoice = static_cast<int>(std::lround(route.scaleParam->load()));
+            if (scaleChoice > 0) {   // 0 = Off
+                const int   scSrc = resolveChoice(scaleChoice);
+                const float sv    = getSourceValue(scSrc, voiceVals);
+                float factor      = isBipolarSource(scSrc) ? 0.5f * (sv + 1.0f) : sv;
+                eff_amount *= std::clamp(factor, 0.0f, 1.0f);
+            }
+        }
+
         float contribution = shaped * eff_amount;
 
         // Clamp after each route so no destination escapes ±1 mid-accumulation.
@@ -315,7 +340,8 @@ void ModMatrix::addRoute(int source, int dest, float amount,
 }
 
 void ModMatrix::addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
-                         std::atomic<float>* amountParam, std::atomic<float>* curveParam)
+                         std::atomic<float>* amountParam, std::atomic<float>* curveParam,
+                         std::atomic<float>* scaleParam)
 {
     // Called stopped-only — see addRoute / thread model.
     ModRoute r;
@@ -323,6 +349,7 @@ void ModMatrix::addSlot(std::atomic<float>* sourceParam, std::atomic<float>* des
     r.destParam   = destParam;
     r.amountParam = amountParam;
     r.curveParam  = curveParam;
+    r.scaleParam  = scaleParam;
     // Slew rates are set live per block from the slot's source; init to a sane
     // default so the first block before evaluate() has valid coefficients.
     r.slewer.prepare(sampleRate, blockSize);

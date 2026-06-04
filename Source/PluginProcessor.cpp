@@ -107,7 +107,8 @@ VaneProcessor::VaneProcessor()
         modMatrix.addSlot(apvts.getRawParameterValue(base + "_src"),
                           apvts.getRawParameterValue(base + "_dst"),
                           apvts.getRawParameterValue(base + "_amt"),
-                          apvts.getRawParameterValue(base + "_curve"));
+                          apvts.getRawParameterValue(base + "_curve"),
+                          apvts.getRawParameterValue(base + "_scale"));
     }
 
     parseLibraryManifest();   // parse the bundled factory table catalogue
@@ -1151,6 +1152,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
                 juce::NormalisableRange<float>(-1.0f, 1.0f), d.amt));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
                 juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve));
+            // Mod-of-mod: amount scaled by another source (0 = Off).  Same choice list.
+            layout.add(std::make_unique<juce::AudioParameterChoice>(
+                juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0));
         }
     }
 

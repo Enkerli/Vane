@@ -58,6 +58,37 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Mod-of-mod test: Breath→Cutoff on slot 23, optionally SCALED by Keytrack.
+    // With scaling, a low note's breath→cutoff is reduced → darker (lower centroid).
+    if (std::getenv("MODMOD")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        for(int n=0;n<24;++n) if(auto* s=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot"+juce::String(n)+"_src"))) *s=0; // clear all routes
+        // slot22: Breath→VCA (so the note sounds); slot23: Breath→Cutoff scaled by Velocity.
+        if(auto* s=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot22_src"))) *s=1;
+        if(auto* s=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot22_dst"))) *s=0;
+        if(auto* a=dynamic_cast<juce::AudioParameterFloat*>(proc.apvts.getParameter("modSlot22_amt"))) *a=1.0f;
+        if(auto* sp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot23_src"))) *sp=1;  // Breath
+        if(auto* dp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot23_dst"))) *dp=1;  // Cutoff
+        if(auto* ap=dynamic_cast<juce::AudioParameterFloat*>(proc.apvts.getParameter("modSlot23_amt"))) *ap=0.6f;
+        if(auto* mp=dynamic_cast<juce::AudioParameterFloat*>(proc.apvts.getParameter("oscMorphPos"))) *mp=1.0f;  // saw = rich
+        int scale = std::getenv("SCALESRC") ? atoi(std::getenv("SCALESRC")) : 0;   // 0=off, 6=Velocity
+        if(auto* cp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("modSlot23_scale"))) *cp=scale;
+        setNorm("velocityMix", 0.0f);   // velocity does NOT open the VCA (breath does) — isolate the scaling
+        setNorm("filterRes", 0.0f);     // no resonant peak — cutoff change reads cleanly as centroid
+        std::vector<float> o;
+        for(int b=0;b<(int)(sr*1.0/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            m.addEvent(juce::MidiMessage::controllerEvent(1,2,127),0);   // full breath
+            if(b==2) m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            proc.processBlock(buf,m);
+            if(b>=(int)(sr*0.4/bs)) for(int i=0;i<bs;++i) o.push_back(buf.getReadPointer(0)[i]); }
+        const int M=16384; std::vector<float> w(2*M,0.f);
+        for(int i=0;i<M&&i<(int)o.size();++i) w[i]=o[(size_t)i]*(0.5f-0.5f*std::cos(juce::MathConstants<float>::twoPi*i/(M-1)));
+        juce::dsp::FFT f(14); f.performFrequencyOnlyForwardTransform(w.data());
+        double num=0,den=0; for(int k=1;k<M/2;++k){double fr=(double)k*sr/M; num+=fr*w[(size_t)k]; den+=w[(size_t)k];}
+        std::printf("[modmod] vel=%.2f scale=%-8s  centroid=%.0f Hz (cutoff tracks scale)\n", vel, scale?"Velocity":"off", num/(den+1e-9));
+        return 0;
+    }
+
     // Glide-curve test: mono legato glide note A→B over a long time with Bézier
     // mode; measure the instantaneous pitch ~30% in.  An ease-in curve should keep
     // the pitch nearer the START than a linear (identity) trajectory.

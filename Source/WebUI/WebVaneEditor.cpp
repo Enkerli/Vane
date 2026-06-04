@@ -104,6 +104,7 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             setActual (b + "_dst",   static_cast<float> (static_cast<int> (o["dst"])));
             setActual (b + "_amt",   static_cast<float> (static_cast<double> (o["amt"])));
             setActual (b + "_curve", static_cast<float> (static_cast<int> (o["curve"])));
+            setActual (b + "_scale", static_cast<float> (static_cast<int> (o["scale"])));   // mod-of-mod
             // Editable response-curve anchors → engine LUT + state persistence.
             std::vector<std::pair<float, float>> pts;
             if (auto* arr = o["anchors"].getArray())
@@ -687,6 +688,7 @@ void WebVaneEditor::sendSlotState()
             { "dst",   static_cast<int> (get ("_dst")) },
             { "amt",   get ("_amt") },
             { "curve", static_cast<int> (get ("_curve")) },
+            { "scale", static_cast<int> (get ("_scale")) },
             { "anchors", juce::var (anchors) },
         }));
     }
