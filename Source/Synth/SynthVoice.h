@@ -79,6 +79,19 @@ public:
         paramUnisonVoices = voices; paramUnisonDetune = detune; paramUnisonWidth = width;
     }
 
+    // A/B switch for the unison-legato continuity fix (diagnostics / RenderProbe).
+    static inline bool s_unisonLegatoFix = true;
+    static constexpr int kMaxUnison = 6;   // max unison voices (osc + kMaxUnison-1 extra)
+
+    // Cross-voice handoff state for stereo unison (mono legato allocates a NEW
+    // voice, so the detuned oscs + right-channel filter need the same continuity
+    // machinery as the centre osc).  uniPhase points at kMaxUnison-1 contiguous
+    // atomics; fRS1/fRS2 are the right filter's integrator states.  May be null.
+    void setUnisonHandoff(std::atomic<float>* uniPhase,
+                          std::atomic<float>* fRS1, std::atomic<float>* fRS2) noexcept {
+        sharedUnisonPhase = uniPhase; sharedFilterRS1 = fRS1; sharedFilterRS2 = fRS2;
+    }
+
     // Wire the transient library (owned by VaneProcessor, shared across all voices).
     // Safe to call before prepare() — used in the processor constructor.
     void setTransientLibrary(const TransientLibrary* lib) noexcept { transientLib = lib; }
@@ -214,7 +227,6 @@ private:
     // Stereo unison: `osc` is voice 0; unisonOscs holds the extra detuned voices.
     // The voices are panned across the field and each channel gets its own filter
     // so the detune spread becomes a genuine stereo image (Vane was dual-mono).
-    static constexpr int kMaxUnison = 6;
     Oscillator osc;
     std::array<Oscillator, kMaxUnison - 1> unisonOscs;
     SVFilter   filter;     // left / centre channel
@@ -222,6 +234,9 @@ private:
     std::atomic<float>* paramUnisonVoices = nullptr;  // choice index → {1,2,3,4,6}
     std::atomic<float>* paramUnisonDetune = nullptr;  // 0..50 cents spread
     std::atomic<float>* paramUnisonWidth  = nullptr;  // 0..1 stereo spread
+    std::atomic<float>* sharedUnisonPhase = nullptr;  // kMaxUnison-1 phases (cross-voice handoff)
+    std::atomic<float>* sharedFilterRS1   = nullptr;  // right filter integrator state handoff
+    std::atomic<float>* sharedFilterRS2   = nullptr;
     double sampleRate = 44100.0;
 
     // Per-sample cutoff interpolation — eliminates block-boundary coefficient steps

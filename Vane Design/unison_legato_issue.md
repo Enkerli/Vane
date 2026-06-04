@@ -1,6 +1,17 @@
 # Unison ✕ Legato — continuity gap
 
-**Status:** known issue, documented before fixing (2026-06).
+**Status:** RESOLVED (2026-06).  The cheap fixes below (gate the spread reset;
+seed `filterR` from the L state) were tried first and measured *insufficient* —
+mono legato is **cross-voice** (a new voice is allocated), so the detuned stack
+and the right filter need the same cross-voice handoff machinery as the centre
+osc.  Implemented: publish/restore the unison osc phases + `filterR` integrator
+state across the legato boundary (processor `lastUnisonPhase[]`, `lastFilterRS1/2`
+→ `SynthVoice::setUnisonHandoff`).  RenderProbe boundary/steady-Δ now matches the
+single-voice baseline (2 voices: R 11.99× → 1.16×; 6 voices: 1.02×).
+
+---
+
+## Original analysis (kept for context)
 **Reported:** legato smoothness is lost as soon as stereo unison is engaged — even
 with 2 voices (one hard-panned per channel, so the voices don't interact). So the
 problem is not voice interaction; it's that the unison machinery sits *outside*

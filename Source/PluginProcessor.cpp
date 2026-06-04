@@ -83,6 +83,7 @@ VaneProcessor::VaneProcessor()
                 v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn,
                                       pTrReso, pTrDamp, pTrMorph);
                 v->setUnisonParams(pUniV, pUniD, pUniW);
+                v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
             }
         }
     }

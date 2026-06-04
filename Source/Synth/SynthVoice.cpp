@@ -372,16 +372,36 @@ void SynthVoice::noteStarted()
             filter.setResonance(r);
             filter.setCutoff(c);
             // Restore integrator states — now valid under these coefficients.
-            filter.setState(sharedFilterS1->load(), sharedFilterS2->load());
+            const float fs1 = sharedFilterS1->load(), fs2 = sharedFilterS2->load();
+            filter.setState(fs1, fs2);
+            // Seed the right-channel filter from the same state so the unison R
+            // channel doesn't click on legato.  Both channels track the same
+            // cutoff and carry near-identical spectra, so the L state is a good
+            // seed (approximate but inaudible — see unison_legato_issue.md fix 2).
+            // Right-channel filter: restore its OWN published state (cross-voice),
+            // falling back to the L state if unison wasn't active on the old voice.
+            if (s_unisonLegatoFix) {
+                filterR.setResonance(r);
+                filterR.setCutoff(c);
+                if (sharedFilterRS1 && sharedFilterRS2)
+                    filterR.setState(sharedFilterRS1->load(), sharedFilterRS2->load());
+                else
+                    filterR.setState(fs1, fs2);
+            }
             // Snap the cutoff smoother to the inherited Hz so the first block's
             // per-sample setCutoff() calls start from the right place.
             smoothedCutoff.setCurrentAndTargetValue(c);
         }
     }
 
-    // Spread the unison oscillators' phases around the centre osc so the detuned
-    // stack doesn't start phase-coherent (which would comb/flam at the attack).
-    {
+    // Unison oscillator phases.  On a legato note, CONTINUE the detuned stack from
+    // the dying voice's published phases (cross-voice) so it doesn't step.  On a
+    // non-legato attack, spread them around the centre so the stack doesn't start
+    // phase-coherent and comb/flam.  (See unison_legato_issue.md.)
+    if (isLegato && s_unisonLegatoFix && sharedUnisonPhase) {
+        for (size_t k = 0; k < unisonOscs.size(); ++k)
+            unisonOscs[k].reset(sharedUnisonPhase[k].load());
+    } else {
         float baseP = osc.getPhase();
         for (size_t k = 0; k < unisonOscs.size(); ++k) {
             float p = baseP + static_cast<float>(k + 1) / static_cast<float>(kMaxUnison);
@@ -952,4 +972,16 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         sharedFilterS2->store(s2);
     }
     if (sharedCutoffHz) sharedCutoffHz->store(smoothedCutoff.getCurrentValue());
+
+    // Stereo-unison handoff: publish the detuned osc phases + right-filter state so
+    // the next (legato) voice can continue them — same machinery as the centre osc.
+    if (sharedUnisonPhase)
+        for (size_t k = 0; k < unisonOscs.size(); ++k)
+            sharedUnisonPhase[k].store(unisonOscs[k].getPhase());
+    if (sharedFilterRS1 && sharedFilterRS2) {
+        float r1, r2;
+        filterR.getState(r1, r2);
+        sharedFilterRS1->store(r1);
+        sharedFilterRS2->store(r2);
+    }
 }

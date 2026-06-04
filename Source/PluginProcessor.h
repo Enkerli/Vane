@@ -318,6 +318,10 @@ private:
     std::atomic<float> lastFilterS1   { 0.0f };
     std::atomic<float> lastFilterS2   { 0.0f };
     std::atomic<float> lastCutoffHz   { 1200.0f };
+    // Stereo-unison cross-voice handoff: the detuned osc phases + right filter state.
+    std::array<std::atomic<float>, SynthVoice::kMaxUnison - 1> lastUnisonPhase {};
+    std::atomic<float> lastFilterRS1  { 0.0f };
+    std::atomic<float> lastFilterRS2  { 0.0f };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

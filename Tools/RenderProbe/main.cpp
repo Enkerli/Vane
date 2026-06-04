@@ -58,6 +58,34 @@ int main()
                  pv("outputLevel"), pv("velocityMix"), pv("oscMorphPos"), pv("oscPW"),
                  pv("oscFold"), pv("oscInharm"), pv("oscSync"), pv("oscDetune"), pv("noiseBlend"));
 
+    // Legato-continuity test: mono mode, sustained breath, slur note A→B; measure
+    // the worst sample-to-sample jump at the boundary vs the steady-state slope.
+    // A clean handoff → boundary jump ≈ steady slope (ratio ~1); a click → ratio≫1.
+    if (std::getenv("LEGATO")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        SynthVoice::s_unisonLegatoFix = !std::getenv("NOFIX");
+        setNorm("monoMode", 1.0f);
+        if (std::getenv("UVOX")) if(auto* cp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("unisonVoices"))) *cp=atoi(std::getenv("UVOX"));
+        setNorm("unisonWidth", 1.0f);
+        const int legB = (int)(sr*0.30/bs);
+        std::vector<float> L, R;
+        for (int b=0;b<(int)(sr*0.6/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            // breath CC2 + pressure held the whole time → continuous VCA (legato).
+            m.addEvent(juce::MidiMessage::controllerEvent(1,2,110),0);
+            m.addEvent(juce::MidiMessage::channelPressureChange(chan,100),0);
+            if(b==2)    m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            if(b==legB) m.addEvent(juce::MidiMessage::noteOn(chan,note+5,vel),0);   // legato slur
+            proc.processBlock(buf,m);
+            for(int i=0;i<bs;++i){ L.push_back(buf.getReadPointer(0)[i]); R.push_back(buf.getReadPointer(1)[i]); } }
+        auto maxDelta=[&](std::vector<float>& x,double t0,double t1){ int a=(int)(sr*t0),z=(int)(sr*t1); double mx=0;
+            for(int i=a+1;i<z&&i<(int)x.size();++i) mx=std::max(mx,(double)std::abs(x[i]-x[i-1])); return mx; };
+        double bndL=maxDelta(L,0.298,0.306), stdL=maxDelta(L,0.20,0.28);
+        double bndR=maxDelta(R,0.298,0.306), stdR=maxDelta(R,0.20,0.28);
+        std::printf("[legato] boundary/steady Δ  L=%.2fx  R=%.2fx  (1≈clean handoff, ≫1 = click)\n",
+                    bndL/(stdL+1e-9), bndR/(stdR+1e-9));
+        return 0;
+    }
+
     // Keytrack test: route Keytrack→Cutoff on a spare slot, play NOTE, measure the
     // output spectral centroid (higher note should be brighter when keytrack works).
     if (std::getenv("KEYTRACK")) {
