@@ -245,21 +245,27 @@ public:
             osc.setWavetable (&analytic);   // override with the analytic table
             osc.setFrequency (110.0f);
 
+            // Brightness via curvature (sum of squared 2nd differences): this weights
+            // harmonic k by k^2, so it actually tracks spectral richness.  (Total
+            // variation does not — a band-limited saw is mostly a smooth ramp, so its
+            // TV is only ~1.4x a sine's no matter how many harmonics it carries.)
             auto renderEnergy = [&] (float morph) {
                 osc.reset (0.0f);
-                double prev = 0.0, slope = 0.0, peak = 0.0;
+                double s0 = 0.0, s1 = 0.0, curv = 0.0, peak = 0.0;
                 for (int i = 0; i < 4096; ++i) {
-                    const float s = osc.nextMorphed (morph, 0.5f, 0.0f);
-                    expect (std::isfinite (s) && std::abs (s) <= 1.2f);
-                    slope += std::abs (s - prev); prev = s;
-                    peak = std::max (peak, (double) std::abs (s));
+                    const double s = osc.nextMorphed (morph, 0.5f, 0.0f);
+                    expect (std::isfinite (s) && std::abs (s) <= 1.2);
+                    const double d2 = s - 2.0 * s1 + s0;
+                    curv += d2 * d2;
+                    s0 = s1; s1 = s;
+                    peak = std::max (peak, std::abs (s));
                 }
-                return std::make_pair (slope, peak);
+                return std::make_pair (curv, peak);
             };
             auto sine = renderEnergy (0.0f);   // morph 0 → frame 0 = sine
             auto saw  = renderEnergy (1.0f);   // morph 1 → last frame = saw
             expect (saw.first > sine.first * 1.5,
-                    "saw slope " + juce::String (saw.first)
+                    "saw curvature " + juce::String (saw.first)
                     + " vs sine " + juce::String (sine.first));
             expect (sine.second > 0.1 && saw.second > 0.1);   // both actually sound
         }
