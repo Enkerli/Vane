@@ -275,6 +275,22 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .cpick .typ{display:flex;gap:6px;align-items:center;margin-top:10px;border-top:1px solid var(--vn-line-soft);padding-top:9px}
 .cpick .typ input{flex:1;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:12px;border-radius:7px;padding:5px 8px}
 .cpick .typ button{border:1px solid var(--vn-slide);background:var(--vn-slide);color:#fff;font-size:11px;font-weight:700;padding:6px 11px;border-radius:7px;cursor:pointer}
+/* chord-shape library shelf (browsable cards with glyph previews) */
+.clib{margin-bottom:9px}
+.clib-head{display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap}
+.clib-head .t{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--vn-muted);font-weight:700;margin-right:auto}
+.clib-head input{border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:11.5px;border-radius:7px;padding:4px 8px;width:108px}
+.cshelf{display:flex;gap:8px;overflow-x:auto;padding:2px 1px 5px}
+.cshape{flex:none;width:108px;border:1px solid var(--vn-line);background:var(--vn-panel);border-radius:10px;padding:8px;cursor:pointer;transition:border-color .12s,transform .12s}
+.cshape:hover{border-color:var(--vn-muted-2);transform:translateY(-1px)}
+.cshape.sel{border-color:var(--vn-slide);box-shadow:0 0 0 1px var(--vn-slide)}
+.cshape .cgl{width:100%;height:40px;background:var(--vn-field);border-radius:7px;margin-bottom:6px;display:block}
+.cshape .cnm{font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cshape .cmeta{font-size:9px;color:var(--vn-muted);font-family:var(--vn-mono)}
+/* single-line semicolon entry */
+.craw{display:flex;align-items:center;gap:7px;margin-top:8px}
+.craw .lbl2{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--vn-muted);font-weight:700;white-space:nowrap}
+.craw input{flex:1;min-width:0;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:11.5px;border-radius:7px;padding:5px 8px}
 .slot .srccell{display:flex;flex-direction:column;gap:5px;min-width:0}
 .slot .srctop{display:flex;align-items:center;gap:7px;min-width:0}
 .slot select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
@@ -1113,15 +1129,28 @@ Bridge.on('chordRot',({rot})=>{ if(typeof rot==='number'){ state.chordRot=rot;
   if(tab==='patch'&&Math.round(state.patch.UniMode)===1) updateChordPlayhead(); } });
 let chordCfgName='';   // persists the save-as / selected name across re-renders
 function escH(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function chordConfigBarHTML(){
-  const opts=(state.chordConfigs||[]).map(c=>`<option value="${escH(c.name)}">${escH(c.name)}</option>`).join('');
-  return `<div class="chordcfg" style="grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-    <select aria-label="load chord config" style="flex:1;min-width:120px" onchange="chordConfigLoad(this.value);this.selectedIndex=0">
-      <option value="">Load config…</option>${opts}</select>
-    <input type="text" placeholder="save as…" value="${escH(chordCfgName)}" oninput="chordCfgName=this.value" aria-label="config name" style="width:110px">
-    <button class="btn" onclick="chordConfigSave()" title="Save the current intervals, voice count and mode">Save</button>
-    <button class="btn" onclick="chordConfigDelete()" title="Delete the named config">✕</button>
-  </div>`;
+// Mini-lattice glyph: a dot per step around the played-note baseline, by cents.
+function chordShapeGlyph(seqs,w,h){
+  const cMin=-1300,cMax=2000,pad=4, y=c=>h-pad-(c-cMin)/(cMax-cMin)*(h-2*pad);
+  const voices=(seqs||'').split(';').map(s=>s.trim().split(',').map(t=>t.trim()).filter(Boolean));
+  let g=`<line x1="3" x2="${w-3}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--vn-line)" stroke-width="1"/>`;
+  voices.forEach((v,vi)=>{ const col=`var(${CHORD_VCOL[vi%CHORD_VCOL.length]})`;
+    v.forEach((tok,si)=>{ const c=chordParseTok(tok).cents;
+      const x=7+vi*((w-14)/Math.max(1,voices.length))+si*3;
+      g+=`<circle cx="${x.toFixed(1)}" cy="${y(c).toFixed(1)}" r="${si===0?2.4:1.5}" fill="${col}" opacity="${si===0?1:0.45}"/>`; }); });
+  return g;
+}
+function chordLibraryHTML(){
+  const cards=(state.chordConfigs||[]).map(c=>`<div class="cshape ${c.name===chordCfgName?'sel':''}"
+      data-n="${escH(c.name)}" onclick="chordConfigLoad(this.dataset.n)" title="Load ${escH(c.name)}">
+      <svg class="cgl" viewBox="0 0 110 42" preserveAspectRatio="none">${chordShapeGlyph(c.seqs,110,42)}</svg>
+      <div class="cnm">${escH(c.name)}</div><div class="cmeta">${c.voices} voices</div></div>`).join('');
+  return `<div class="clib">
+    <div class="clib-head"><span class="t">Chord library</span>
+      <input type="text" placeholder="save as…" value="${escH(chordCfgName)}" oninput="chordCfgName=this.value" aria-label="shape name">
+      <button class="btn" onclick="chordConfigSave()" title="Save the current shape (intervals, voices, mode)">Save</button>
+      <button class="btn" onclick="chordConfigDelete()" title="Delete the named shape">✕</button></div>
+    <div class="cshelf">${cards||'<span class="hint" style="padding:4px 2px">No saved shapes yet — name one and Save to start your library.</span>'}</div></div>`;
 }
 // ── Rotating-chord cell editor (R4 visualise rotation + R5 ratio/cents/semi) ──
 const CHORD_VCOL=['--vn-slide','--vn-breath','--vn-expr','--vn-pressure','--vn-bend'];
@@ -1149,9 +1178,9 @@ function chordFmtTok(p){ return chordDisp==='cents'?`${p.cents>=0?'+':''}${p.cen
   : (p.ratio?`${p.n}/${p.d}`:`${p.semi}`); }
 function chordSubTok(p){ return chordDisp==='ratio'?`${p.cents>=0?'+':''}${p.cents.toFixed(0)}¢`:(p.cents<0?'below':'above'); }
 function chordSeqEditorHTML(){
-  const nH=chordHarmonyCount(), bar=chordConfigBarHTML();
+  const nH=chordHarmonyCount(), bar=chordLibraryHTML();
   if(nH===0) return `<div class="curve-ed" id="chordEd" style="grid-column:1/-1;color:var(--vn-slide)">${bar}
-    <div class="ce-foot"><span class="hint">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals. Load a config above (or add a voice once you raise the count).</span></div></div>`;
+    <div class="ce-foot"><span class="hint">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals. Load a shape above (or add a voice once you raise the count).</span></div></div>`;
   const vs=chordVoices(), rot=state.chordRot||0;
   const seg=(m,l)=>`<button class="${chordDisp===m?'on':''}" onclick="chordSetDisp('${m}')">${l}</button>`;
   let rows='';
@@ -1185,7 +1214,18 @@ function chordSeqEditorHTML(){
     </div>
     ${rows}
     ${canAdd?`<button class="caddvoice" onclick="chordVoiceAdd()">+ Add harmony voice</button>`:''}
-    <div class="ce-foot"><span class="hint">Tap a step to set its interval — a just ratio above (<code>3/2</code>) or below (<code>2/3</code>) the played note, or plain semitones. Each voice loops its own list; the rotation advances one step per played note and the lit cell follows it. Voice 1 is your melody.</span></div></div>`;
+    <div class="craw"><span class="lbl2" title="Whole shape as one line: voices split by ; steps by ,">Seq</span>
+      <input type="text" value="${escH(state.chordSeqs||'')}" placeholder="3/2,5/4,9/8 ; 5/4,4/3,3/2 ; 2/1"
+        oninput="chordRawApply(this.value)" onchange="renderPatch()" aria-label="one-line sequence" spellcheck="false"></div>
+    <div class="ce-foot"><span class="hint">Tap a step to set its interval — a just ratio above (<code>3/2</code>) or below (<code>2/3</code>) the played note, or plain semitones — or type the whole shape on the <b>Seq</b> line (voices split by <code>;</code>, steps by <code>,</code>). Each voice loops its own list; the rotation advances one step per played note and the lit cell follows it. Voice 1 is your melody.</span></div></div>`;
+}
+// Single-line entry: commit live to the engine (no re-render, so the cursor
+// stays put); the cells re-sync on blur via onchange=renderPatch.
+function chordRawApply(val){
+  const vs=val.split(';').map(v=>v.trim().split(/[\s,]+/).filter(Boolean)
+    .filter(t=>/^-?\d+(\.\d+)?$/.test(t) || /^-?\d+(\.\d+)?[:/]-?\d+(\.\d+)?$/.test(t)));
+  state.chordSeqs=vs.map(v=>v.join(',')).join(';');
+  Bridge.send('chordSeqsEdit',{seqs:state.chordSeqs}); markDirty();
 }
 function chordSetDisp(m){ chordDisp=m; renderPatch(); }
 function chordResetRot(){ Bridge.send('chordResetRotation',{}); state.chordRot=0; updateChordPlayhead(); }
