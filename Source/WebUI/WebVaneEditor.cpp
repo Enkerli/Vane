@@ -167,6 +167,9 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withEventListener ("requestChordConfigs", [owner] (const Array<var>&) {
             owner->sendChordConfigList();
         })
+        .withEventListener ("chordResetRotation", [owner] (const Array<var>&) {
+            owner->proc.resetChordRotation();
+        })
         .withEventListener ("presetLoad", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             const int id = static_cast<int> (a[0]["id"]);
@@ -499,6 +502,13 @@ void WebVaneEditor::timerCallback()
     if (note != lastNoteSent) {
         lastNoteSent = note;
         webView.emitEventIfBrowserIsVisible ("voice", makeObj ({ { "note", note } }));
+    }
+
+    // Live rotating-chord index → editor playhead (emit only on change).
+    const int rot = proc.chordRotation();
+    if (rot != lastChordRotSent) {
+        lastChordRotSent = rot;
+        webView.emitEventIfBrowserIsVisible ("chordRot", makeObj ({ { "rot", rot } }));
     }
 
     // Push tuning state whenever the connection state OR the active tuning name

@@ -53,6 +53,7 @@ private:
     juce::WebBrowserComponent  webView;
     juce::StringArray          listenedParams;
     juce::String               lastNoteSent;   // dedupe the ♪ note readout
+    int                        lastChordRotSent { -1 };   // dedupe the rotation-index push
     bool                       lastMtsState  { false };   // dedupe tuningStatus pushes
     juce::String               lastTuningName;            // dedupe — also catches in-session preset changes
     int                        armedAux { -1 };          // aux index being MIDI-learned

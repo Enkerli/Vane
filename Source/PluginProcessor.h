@@ -253,6 +253,11 @@ public:
     // public so it is unit-testable without driving the whole processor.
     static float parseChordInterval (const juce::String& token);
 
+    // Live rotation index (advances one step per played note; see SynthVoice).
+    // Pushed to the UI so the editor can show which step each voice is on.
+    int  chordRotation() const { return chordRotIndex.load (std::memory_order_relaxed); }
+    void resetChordRotation()  { chordRotIndex.store (0, std::memory_order_relaxed); }
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as

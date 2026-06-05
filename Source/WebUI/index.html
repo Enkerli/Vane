@@ -218,6 +218,63 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .chordrow .cv{font-size:11px;color:var(--vn-muted);min-width:54px;font-weight:600}
 .chordrow input{flex:1;min-width:0;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
   font-family:var(--vn-mono);font-size:12px;border-radius:7px;padding:0 9px;height:var(--ctl-h)}
+/* Rotating-chord cell editor (R4/R5): visible rotation + ratio steps */
+.chord-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+.chord-bar .sp{flex:1}
+.chord-bar .crot{font-family:var(--vn-mono);font-size:10.5px;color:var(--vn-muted)}
+.chord-bar .crot b{color:var(--vn-text);font-weight:700}
+.cdisp{display:inline-flex;background:var(--vn-field);border-radius:8px;padding:3px;gap:2px}
+.cdisp button{border:none;background:transparent;color:var(--vn-muted);font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:6px;cursor:pointer;font-family:var(--vn-ui)}
+.cdisp button.on{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.vrow{display:grid;grid-template-columns:72px 1fr auto;gap:9px;align-items:center;margin:5px 0}
+.vrow .vname{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;min-width:0;line-height:1.15}
+.vrow .vname .vd{width:9px;height:9px;border-radius:50%;flex:none}
+.vrow .vname .vlen{font-family:var(--vn-mono);font-size:9px;color:var(--vn-muted);font-weight:500}
+.ctrack{display:flex;gap:5px;overflow-x:auto;padding:3px 2px;min-width:0}
+.ccell{flex:none;min-width:50px;height:40px;border:1px solid var(--vn-line);background:var(--vn-field);border-radius:8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;position:relative;color:var(--vn-slide)}
+.ccell:hover{border-color:var(--vn-muted-2)}
+.ccell .rt{font-family:var(--vn-mono);font-size:12px;font-weight:700;color:var(--vn-text);line-height:1}
+.ccell .ct{font-family:var(--vn-mono);font-size:8px;color:var(--vn-muted);line-height:1}
+.ccell.cur{border-color:currentColor;border-width:2px;box-shadow:0 3px 9px rgba(0,0,0,.07)}
+.ccell.cur::after{content:"";position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:0;height:0;
+  border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor}
+.ccell.below .rt{color:var(--vn-pressure)}
+.ccell.below{background:color-mix(in srgb,var(--vn-pressure-tint) 35%,var(--vn-field))}
+[data-theme="dark"] .ccell.below{background:color-mix(in srgb,var(--vn-pressure) 14%,var(--vn-field))}
+.crowbtns{display:flex;gap:3px}
+.crowbtns button{width:24px;height:24px;border-radius:7px;border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-muted);font-size:13px;cursor:pointer;line-height:1}
+.crowbtns button:hover:not(:disabled){color:var(--vn-text);border-color:var(--vn-muted-2)}
+.crowbtns button:disabled{opacity:.35;cursor:default}
+.caddvoice{display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px dashed var(--vn-muted-2);border-radius:8px;
+  padding:7px;color:var(--vn-muted);background:transparent;cursor:pointer;font-weight:600;font-size:11.5px;font-family:var(--vn-ui);width:100%}
+.caddvoice:hover{color:var(--vn-text-2)}
+/* just-interval picker popover */
+.cscrim{position:fixed;inset:0;background:rgba(20,18,14,.28);z-index:70;display:none}
+.cscrim.open{display:block}
+.cpick{position:fixed;z-index:80;width:min(430px,94vw);max-height:84vh;overflow:auto;background:var(--vn-panel);border:1px solid var(--vn-line);
+  border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.22);padding:13px;display:none}
+.cpick.open{display:block}
+.cpick .ph{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.cpick .ph .t{font-size:11px;font-weight:700}
+.cpick .ph .x{margin-left:auto;border:none;background:transparent;color:var(--vn-muted);font-size:18px;cursor:pointer;line-height:1}
+.cpick .lim{display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap}
+.cpick .lim button{border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-muted);font-size:10px;font-weight:700;padding:4px 9px;border-radius:999px;cursor:pointer;font-family:var(--vn-ui)}
+.cpick .lim button.on{background:var(--vn-slide-tint);border-color:var(--vn-slide);color:var(--vn-slide)}
+.cpcols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cpcol .clbl{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--vn-muted);font-weight:700;margin-bottom:6px;display:block}
+.cpgrid{display:flex;flex-direction:column;gap:3px;max-height:210px;overflow-y:auto}
+.popt{display:grid;grid-template-columns:42px 1fr auto;gap:7px;align-items:center;border:1px solid var(--vn-line-soft);background:var(--vn-field);
+  border-radius:7px;padding:5px 8px;cursor:pointer;text-align:left}
+.popt:hover{border-color:var(--vn-slide);background:var(--vn-slide-tint)}
+[data-theme="dark"] .popt:hover{background:color-mix(in srgb,var(--vn-slide) 16%,var(--vn-field))}
+.popt .r{font-family:var(--vn-mono);font-size:12px;font-weight:700;color:var(--vn-text)}
+.popt.dn .r{color:var(--vn-pressure)}
+.popt .nm{font-size:10px;color:var(--vn-text-2);font-weight:600}
+.popt .c{font-family:var(--vn-mono);font-size:8.5px;color:var(--vn-muted)}
+.cpick .typ{display:flex;gap:6px;align-items:center;margin-top:10px;border-top:1px solid var(--vn-line-soft);padding-top:9px}
+.cpick .typ input{flex:1;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-mono);font-size:12px;border-radius:7px;padding:5px 8px}
+.cpick .typ button{border:1px solid var(--vn-slide);background:var(--vn-slide);color:#fff;font-size:11px;font-weight:700;padding:6px 11px;border-radius:7px;cursor:pointer}
 .slot .srccell{display:flex;flex-direction:column;gap:5px;min-width:0}
 .slot .srctop{display:flex;align-items:center;gap:7px;min-width:0}
 .slot select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);
@@ -526,6 +583,7 @@ const state = {
   glideAnchors:[],       // Bézier glide trajectory anchors (time→progress)
   chordSeqs:'3,4;7,5;10,9;12,7;5,3',   // rotating-chord interval sequences per harmony voice
   chordConfigs:[],                     // global rotating-chord palette (from disk via bridge)
+  chordRot:0,                          // live rotation index (pushed from the engine)
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -1051,6 +1109,8 @@ Bridge.on('chordSeqs',({seqs})=>{ if(typeof seqs==='string'){ state.chordSeqs=se
   if(tab==='patch'&&Math.round(state.patch.UniMode)===1) renderPatch(); } });
 Bridge.on('chordConfigList',({configs})=>{ if(Array.isArray(configs)){ state.chordConfigs=configs;
   if(tab==='patch'&&Math.round(state.patch.UniMode)===1) renderPatch(); } });
+Bridge.on('chordRot',({rot})=>{ if(typeof rot==='number'){ state.chordRot=rot;
+  if(tab==='patch'&&Math.round(state.patch.UniMode)===1) updateChordPlayhead(); } });
 let chordCfgName='';   // persists the save-as / selected name across re-renders
 function escH(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function chordConfigBarHTML(){
@@ -1063,24 +1123,140 @@ function chordConfigBarHTML(){
     <button class="btn" onclick="chordConfigDelete()" title="Delete the named config">✕</button>
   </div>`;
 }
-function chordSeqEditorHTML(){
-  const voices=[1,2,3,4,6][Math.round(state.patch.UniVox)]||1, nH=Math.max(0,voices-1);
-  const bar=chordConfigBarHTML();
-  if(nH===0) return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">${bar}
-    <div class="ce-foot"><span class="hint">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals. Load a config above to set it up.</span></div></div>`;
-  const seqs=(state.chordSeqs||'').split(';');
-  let rows='';
-  for(let j=0;j<nH;j++){ const v=(seqs[j]||'').trim();
-    // Commit on every keystroke (oninput), not just on blur — otherwise the edit
-    // doesn't reach the engine until focus leaves the field (e.g. switching tabs).
-    // chordSeqSet filters partial/invalid tokens, so mid-typing a ratio is safe.
-    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 7  3:2  -5  5/4" oninput="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
-  return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">
-    <div class="ce-head"><span class="lbl">Rotating chord · semitones or just ratios</span></div>
-    ${bar}
-    ${rows}
-    <div class="ce-foot"><span class="hint">Each voice cycles its interval list — one step per played note. Intervals are decimal semitones (7, -5, 7.02) or just ratios (3:2, 5/4 — exact, not rounded). Different list lengths make the chord rotate continuously. Voice 1 is your melody.</span></div></div>`;
+// ── Rotating-chord cell editor (R4 visualise rotation + R5 ratio/cents/semi) ──
+const CHORD_VCOL=['--vn-slide','--vn-breath','--vn-expr','--vn-pressure','--vn-bend'];
+let chordDisp='ratio';   // 'ratio' | 'cents' | 'semi'  — persists across re-renders
+function chordHarmonyCount(){ const v=[1,2,3,4,6][Math.round(state.patch.UniVox)]||1; return Math.max(0,v-1); }
+function chordVoices(){ // [[tok,...],...] padded to the current harmony-voice count
+  const nH=chordHarmonyCount();
+  const vs=(state.chordSeqs||'').split(';').map(s=>s.trim().split(',').map(t=>t.trim()).filter(Boolean));
+  while(vs.length<nH) vs.push([]);
+  return vs;
 }
+function chordVoicesCommit(vs){
+  while(vs.length>0 && vs[vs.length-1].length===0) vs.pop();   // trim trailing empties
+  state.chordSeqs=vs.map(v=>v.join(',')).join(';');
+  Bridge.send('chordSeqsEdit',{seqs:state.chordSeqs}); markDirty();
+}
+function chordParseTok(t){ t=(t||'').trim();
+  const m=t.match(/^(-?\d+(?:\.\d+)?)[:/](-?\d+(?:\.\d+)?)$/);
+  if(m){ const n=+m[1], d=+m[2]; if(d!==0) return {ratio:true,n,d,cents:1200*Math.log2(n/d)}; }
+  const s=parseFloat(t); if(!isNaN(s)) return {ratio:false,semi:s,cents:s*100};
+  return {ratio:false,semi:0,cents:0,bad:true};
+}
+function chordFmtTok(p){ return chordDisp==='cents'?`${p.cents>=0?'+':''}${p.cents.toFixed(0)}`
+  : chordDisp==='semi'?`${p.cents>=0?'+':''}${(p.cents/100).toFixed(2)}`
+  : (p.ratio?`${p.n}/${p.d}`:`${p.semi}`); }
+function chordSubTok(p){ return chordDisp==='ratio'?`${p.cents>=0?'+':''}${p.cents.toFixed(0)}¢`:(p.cents<0?'below':'above'); }
+function chordSeqEditorHTML(){
+  const nH=chordHarmonyCount(), bar=chordConfigBarHTML();
+  if(nH===0) return `<div class="curve-ed" id="chordEd" style="grid-column:1/-1;color:var(--vn-slide)">${bar}
+    <div class="ce-foot"><span class="hint">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals. Load a config above (or add a voice once you raise the count).</span></div></div>`;
+  const vs=chordVoices(), rot=state.chordRot||0;
+  const seg=(m,l)=>`<button class="${chordDisp===m?'on':''}" onclick="chordSetDisp('${m}')">${l}</button>`;
+  let rows='';
+  for(let vi=0;vi<nH;vi++){
+    const v=vs[vi]||[], col=`var(${CHORD_VCOL[vi%CHORD_VCOL.length]})`, len=v.length;
+    const cur=len>0?(((rot%len)+len)%len):-1;
+    let cells='';
+    v.forEach((tok,si)=>{ const p=chordParseTok(tok); const below=p.cents<0;
+      cells+=`<div class="ccell ${si===cur?'cur':''} ${below?'below':''}" style="color:${col}"
+        onclick="openChordPicker(${vi},${si})" title="Tap to change interval">
+        <span class="rt">${chordFmtTok(p)}</span><span class="ct">${chordSubTok(p)}</span></div>`; });
+    if(len===0) cells=`<div class="ccell" style="color:${col};opacity:.6" onclick="chordStepAdd(${vi})" title="Add a step"><span class="rt">+</span><span class="ct">step</span></div>`;
+    rows+=`<div class="vrow">
+      <div class="vname"><span class="vd" style="background:${col}"></span><span>Voice ${vi+2}<br><span class="vlen">loop ${len}</span></span></div>
+      <div class="ctrack">${cells}</div>
+      <div class="crowbtns">
+        <button onclick="chordStepAdd(${vi})" title="Add step">+</button>
+        <button onclick="chordStepDel(${vi})" title="Remove last step" ${len<=0?'disabled':''}>−</button>
+        <button onclick="chordVoiceDel(${vi})" title="Delete this voice">✕</button>
+      </div></div>`;
+  }
+  const canAdd=Math.round(state.patch.UniVox)<4;
+  return `<div class="curve-ed" id="chordEd" style="grid-column:1/-1;color:var(--vn-slide)">
+    ${bar}
+    <div class="chord-bar">
+      <span class="crot">rotation <b>${rot}</b></span>
+      <button class="pbtn" onclick="chordResetRot()" title="Reset the rotation to step 1">⟲ Reset</button>
+      <span class="sp"></span>
+      <span class="lbl" style="font-size:9.5px">Show</span>
+      <div class="cdisp">${seg('ratio','Ratio')}${seg('cents','Cents')}${seg('semi','Semi')}</div>
+    </div>
+    ${rows}
+    ${canAdd?`<button class="caddvoice" onclick="chordVoiceAdd()">+ Add harmony voice</button>`:''}
+    <div class="ce-foot"><span class="hint">Tap a step to set its interval — a just ratio above (<code>3/2</code>) or below (<code>2/3</code>) the played note, or plain semitones. Each voice loops its own list; the rotation advances one step per played note and the lit cell follows it. Voice 1 is your melody.</span></div></div>`;
+}
+function chordSetDisp(m){ chordDisp=m; renderPatch(); }
+function chordResetRot(){ Bridge.send('chordResetRotation',{}); state.chordRot=0; updateChordPlayhead(); }
+function chordStepAdd(vi){ const vs=chordVoices(); vs[vi]=vs[vi]||[]; vs[vi].push(vs[vi].length?vs[vi][vs[vi].length-1]:'3:2'); chordVoicesCommit(vs); renderPatch(); }
+function chordStepDel(vi){ const vs=chordVoices(); if(vs[vi]&&vs[vi].length>0){ vs[vi].pop(); chordVoicesCommit(vs); renderPatch(); } }
+function chordVoiceAdd(){ const idx=Math.round(state.patch.UniVox); if(idx>=4) return;
+  const vs=chordVoices(); vs.push(['3/2']); chordVoicesCommit(vs); setChoice('UniVox',idx+1); }   // setChoice re-renders
+function chordVoiceDel(vi){ const idx=Math.round(state.patch.UniVox);
+  const vs=chordVoices(); vs.splice(vi,1); chordVoicesCommit(vs);
+  if(idx>0) setChoice('UniVox',idx-1); else renderPatch(); }
+function chordStepSet(vi,si,tok){ const vs=chordVoices(); vs[vi]=vs[vi]||[]; vs[vi][si]=tok; chordVoicesCommit(vs); renderPatch(); }
+// Lightweight playhead update for live rotation pushes (no full re-render).
+function updateChordPlayhead(){ const ed=document.getElementById('chordEd'); if(!ed)return;
+  const rot=state.chordRot||0;
+  ed.querySelectorAll('.vrow').forEach(row=>{ const cells=[...row.querySelectorAll('.ccell')]; const len=cells.length; if(!len)return;
+    const cur=((rot%len)+len)%len; cells.forEach((c,i)=>c.classList.toggle('cur',i===cur)); });
+  const rb=ed.querySelector('.crot b'); if(rb) rb.textContent=rot;
+}
+// ── Just-interval picker ──────────────────────────────────────────────────
+const C_UP=[{n:1,d:1,nm:'unison',lim:1},{n:16,d:15,nm:'min 2nd',lim:5},{n:9,d:8,nm:'maj 2nd',lim:3},
+  {n:7,d:6,nm:'sub min 3rd',lim:7},{n:6,d:5,nm:'min 3rd',lim:5},{n:5,d:4,nm:'maj 3rd',lim:5},
+  {n:4,d:3,nm:'perfect 4th',lim:3},{n:7,d:5,nm:'sept tritone',lim:7},{n:3,d:2,nm:'perfect 5th',lim:3},
+  {n:8,d:5,nm:'min 6th',lim:5},{n:5,d:3,nm:'maj 6th',lim:5},{n:7,d:4,nm:'harmonic 7th',lim:7},
+  {n:9,d:5,nm:'min 7th',lim:3},{n:15,d:8,nm:'maj 7th',lim:5},{n:2,d:1,nm:'octave',lim:1},
+  {n:9,d:4,nm:'maj 9th',lim:3},{n:5,d:2,nm:'maj 10th',lim:5},{n:3,d:1,nm:'perfect 12th',lim:3}];
+const C_DN=[{n:15,d:16,nm:'min 2nd ↓',lim:5},{n:8,d:9,nm:'maj 2nd ↓',lim:3},{n:5,d:6,nm:'min 3rd ↓',lim:5},
+  {n:4,d:5,nm:'maj 3rd ↓',lim:5},{n:3,d:4,nm:'perfect 4th ↓',lim:3},{n:5,d:7,nm:'sept tritone ↓',lim:7},
+  {n:2,d:3,nm:'perfect 5th ↓',lim:3},{n:5,d:8,nm:'min 6th ↓',lim:5},{n:3,d:5,nm:'maj 6th ↓',lim:5},
+  {n:4,d:7,nm:'harmonic 7th ↓',lim:7},{n:8,d:15,nm:'maj 7th ↓',lim:5},{n:1,d:2,nm:'octave ↓',lim:1},
+  {n:1,d:3,nm:'twelfth ↓',lim:3}];
+let cPickLim='all', cPick={vi:0,si:0};
+function ensureChordPicker(){
+  if(document.getElementById('cpick')) return;
+  const sc=document.createElement('div'); sc.className='cscrim'; sc.id='cscrim'; sc.onclick=closeChordPicker;
+  const pk=document.createElement('div'); pk.className='cpick'; pk.id='cpick';
+  pk.innerHTML=`<div class="ph"><span class="t">Choose interval</span><button class="x" onclick="closeChordPicker()">×</button></div>
+    <div class="lim" id="cpLim">
+      <button data-lim="all" class="on">All</button><button data-lim="3">3-limit</button>
+      <button data-lim="5">5-limit</button><button data-lim="7">7-limit</button></div>
+    <div class="cpcols">
+      <div class="cpcol"><span class="clbl">Above ▲</span><div class="cpgrid" id="cpUp"></div></div>
+      <div class="cpcol"><span class="clbl" style="color:var(--vn-pressure)">Below ▼</span><div class="cpgrid" id="cpDn"></div></div></div>
+    <div class="typ"><input type="text" id="cpType" placeholder="or type: 7  ·  3:2  ·  -5  ·  9/8" />
+      <button onclick="chordPickType()">Set</button></div>`;
+  document.body.appendChild(sc); document.body.appendChild(pk);
+  pk.querySelector('#cpLim').onclick=e=>{ const b=e.target.closest('button'); if(!b)return;
+    [...pk.querySelectorAll('#cpLim button')].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    cPickLim=b.dataset.lim; renderChordPickerOpts(); };
+  pk.querySelector('#cpType').addEventListener('keydown',e=>{ if(e.key==='Enter') chordPickType(); });
+}
+function renderChordPickerOpts(){
+  const mk=(arr,dn)=>arr.filter(o=>cPickLim==='all'||o.lim==+cPickLim||o.lim===1).map(o=>{
+    const c=1200*Math.log2(o.n/o.d);
+    return `<button class="popt ${dn?'dn':''}" onclick="chordPickRatio(${o.n},${o.d})">
+      <span class="r">${o.n}/${o.d}</span><span class="nm">${o.nm}</span>
+      <span class="c">${c>=0?'+':''}${c.toFixed(0)}¢</span></button>`; }).join('');
+  document.getElementById('cpUp').innerHTML=mk(C_UP,false);
+  document.getElementById('cpDn').innerHTML=mk(C_DN,true);
+}
+function openChordPicker(vi,si){ ensureChordPicker(); cPick={vi,si}; renderChordPickerOpts();
+  const sc=document.getElementById('cscrim'), pk=document.getElementById('cpick');
+  sc.classList.add('open'); pk.classList.add('open');
+  const tf=document.getElementById('cpType'); if(tf){ const vs=chordVoices(); tf.value=(vs[vi]&&vs[vi][si])||''; }
+  pk.style.left=Math.max(10,(window.innerWidth-pk.offsetWidth)/2)+'px';
+  pk.style.top =Math.max(50,(window.innerHeight-pk.offsetHeight)/2)+'px';
+}
+function closeChordPicker(){ const sc=document.getElementById('cscrim'),pk=document.getElementById('cpick');
+  if(sc)sc.classList.remove('open'); if(pk)pk.classList.remove('open'); }
+function chordPickRatio(n,d){ chordStepSet(cPick.vi,cPick.si,`${n}/${d}`); closeChordPicker(); }
+function chordPickType(){ const tf=document.getElementById('cpType'); if(!tf)return; const t=tf.value.trim();
+  if(/^-?\d+(\.\d+)?$/.test(t) || /^-?\d+(\.\d+)?[:/]-?\d+(\.\d+)?$/.test(t)){ chordStepSet(cPick.vi,cPick.si,t); closeChordPicker(); } }
 function chordConfigLoad(name){ if(!name) return; chordCfgName=name; Bridge.send('chordConfigLoad',{name}); }
 function chordConfigSave(){
   const name=(chordCfgName||'').trim(); if(!name) return;
@@ -1089,14 +1265,6 @@ function chordConfigSave(){
 }
 function chordConfigDelete(){ const name=(chordCfgName||'').trim(); if(!name) return;
   Bridge.send('chordConfigDelete',{name}); chordCfgName=''; }
-function chordSeqSet(j,val){
-  const seqs=(state.chordSeqs||'').split(';'); while(seqs.length<=j) seqs.push('');
-  // Keep decimal-semitone tokens (7, -5, 7.02) and just-ratio tokens (3:2, 5/4).
-  seqs[j]=val.trim().split(/[\s,]+/).filter(Boolean)
-    .filter(t=>/^-?\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?[:/]\d+(\.\d+)?$/.test(t))
-    .join(',');
-  state.chordSeqs=seqs.join(';'); Bridge.send('chordSeqsEdit',{seqs:state.chordSeqs}); markDirty();
-}
 
 function slotRow(s,i){
   const srcName=SOURCES[s.src], col=SRC_COLOR[srcName]||'--vn-muted';
