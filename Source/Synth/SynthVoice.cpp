@@ -1,6 +1,22 @@
 #include "SynthVoice.h"
 #include <cmath>
 
+// Rotating-chord counter wrap = LCM(1..kChordSteps).  Every possible sequence
+// length divides it, so each harmony voice's (rotIndex % len) phase is continuous
+// across the wrap and the shared int never overflows.  The static_assert makes
+// changing kChordSteps without re-deriving this a compile error rather than a
+// subtle audible glitch every 720720 notes.
+namespace {
+    constexpr int kChordRotWrap = 720720;
+    constexpr bool wrapCoversAllChordLengths() {
+        for (int len = 1; len <= SynthVoice::kChordSteps; ++len)
+            if (kChordRotWrap % len != 0) return false;
+        return true;
+    }
+    static_assert(wrapCoversAllChordLengths(),
+                  "kChordRotWrap must be a multiple of LCM(1..kChordSteps)");
+}
+
 SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
                         std::atomic<float>*    morphPos,  std::atomic<float>*    detune,
                         std::atomic<float>*    pw,        std::atomic<float>*    cutoff,
@@ -425,11 +441,20 @@ void SynthVoice::noteStarted()
         }
     }
 
-    // Rotating chords: advance the shared rotation each played note (reset on a new
-    // phrase), then read each harmony voice's interval from its looping sequence.
+    // Rotating chords (Kilgore "harmonic expansionism"): advance ONE step per
+    // played note and never reset — including across phrases.  Each harmony voice
+    // loops its own sequence at its own length, so with co-prime lengths the
+    // combined chord progression has period LCM(lengths) and sounds "random" while
+    // staying fully deterministic.  Resetting on a new phrase (or any other "sync")
+    // would collapse that into a repeating start, defeating the whole point, and
+    // would also restart a voice's loop before it finished.
+    //
+    // The shared counter wraps at kChordRotWrap = LCM(1..kChordSteps) = 720720 (see
+    // file top), which every possible sequence length divides evenly — so each
+    // voice's (idx % len) phase is continuous across the wrap and never overflows.
     if (paramUnisonMode && paramUnisonMode->load() > 0.5f && chordRot && chordSeqFlat && chordLens) {
-        int idx = isLegato ? chordRot->load() : 0;   // new phrase restarts the rotation
-        chordRot->store(idx + 1);
+        const int idx = chordRot->load();
+        chordRot->store((idx + 1) % kChordRotWrap);
         for (int j = 0; j < kMaxUnison - 1; ++j) {
             const int len = chordLens[j];
             chordInterval[j] = (len > 0)
