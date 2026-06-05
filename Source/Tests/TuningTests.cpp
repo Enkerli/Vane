@@ -92,13 +92,30 @@ private:
     {
         beginTest("TuningClient: no MTS master falls back to equal temperament");
         TuningClient tc;
-        for (int note : { 0, 48, 60, 69, 96, 127 })
-        {
-            float expected = TuningClient::equalTemperamentHz(note);
-            float actual   = tc.noteToHz(note, 1);
+        const int notes[] = { 0, 48, 60, 69, 96, 127 };
+
+        // Deterministic guarantee, independent of the environment: Bypass is
+        // unconditional 12-ET (it never consults MTS), so this leg holds even on a
+        // dev machine running Entonal / an MTS-ESP master.
+        tc.setTuningSource(TuningSource::Bypass);
+        for (int note : notes) {
+            const float expected = TuningClient::equalTemperamentHz(note);
+            expectWithinAbsoluteError(tc.noteToHz(note, 1), expected, expected * 0.0001f);
+        }
+
+        // The actual FollowMTS no-master fallback can only be OBSERVED when no
+        // master is connected.  If one is present (the common case on a machine
+        // that uses MTS-ESP) the client correctly follows the master's scale, so
+        // skip this leg rather than assert ET against a real microtonal master.
+        tc.setTuningSource(TuningSource::FollowMTS);
+        if (tc.hasMaster()) {
+            logMessage("  (MTS master connected -- skipping no-master fallback leg)");
+            return;
+        }
+        for (int note : notes) {
+            const float expected = TuningClient::equalTemperamentHz(note);
             // Relative tolerance: Hz values span 8 Hz (MIDI 0) to 12544 Hz (MIDI 127).
-            float tol = expected * 0.0001f;
-            expectWithinAbsoluteError(actual, expected, tol);
+            expectWithinAbsoluteError(tc.noteToHz(note, 1), expected, expected * 0.0001f);
         }
     }
 
