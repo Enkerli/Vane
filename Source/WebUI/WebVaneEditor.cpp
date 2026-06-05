@@ -132,6 +132,41 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             if (a.isEmpty()) return;
             owner->proc.setChordSeqs (a[0]["seqs"].toString());
         })
+        // ── Global rotating-chord config palette ──────────────────────────────
+        .withEventListener ("chordConfigSave", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto& o = a[0];
+            ChordConfigStore::Config c;
+            c.name   = o["name"].toString().trim();
+            c.seqs   = o["seqs"].toString();
+            c.voices = static_cast<int> (o["voices"]);
+            c.mode   = static_cast<int> (o["mode"]);
+            if (c.name.isNotEmpty()) { owner->proc.chordConfigStore.save (c); owner->sendChordConfigList(); }
+        })
+        .withEventListener ("chordConfigDelete", [owner] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            owner->proc.chordConfigStore.remove (a[0]["name"].toString());
+            owner->sendChordConfigList();
+        })
+        .withEventListener ("chordConfigLoad", [owner, setActual] (const Array<var>& a) {
+            if (a.isEmpty()) return;
+            const auto name = a[0]["name"].toString();
+            for (const auto& c : owner->proc.chordConfigStore.all()) {
+                if (c.name != name) continue;
+                // voice COUNT -> unisonVoices choice index ({1,2,3,4,6}).
+                static const int kVoiceCounts[] = { 1, 2, 3, 4, 6 };
+                int idx = 1;
+                for (int i = 0; i < 5; ++i) if (kVoiceCounts[i] == c.voices) idx = i;
+                setActual ("unisonVoices", static_cast<float> (idx));
+                setActual ("unisonMode",   static_cast<float> (c.mode));
+                owner->proc.setChordSeqs (c.seqs);
+                owner->sendChordSeqs();   // push the sequences last so the UI lands on them
+                break;
+            }
+        })
+        .withEventListener ("requestChordConfigs", [owner] (const Array<var>&) {
+            owner->sendChordConfigList();
+        })
         .withEventListener ("presetLoad", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             const int id = static_cast<int> (a[0]["id"]);
@@ -594,6 +629,18 @@ void WebVaneEditor::sendChordSeqs()
         makeObj ({ { "seqs", proc.chordSeqsString() } }));
 }
 
+void WebVaneEditor::sendChordConfigList()
+{
+    juce::Array<juce::var> arr;
+    for (const auto& c : proc.chordConfigStore.all())
+        arr.add (makeObj ({ { "name",   c.name },
+                            { "seqs",   c.seqs },
+                            { "voices", c.voices },
+                            { "mode",   c.mode } }));
+    webView.emitEventIfBrowserIsVisible ("chordConfigList",
+        makeObj ({ { "configs", juce::var (arr) } }));
+}
+
 void WebVaneEditor::sendGlideCurve()
 {
     juce::Array<juce::var> anchors;
@@ -738,6 +785,7 @@ void WebVaneEditor::sendInitialState()
     sendTransientList();
     sendGlideCurve();
     sendChordSeqs();
+    sendChordConfigList();
     sendTuningState();
     webView.emitEventIfBrowserIsVisible ("controllerLabel",
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));

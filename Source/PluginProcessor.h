@@ -7,6 +7,7 @@
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
 #include "Preset/PresetManager.h"
+#include "Preset/ChordConfigStore.h"
 #include "Profile/ProfileManager.h"
 
 class VaneProcessor : public juce::AudioProcessor {
@@ -39,6 +40,7 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presetManager;
+    ChordConfigStore chordConfigStore;   // global rotating-chord palette (JSON on disk)
     ProfileManager profileManager;
     ModMatrix    modMatrix;
     TuningClient tuning;

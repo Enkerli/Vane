@@ -1,6 +1,7 @@
 #include <juce_core/juce_core.h>
 #include <cmath>
 #include "PluginProcessor.h"
+#include "Preset/ChordConfigStore.h"
 
 // ── Rotating-chord interval parsing ──────────────────────────────────────────
 //
@@ -41,6 +42,49 @@ public:
         expect(std::isnan(VaneProcessor::parseChordInterval("abc")),  "non-numeric -> NaN");
         expect(std::isnan(VaneProcessor::parseChordInterval("3:0")),  "zero denominator -> NaN");
         expect(std::isnan(VaneProcessor::parseChordInterval("0:2")),  "zero numerator -> NaN");
+
+        chordConfigStoreRoundTrips();
+    }
+
+    // Save / recall / delete + persistence + factory seeding, all against a temp
+    // file so the user's real ~/Library/Vane/ChordConfigs.json is never touched.
+    void chordConfigStoreRoundTrips()
+    {
+        beginTest("ChordConfigStore: factory seed, save/recall/delete, persistence");
+        auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                       .getChildFile("vane_chordcfg_test.json");
+        tmp.deleteFile();
+
+        {   // Fresh store on a missing file seeds the factory palette and writes it.
+            ChordConfigStore store(tmp);
+            expect(store.all().size() >= 3, "factory palette should seed several configs");
+            expect(tmp.existsAsFile(), "store must persist the seed to disk");
+
+            ChordConfigStore::Config c { "My Cycle", "5:4,6:5;3:2", 3, 1 };
+            store.save(c);
+            expect(store.contains("My Cycle"), "saved config should be present");
+
+            // Overwrite by name (not duplicate).
+            const int before = store.all().size();
+            store.save({ "My Cycle", "7,12;5", 4, 1 });
+            expectEquals(store.all().size(), before, "saving same name overwrites, not duplicates");
+        }
+        {   // A new store on the same file must read back what we persisted.
+            ChordConfigStore reopened(tmp);
+            expect(reopened.contains("My Cycle"), "config must survive reopen");
+            ChordConfigStore::Config got;
+            for (const auto& c : reopened.all()) if (c.name == "My Cycle") got = c;
+            expectEquals(got.seqs, juce::String("7,12;5"), "overwritten value persisted");
+            expectEquals(got.voices, 4);
+
+            reopened.remove("My Cycle");
+            expect(! reopened.contains("My Cycle"), "deleted config should be gone");
+        }
+        {   // Deletion persisted across reopen.
+            ChordConfigStore reopened(tmp);
+            expect(! reopened.contains("My Cycle"), "deletion must persist");
+        }
+        tmp.deleteFile();
     }
 };
 

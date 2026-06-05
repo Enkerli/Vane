@@ -160,7 +160,7 @@ target_sources(Vane PRIVATE
     Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
-    Source/Preset/PresetManager.cpp
+    Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp
     Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp
@@ -273,7 +273,7 @@ target_sources(VaneRenderProbe PRIVATE
     Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp
     Source/MPE/TuningClient.cpp
-    Source/Preset/PresetManager.cpp
+    Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp
     Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp
@@ -308,7 +308,7 @@ target_sources(VanePresetGen PRIVATE
     Tools/PresetGen/main.cpp
     Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
     Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
-    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp
+    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
@@ -342,7 +342,7 @@ target_sources(VaneSelfTest PRIVATE
     Tools/SelfTest/main.cpp
     Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
     Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
-    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp
+    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)

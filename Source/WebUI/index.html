@@ -525,6 +525,7 @@ const state = {
   transients:['None'],   // transient sample names (index 0 = None)
   glideAnchors:[],       // Bézier glide trajectory anchors (time→progress)
   chordSeqs:'3,4;7,5;10,9;12,7;5,3',   // rotating-chord interval sequences per harmony voice
+  chordConfigs:[],                     // global rotating-chord palette (from disk via bridge)
 
   // Rig = the composition: ordered controller instances, each with a role mask
   // (notes/mod) and a channel/zone match. Bindings stay in the flat pool below
@@ -1048,9 +1049,25 @@ function glideRemovePoint(){ const arr=glideAnchors(); if(arr.length<=1)return;
 // ── Rotating chords (chord-mode unison) — per-voice interval sequence editor ──
 Bridge.on('chordSeqs',({seqs})=>{ if(typeof seqs==='string'){ state.chordSeqs=seqs;
   if(tab==='patch'&&Math.round(state.patch.UniMode)===1) renderPatch(); } });
+Bridge.on('chordConfigList',({configs})=>{ if(Array.isArray(configs)){ state.chordConfigs=configs;
+  if(tab==='patch'&&Math.round(state.patch.UniMode)===1) renderPatch(); } });
+let chordCfgName='';   // persists the save-as / selected name across re-renders
+function escH(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function chordConfigBarHTML(){
+  const opts=(state.chordConfigs||[]).map(c=>`<option value="${escH(c.name)}">${escH(c.name)}</option>`).join('');
+  return `<div class="chordcfg" style="grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <select aria-label="load chord config" style="flex:1;min-width:120px" onchange="chordConfigLoad(this.value);this.selectedIndex=0">
+      <option value="">Load config…</option>${opts}</select>
+    <input type="text" placeholder="save as…" value="${escH(chordCfgName)}" oninput="chordCfgName=this.value" aria-label="config name" style="width:110px">
+    <button class="btn" onclick="chordConfigSave()" title="Save the current intervals, voice count and mode">Save</button>
+    <button class="btn" onclick="chordConfigDelete()" title="Delete the named config">✕</button>
+  </div>`;
+}
 function chordSeqEditorHTML(){
   const voices=[1,2,3,4,6][Math.round(state.patch.UniVox)]||1, nH=Math.max(0,voices-1);
-  if(nH===0) return `<div class="hint" style="grid-column:1/-1">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals.</div>`;
+  const bar=chordConfigBarHTML();
+  if(nH===0) return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">${bar}
+    <div class="ce-foot"><span class="hint">Chord mode needs 2+ unison voices — the extra voices play the rotating intervals. Load a config above to set it up.</span></div></div>`;
   const seqs=(state.chordSeqs||'').split(';');
   let rows='';
   for(let j=0;j<nH;j++){ const v=(seqs[j]||'').trim();
@@ -1060,9 +1077,18 @@ function chordSeqEditorHTML(){
     rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 7  3:2  -5  5/4" oninput="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
   return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">
     <div class="ce-head"><span class="lbl">Rotating chord · semitones or just ratios</span></div>
+    ${bar}
     ${rows}
     <div class="ce-foot"><span class="hint">Each voice cycles its interval list — one step per played note. Intervals are decimal semitones (7, -5, 7.02) or just ratios (3:2, 5/4 — exact, not rounded). Different list lengths make the chord rotate continuously. Voice 1 is your melody.</span></div></div>`;
 }
+function chordConfigLoad(name){ if(!name) return; chordCfgName=name; Bridge.send('chordConfigLoad',{name}); }
+function chordConfigSave(){
+  const name=(chordCfgName||'').trim(); if(!name) return;
+  const voices=[1,2,3,4,6][Math.round(state.patch.UniVox)]||2;
+  Bridge.send('chordConfigSave',{name,seqs:state.chordSeqs||'',voices,mode:1}); markDirty();
+}
+function chordConfigDelete(){ const name=(chordCfgName||'').trim(); if(!name) return;
+  Bridge.send('chordConfigDelete',{name}); chordCfgName=''; }
 function chordSeqSet(j,val){
   const seqs=(state.chordSeqs||'').split(';'); while(seqs.length<=j) seqs.push('');
   // Keep decimal-semitone tokens (7, -5, 7.02) and just-ratio tokens (3:2, 5/4).
