@@ -2,6 +2,8 @@
 
 #include <juce_core/juce_core.h>
 #include <array>
+#include <atomic>
+#include <cstdint>
 
 #if VANE_HAS_MTS
   #include "libMTSClient.h"
@@ -86,13 +88,21 @@ public:
     bool isHole(int midiNote, int midiChannel) const;
 
     // ── Source / internal-tuning control ─────────────────────────────────────
-    void setTuningSource  (TuningSource s) { source = s; }
+    void setTuningSource  (TuningSource s) { source = s; ++epoch; }
     TuningSource getTuningSource() const   { return source; }
 
     // Set the active internal tuning by id matching the JS TUN keys
     // ("edo12", "just", "pyth", "meanqc", "werck3", "diat7", "edo19", "bp").
     void setInternalTuning (const juce::String& id);
     juce::String getInternalTuningId() const { return internalId; }
+
+    // Monotonic counter bumped on every tuning change (source or internal table).
+    // A sounding voice compares this against the epoch it last resolved baseHz at;
+    // when it differs the voice re-queries noteToHz, so switching tuning WHILE a
+    // note is held retunes it live (the wind-controller "change scale mid-breath"
+    // gesture) instead of waiting for the next note-on.  Relaxed: a one-block lag
+    // in picking up the change is inaudible.
+    uint32_t tuningEpoch() const { return epoch.load (std::memory_order_relaxed); }
 
     // Per-degree data for the active internal tuning (filled by setInternalTuning,
     // read by noteToHz and deviationCents).  128 entries (one per MIDI note);
@@ -102,6 +112,7 @@ public:
 private:
     TuningSource source   { TuningSource::FollowMTS };
     juce::String internalId { "edo12" };   // 12-EDO so the no-master fallback is transparent ET
+    std::atomic<uint32_t> epoch { 0 };     // bumped on any tuning change (see tuningEpoch)
 
 #if VANE_HAS_MTS
     ::MTSClient* mtsClient = nullptr;

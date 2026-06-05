@@ -139,6 +139,7 @@ void SynthVoice::noteStarted()
                 : note.pitchbend.asSignedFloat();
 
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
+    lastTuningEpoch = tuning.tuningEpoch();   // baseline for live retune (see renderNextBlock)
     // Keytrack: note pitch as a bipolar mod source, centred on C4 (MIDI 60),
     // ±48 semitones → ±1, so a route can make cutoff/etc. follow the keyboard.
     keytrackVal = juce::jlimit(-1.0f, 1.0f, (static_cast<float>(note.initialNote) - 60.0f) / 48.0f);
@@ -584,6 +585,24 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         active = false; isTailingOff = false;
         clearCurrentNote();
         return;
+    }
+
+    // Live retune: if the tuning changed while this note is held (switching the
+    // internal scale, or source, mid-breath — the core wind-controller gesture),
+    // re-query baseHz and steer the running pitch to it so the change is audible
+    // immediately rather than only at the next note-on.  One-block lag is fine.
+    if (tuning.tuningEpoch() != lastTuningEpoch) {
+        lastTuningEpoch = tuning.tuningEpoch();
+        const float newHz = tuning.noteToHz(currentlyPlayingNote.initialNote,
+                                            currentlyPlayingNote.midiChannel);
+        if (newHz > 0.0f && std::isfinite(newHz)) {   // skip holes — keep sounding
+            baseHz = newHz;
+            const float logHz = std::log2f(std::max(baseHz, 1.0f));
+            smoothedHz.setTargetValue(baseHz);   // no-glide path glides to the new pitch
+            glideTargetLogHz  = logHz;           // exp-glide target
+            glideBezTargetLog = logHz;           // bezier-glide target (RC reads baseHz directly)
+            if (sharedLastNoteHz) sharedLastNoteHz->store(baseHz);
+        }
     }
 
     float morphPos   = paramMorphPos ? paramMorphPos->load() : 0.0f;  // normalised 0..1 across table

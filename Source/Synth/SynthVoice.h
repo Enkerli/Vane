@@ -349,6 +349,7 @@ private:
 
     // Render state
     float baseHz       = 440.0f;
+    uint32_t lastTuningEpoch = 0;   // tuning.tuningEpoch() at last baseHz resolve (live-retune)
     bool  active       = false;
     bool  isTailingOff = false;
     float tailLevel    = 0.0f;

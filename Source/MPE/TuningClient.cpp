@@ -92,6 +92,7 @@ float TuningClient::noteToHz(int midiNote, int midiChannel) const
 void TuningClient::setInternalTuning (const juce::String& id)
 {
     internalId = id;
+    ++epoch;   // bump so held voices re-query and retune live (see tuningEpoch)
     // Fill internalCentsTable: 128 notes from MIDI 0.  Each note maps to its
     // pitch-class in the 12-note table (repeating every octave); EDO tunings use
     // equal division of the period; non-octave (BP) wraps by the period.
@@ -116,18 +117,17 @@ void TuningClient::setInternalTuning (const juce::String& id)
     }
 
     if (isEDO) {
-        // Map each MIDI note into the EDO by computing its position in the period.
-        // ET semitones→cents: note × 100; period in ET cents = 1200 (or 1901.955 for BP).
-        // The note's EDO degree = round(note × (edoN / periodSemitones)).
-        const float semPerPeriod = period / 100.0f;
-        for (int n = 0; n < 128; ++n) {
-            // How many full periods from C4 (note 60)?
-            const float centsFromC0 = (float) n * 100.0f;
-            const float periods     = std::floor (centsFromC0 / period);
-            const float residual    = centsFromC0 - periods * period;
-            const int   degree      = (int) std::lround (residual / period * (float) edoN) % edoN;
-            internalCentsTable[(size_t) n] = periods * period + (float) degree * (period / (float) edoN);
-        }
+        // LINEAR keyboard mapping: each successive MIDI key is one EDO degree, so
+        // the WHOLE scale is playable (no degrees skipped) — the right behaviour
+        // for exploring an N-EDO or a non-octave scale like Bohlen-Pierce from a
+        // chromatic controller.  Anchored at A4 (MIDI 69 = 6900 cents = 440 Hz) so
+        // concert A stays put regardless of N, matching the UI's "A4 = 440 Hz" ref.
+        // (The earlier nearest-degree snap collapsed e.g. 19-EDO onto ~12 reachable
+        // degrees, making it sound like a 12-note approximation — not selectable in
+        // any meaningful sense.)
+        const float step = period / (float) edoN;            // cents per key
+        for (int n = 0; n < 128; ++n)
+            internalCentsTable[(size_t) n] = 6900.0f + (float) (n - 69) * step;
         return;
     }
 

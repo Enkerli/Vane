@@ -33,6 +33,7 @@ public:
         octaveSymmetry();
         noMtsMasterFallsBackToET();
         internalTableInitialisedOnConstruction();
+        allInternalTuningsSelectable();
         oscillatorOutputBoundedAboveNyquist();
         oscillatorPhaseStaysInUnitInterval();
         oscillatorEdgeCaseExactSampleRate();
@@ -99,6 +100,80 @@ private:
             float tol = expected * 0.0001f;
             expectWithinAbsoluteError(actual, expected, tol);
         }
+    }
+
+    // ── 3b. Every internal tuning is distinct and selectable ──────────────────
+    //
+    // Guards the "some internal tunings aren't selectable / defaults to Just"
+    // report.  For each id the TuningClient must (a) report that id back from
+    // getInternalTuningId() (so the UI round-trip sticks) and (b) produce the
+    // expected pitch at a characteristic degree, distinct from 12-EDO where the
+    // temperament differs.  C3=48 is the reference octave (C major degrees).
+    void allInternalTuningsSelectable()
+    {
+        beginTest("TuningClient: all internal tunings selectable & distinct");
+        TuningClient tc;
+        tc.setTuningSource(TuningSource::Internal);
+
+        // id, a probe note, expected cents above C (only checked for the 12-note
+        // temperaments — EDO tunings map each chromatic key to the NEAREST EDO
+        // degree, so a hand-computed cents value is brittle), and whether that
+        // note should differ audibly from 12-EDO.  C3=48 is the reference octave.
+        struct Probe { const char* id; int note; float cents; bool checkCents; bool differsFromET; };
+        const Probe probes[] = {
+            { "edo12",  48 + 4,  400.0f,  true,  false },  // major 3rd = ET
+            { "just",   48 + 4,  386.3f,  true,  true  },  // 5-limit major 3rd, ~14c flat
+            { "pyth",   48 + 4,  407.8f,  true,  true  },  // Pythagorean 3rd, ~8c sharp
+            { "meanqc", 48 + 4,  386.3f,  true,  true  },  // quarter-comma major 3rd
+            { "werck3", 48 + 4,  390.2f,  true,  true  },  // Werckmeister III 3rd
+            { "diat7",  48 + 4,  386.3f,  true,  true  },  // just diatonic 3rd
+            { "edo19",  48 + 4,  0.0f,    false, true  },  // 19-EDO (nearest-degree map)
+            { "bp",     48 + 4,  0.0f,    false, true  },  // Bohlen-Pierce (nearest-degree map)
+        };
+
+        for (const auto& p : probes)
+        {
+            tc.setInternalTuning(p.id);
+            expect(tc.getInternalTuningId() == juce::String(p.id),
+                   juce::String("id round-trip failed for ") + p.id
+                   + " (got " + tc.getInternalTuningId() + ")");
+
+            const float etHz  = TuningClient::equalTemperamentHz(p.note);
+            const float gotHz = tc.noteToHz(p.note, 1);
+            expect(std::isfinite(gotHz) && gotHz > 0.0f,
+                   juce::String(p.id) + " produced a non-finite/zero pitch");
+
+            if (p.checkCents) {
+                const int   tonic = p.note - (p.note % 12);
+                const float refHz = TuningClient::equalTemperamentHz(tonic)
+                                    * std::pow(2.0f, p.cents / 1200.0f);
+                expectWithinAbsoluteError(gotHz, refHz, refHz * 0.002f,
+                    juce::String("wrong pitch for ") + p.id);
+            }
+            if (p.differsFromET)
+                expect(std::abs(gotHz - etHz) > etHz * 0.001f,
+                       juce::String(p.id) + " should differ from 12-EDO but matched it");
+        }
+
+        // Live-retune contract: every tuning change must bump tuningEpoch so a held
+        // voice re-queries its pitch (the switch-tuning-while-sustaining gesture).
+        const uint32_t e0 = tc.tuningEpoch();
+        tc.setInternalTuning("pyth");
+        const uint32_t e1 = tc.tuningEpoch();
+        expect(e1 != e0, "setInternalTuning must bump tuningEpoch");
+        tc.setTuningSource(TuningSource::Bypass);
+        expect(tc.tuningEpoch() != e1, "setTuningSource must bump tuningEpoch");
+
+        // A linear EDO must be a true microtonal scale: 19-EDO octave spans 19 keys
+        // and every adjacent key is one distinct 63.16-cent step (no nearest-degree
+        // collapse onto ~12 reachable degrees).
+        tc.setTuningSource(TuningSource::Internal);
+        tc.setInternalTuning("edo19");
+        const float h69 = tc.noteToHz(69, 1), h88 = tc.noteToHz(88, 1);  // 69 + 19
+        expectWithinAbsoluteError(h88, h69 * 2.0f, h69 * 2.0f * 0.002f);  // 19 keys = octave
+        const float h70 = tc.noteToHz(70, 1);
+        const float stepCents = 1200.0f * std::log2(h70 / h69);
+        expectWithinAbsoluteError(stepCents, 1200.0f / 19.0f, 0.5f);      // one 19-EDO step
     }
 
     // ── 4. Oscillator: output bounded above Nyquist ───────────────────────────
