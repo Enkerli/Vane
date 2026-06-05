@@ -458,7 +458,7 @@ void SynthVoice::noteStarted()
         for (int j = 0; j < kMaxUnison - 1; ++j) {
             const int len = chordLens[j];
             chordInterval[j] = (len > 0)
-                ? static_cast<float>(chordSeqFlat[j * kChordSteps + (idx % len)])
+                ? chordSeqFlat[j * kChordSteps + (idx % len)]
                 : 0.0f;
         }
     }

@@ -168,6 +168,7 @@ target_sources(Vane PRIVATE
     Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp
     Source/Tests/WavetableTests.cpp
+    Source/Tests/ChordTests.cpp
 )
 
 target_include_directories(Vane PRIVATE Source)
@@ -280,6 +281,7 @@ target_sources(VaneRenderProbe PRIVATE
     Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp
     Source/Tests/WavetableTests.cpp
+    Source/Tests/ChordTests.cpp
 )
 target_include_directories(VaneRenderProbe PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneRenderProbe PUBLIC
@@ -309,7 +311,7 @@ target_sources(VanePresetGen PRIVATE
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
-    Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp)
+    Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
 target_include_directories(VanePresetGen PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePresetGen PUBLIC
     JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
@@ -343,7 +345,7 @@ target_sources(VaneSelfTest PRIVATE
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
-    Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp)
+    Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
 target_include_directories(VaneSelfTest PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneSelfTest PUBLIC
     JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1

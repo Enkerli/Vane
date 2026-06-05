@@ -98,10 +98,11 @@ public:
     // advance one step per played note (resetting on a new phrase), so a legato
     // line rotates the chord internally — Kilgore/Brecker style, monophonic.
     //   modeParam : 0 = Detune (cents), 1 = Chord (rotating intervals)
-    //   seqFlat   : (kMaxUnison-1)·kChordSteps int8 semitone intervals, row-major
+    //   seqFlat   : (kMaxUnison-1)·kChordSteps semitone intervals (fractional, so
+    //               just ratios like 3:2 keep their exact 701.96c), row-major
     //   lens      : per-voice sequence loop length
     //   rotIndex  : shared rotation counter (cross-voice; advances per note-on)
-    void setChordParams(std::atomic<float>* modeParam, const int8_t* seqFlat,
+    void setChordParams(std::atomic<float>* modeParam, const float* seqFlat,
                         const int* lens, std::atomic<int>* rotIndex) noexcept {
         paramUnisonMode = modeParam; chordSeqFlat = seqFlat; chordLens = lens; chordRot = rotIndex;
     }
@@ -272,7 +273,7 @@ private:
     std::atomic<float>* sharedFilterRS2   = nullptr;
     // Rotating chords
     std::atomic<float>* paramUnisonMode   = nullptr;  // 0 = Detune, 1 = Chord
-    const int8_t*       chordSeqFlat      = nullptr;  // (kMaxUnison-1)·kChordSteps intervals
+    const float*        chordSeqFlat      = nullptr;  // (kMaxUnison-1)·kChordSteps semitones (fractional)
     const int*          chordLens         = nullptr;  // per-voice loop length
     std::atomic<int>*   chordRot          = nullptr;  // shared rotation counter
     float               chordInterval[kMaxUnison - 1] {};  // this note's harmony intervals (semitones)

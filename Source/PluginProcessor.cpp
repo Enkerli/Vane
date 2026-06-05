@@ -2,6 +2,8 @@
 #include "PluginEditor.h"
 #include "WebUI/WebVaneEditor.h"
 #include <BinaryDataLibrary.h>
+#include <cmath>    // std::log2 / std::isnan (chord-interval ratio parsing)
+#include <limits>
 
 VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
@@ -251,19 +253,45 @@ void VaneProcessor::restoreGlideCurve()
 }
 
 // ── Rotating-chord sequences ────────────────────────────────────────────────
+float VaneProcessor::parseChordInterval (const juce::String& token)
+{
+    const juce::String t = token.trim();
+    if (t.isEmpty()) return std::numeric_limits<float>::quiet_NaN();
+
+    // Just ratio "a:b" or "a/b" -> 12·log2(a/b).  e.g. 3:2 -> 7.0196 semitones.
+    const int sep = t.containsChar (':') ? t.indexOfChar (':')
+                  : t.containsChar ('/') ? t.indexOfChar ('/') : -1;
+    if (sep >= 0) {
+        const float a = t.substring (0, sep).trim().getFloatValue();
+        const float b = t.substring (sep + 1).trim().getFloatValue();
+        if (a > 0.0f && b > 0.0f)
+            return 12.0f * std::log2 (a / b);
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+
+    // Decimal semitones ("7", "7.02", "-5").  Reject non-numeric junk: a bare "0"
+    // is valid (unison), but "abc" yields 0.0 from getFloatValue, so require that
+    // the token actually starts like a number.
+    if (! (t.containsAnyOf ("0123456789")
+           && (juce::CharacterFunctions::isDigit (t[0]) || t[0] == '-' || t[0] == '+' || t[0] == '.')))
+        return std::numeric_limits<float>::quiet_NaN();
+    return t.getFloatValue();
+}
+
 void VaneProcessor::setChordSeqs (const juce::String& serialized)
 {
     apvts.state.setProperty ("chordSeqs", serialized, nullptr);
-    for (auto& row : chordSeq) row.fill (0);
+    for (auto& row : chordSeq) row.fill (0.0f);
     chordLen.fill (0);
     auto voices = juce::StringArray::fromTokens (serialized, ";", "");
     for (int j = 0; j < SynthVoice::kMaxUnison - 1 && j < voices.size(); ++j) {
         auto steps = juce::StringArray::fromTokens (voices[j].trim(), ",", "");
         int n = 0;
         for (auto& s : steps) {
-            if (s.trim().isEmpty()) continue;
             if (n >= SynthVoice::kChordSteps) break;
-            chordSeq[(size_t) j][(size_t) n++] = static_cast<int8_t> (juce::jlimit (-48, 48, s.getIntValue()));
+            const float semis = parseChordInterval (s);
+            if (std::isnan (semis)) continue;                       // skip blanks / junk
+            chordSeq[(size_t) j][(size_t) n++] = juce::jlimit (-48.0f, 48.0f, semis);
         }
         chordLen[(size_t) j] = n;
     }

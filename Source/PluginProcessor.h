@@ -237,10 +237,19 @@ public:
 
     // ── Rotating chords (chord-mode unison) ────────────────────────────────────
     // Per harmony voice (kMaxUnison-1): an interval sequence + loop length.  Stored
-    // in state "chordSeqs" as ";"-separated voices, each "i0,i1,…" semitone steps.
+    // in state "chordSeqs" as ";"-separated voices, each a ","-list of intervals.
+    // An interval token is either decimal semitones ("7", "7.02", "-5") or a just
+    // ratio ("3:2", "5/4") — ratios are converted to (fractional) semitones, so a
+    // 3:2 fifth is the exact 701.96c, not a rounded 700c.
     void setChordSeqs (const juce::String& serialized);
     void restoreChordSeqs();    // rebuild from state (call after load)
     juce::String chordSeqsString() const;   // serialize current sequences for the UI
+
+    // Parse a single chord-interval token to semitones.  Accepts decimal semitones
+    // or a just ratio "a:b" / "a/b" (-> 12·log2(a/b)).  Returns NaN if unparseable
+    // (empty, zero/negative ratio term, etc.) so callers can skip it.  Static +
+    // public so it is unit-testable without driving the whole processor.
+    static float parseChordInterval (const juce::String& token);
 
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
@@ -338,7 +347,8 @@ private:
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.
     std::array<float, ModRoute::kCurveLUT> glideLUT {};
     // Rotating-chord sequences (fixed-capacity so audio-thread reads are realloc-safe).
-    std::array<std::array<int8_t, SynthVoice::kChordSteps>, SynthVoice::kMaxUnison - 1> chordSeq {};
+    // Semitones (fractional, to preserve just-ratio precision), row-major per voice.
+    std::array<std::array<float, SynthVoice::kChordSteps>, SynthVoice::kMaxUnison - 1> chordSeq {};
     std::array<int, SynthVoice::kMaxUnison - 1> chordLen {};
     std::atomic<int> chordRotIndex { 0 };
 

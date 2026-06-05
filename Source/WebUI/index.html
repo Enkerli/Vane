@@ -1054,15 +1054,18 @@ function chordSeqEditorHTML(){
   const seqs=(state.chordSeqs||'').split(';');
   let rows='';
   for(let j=0;j<nH;j++){ const v=(seqs[j]||'').trim();
-    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 3 7 10" onchange="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
+    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 7  3:2  -5  5/4" onchange="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
   return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">
-    <div class="ce-head"><span class="lbl">Rotating chord · intervals in semitones</span></div>
+    <div class="ce-head"><span class="lbl">Rotating chord · semitones or just ratios</span></div>
     ${rows}
-    <div class="ce-foot"><span class="hint">Each voice cycles its interval list — one step per played note. Different list lengths make the chord rotate; a new phrase restarts it. Voice 1 is your melody.</span></div></div>`;
+    <div class="ce-foot"><span class="hint">Each voice cycles its interval list — one step per played note. Intervals are decimal semitones (7, -5, 7.02) or just ratios (3:2, 5/4 — exact, not rounded). Different list lengths make the chord rotate continuously. Voice 1 is your melody.</span></div></div>`;
 }
 function chordSeqSet(j,val){
   const seqs=(state.chordSeqs||'').split(';'); while(seqs.length<=j) seqs.push('');
-  seqs[j]=val.trim().split(/[\s,]+/).map(x=>parseInt(x,10)).filter(x=>!isNaN(x)).join(',');
+  // Keep decimal-semitone tokens (7, -5, 7.02) and just-ratio tokens (3:2, 5/4).
+  seqs[j]=val.trim().split(/[\s,]+/).filter(Boolean)
+    .filter(t=>/^-?\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?[:/]\d+(\.\d+)?$/.test(t))
+    .join(',');
   state.chordSeqs=seqs.join(';'); Bridge.send('chordSeqsEdit',{seqs:state.chordSeqs}); markDirty();
 }
 
