@@ -26,7 +26,45 @@ public:
         exponentialCurveShaping();
         amountParamOverridesAmount();
         genericSlotRouting();
+        slotEnableGatesRoute();
         bezierCurveLUT();
+    }
+
+    // Regression: a disabled slot must produce NO modulation, while preserving its
+    // source/dest/amount so re-enabling restores it.  (The matrix UI toggle had no
+    // backing parameter, so disabling a route in the UI kept modulating.)
+    void slotEnableGatesRoute()
+    {
+        beginTest("slot enable gates the route");
+
+        std::atomic<float> src { (float) 4 };  // Slide
+        std::atomic<float> dst { (float) 1 };  // Cutoff
+        std::atomic<float> amt { 1.0f };
+        std::atomic<float> crv { 0.0f };
+        std::atomic<float> scl { 0.0f };
+        std::atomic<float> en  { 1.0f };       // enabled
+
+        ModMatrix mm;
+        mm.prepare(44100.0, 512);
+        mm.addSlot(&src, &dst, &amt, &crv, &scl, &en);
+
+        std::vector<Slewer> sl;
+        mm.initVoiceSlewers(sl, 44100.0, 512);
+        auto vals = makeVoiceVals(0.0f, +1.0f, 0.0f, 0.0f);  // slide fully open
+        std::array<float, ModDestID::NumDests> r {};
+
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);
+        expectWithinAbsoluteError(r[ModDestID::FilterCutoff], 1.0f, 0.02f);
+
+        // Disable: cutoff must fall to zero even though src/dst/amt are unchanged.
+        en = 0.0f;
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);
+        expectWithinAbsoluteError(r[ModDestID::FilterCutoff], 0.0f, 0.001f);
+
+        // Re-enable: modulation returns (settings were preserved).
+        en = 1.0f;
+        for (int i = 0; i < 6; ++i) r = mm.evaluate(vals, sl);
+        expectWithinAbsoluteError(r[ModDestID::FilterCutoff], 1.0f, 0.02f);
     }
 
     void bezierCurveLUT()

@@ -106,6 +106,9 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
             setActual (b + "_amt",   static_cast<float> (static_cast<double> (o["amt"])));
             setActual (b + "_curve", static_cast<float> (static_cast<int> (o["curve"])));
             setActual (b + "_scale", static_cast<float> (static_cast<int> (o["scale"])));   // mod-of-mod
+            // Per-slot enable: the UI toggle.  Without this, disabling a route in
+            // the matrix had no effect on the audio (the route kept modulating).
+            setActual (b + "_en",    (bool) o["on"] ? 1.0f : 0.0f);
             // Editable response-curve anchors → engine LUT + state persistence.
             std::vector<std::pair<float, float>> pts;
             if (auto* arr = o["anchors"].getArray())
@@ -703,6 +706,7 @@ void WebVaneEditor::sendSlotState()
             { "amt",   get ("_amt") },
             { "curve", static_cast<int> (get ("_curve")) },
             { "scale", static_cast<int> (get ("_scale")) },
+            { "on",    get ("_en") > 0.5f },
             { "anchors", juce::var (anchors) },
         }));
     }

@@ -116,6 +116,8 @@ int ModMatrix::resolveChoice(int choice) const {
 }
 
 int ModMatrix::effSource(const ModRoute& r) const {
+    // Per-slot enable: a disabled slot is inactive regardless of its source.
+    if (r.enableParam && r.enableParam->load() < 0.5f) return -1;
     if (! r.sourceParam) return r.source;   // fixed route
     return resolveChoice(static_cast<int>(std::lround(r.sourceParam->load())));
 }
@@ -341,7 +343,7 @@ void ModMatrix::addRoute(int source, int dest, float amount,
 
 void ModMatrix::addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
                          std::atomic<float>* amountParam, std::atomic<float>* curveParam,
-                         std::atomic<float>* scaleParam)
+                         std::atomic<float>* scaleParam, std::atomic<float>* enableParam)
 {
     // Called stopped-only — see addRoute / thread model.
     ModRoute r;
@@ -350,6 +352,7 @@ void ModMatrix::addSlot(std::atomic<float>* sourceParam, std::atomic<float>* des
     r.amountParam = amountParam;
     r.curveParam  = curveParam;
     r.scaleParam  = scaleParam;
+    r.enableParam = enableParam;
     // Slew rates are set live per block from the slot's source; init to a sane
     // default so the first block before evaluate() has valid coefficients.
     r.slewer.prepare(sampleRate, blockSize);

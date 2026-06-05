@@ -58,6 +58,12 @@ struct ModRoute {
     // a Breath→Cutoff route so low notes get less breath-to-cutoff.  Unipolar
     // sources scale 0..1; bipolar sources (slide/pitchbend/keytrack) map to 0..1.
     std::atomic<float>* scaleParam  = nullptr;
+
+    // Per-slot enable.  When non-null and < 0.5 the route is inactive (effSource
+    // returns -1, so both evaluate() and resetVoiceSlewers() skip it) WITHOUT
+    // clearing its source/dest/amount — the UI toggle disables a route while
+    // preserving its settings for re-enabling.  Null (fixed routes) => always on.
+    std::atomic<float>* enableParam = nullptr;
 };
 
 // Connects modulation sources (CC, MPE dimensions) to synthesis destinations.
@@ -153,7 +159,8 @@ public:
     // Stopped-only (mutates the routes vector) — call before audio starts.
     void addSlot(std::atomic<float>* sourceParam, std::atomic<float>* destParam,
                  std::atomic<float>* amountParam, std::atomic<float>* curveParam,
-                 std::atomic<float>* scaleParam = nullptr);
+                 std::atomic<float>* scaleParam  = nullptr,
+                 std::atomic<float>* enableParam = nullptr);
 
     void clearRoutes();
     int  routeCount() const { return static_cast<int>(routes.size()); }

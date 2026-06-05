@@ -110,7 +110,8 @@ VaneProcessor::VaneProcessor()
                           apvts.getRawParameterValue(base + "_dst"),
                           apvts.getRawParameterValue(base + "_amt"),
                           apvts.getRawParameterValue(base + "_curve"),
-                          apvts.getRawParameterValue(base + "_scale"));
+                          apvts.getRawParameterValue(base + "_scale"),
+                          apvts.getRawParameterValue(base + "_en"));
     }
 
     parseLibraryManifest();   // parse the bundled factory table catalogue
@@ -1199,6 +1200,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
             // Mod-of-mod: amount scaled by another source (0 = Off).  Same choice list.
             layout.add(std::make_unique<juce::AudioParameterChoice>(
                 juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0));
+            // Per-slot enable (default on).  Disabling gates the route without
+            // clearing its settings; old presets without this param load as on.
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{ base + "_en", 1 },    human + "Enable", true));
         }
     }
 
