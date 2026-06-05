@@ -1054,7 +1054,10 @@ function chordSeqEditorHTML(){
   const seqs=(state.chordSeqs||'').split(';');
   let rows='';
   for(let j=0;j<nH;j++){ const v=(seqs[j]||'').trim();
-    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 7  3:2  -5  5/4" onchange="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
+    // Commit on every keystroke (oninput), not just on blur — otherwise the edit
+    // doesn't reach the engine until focus leaves the field (e.g. switching tabs).
+    // chordSeqSet filters partial/invalid tokens, so mid-typing a ratio is safe.
+    rows+=`<div class="chordrow"><span class="cv">Voice ${j+2}</span><input type="text" value="${v}" placeholder="e.g. 7  3:2  -5  5/4" oninput="chordSeqSet(${j},this.value)" aria-label="intervals for voice ${j+2}"></div>`; }
   return `<div class="curve-ed" style="grid-column:1/-1;color:var(--vn-slide)">
     <div class="ce-head"><span class="lbl">Rotating chord · semitones or just ratios</span></div>
     ${rows}
