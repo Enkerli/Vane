@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <array>
 #include <vector>
+#include <atomic>
+#include <cstdint>
 #include "ModSource.h"
 #include "Slewer.h"
 

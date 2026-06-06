@@ -9,6 +9,7 @@
 #include "WebVaneEditor.h"
 #include <BinaryDataWebUI.h>
 #include "../Modulation/ModSource.h"
+#include <cstring>
 
 // ── Friendly UI key ↔ APVTS id map ──────────────────────────────────────────────
 namespace {

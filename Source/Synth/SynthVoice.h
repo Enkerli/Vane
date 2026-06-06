@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
 #include "Synth/Oscillator.h"
