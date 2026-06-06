@@ -260,6 +260,11 @@ public:
     void resetChordRotation()  { chordRotIndex.store (0, std::memory_order_relaxed);
                                  chordRotPlayed.store (0, std::memory_order_relaxed); }
 
+    // Live modulation-output value for destination d (ModDestID order) — Stage Outputs.
+    float modOutValue (int d) const {
+        return (d >= 0 && d < ModDestID::NumDests) ? modOut[(size_t) d].load (std::memory_order_relaxed) : 0.0f;
+    }
+
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
     // Load from already-read bytes + a display name.  iOS picks files as
@@ -361,6 +366,9 @@ private:
     std::array<int, SynthVoice::kMaxUnison - 1> chordLen {};
     std::atomic<int> chordRotIndex  { 0 };   // next step to play
     std::atomic<int> chordRotPlayed { 0 };   // step currently sounding (UI playhead)
+    // Live modulation OUTPUTS (mods[NumDests]) for the Stage Outputs view — written
+    // by the sounding voice, decayed toward 0 each block when silent (processBlock).
+    std::array<std::atomic<float>, ModDestID::NumDests> modOut {};
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

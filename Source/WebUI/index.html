@@ -565,6 +565,7 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
           <div class="viewseg" id="viewseg">
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
+            <button data-view="outputs" onclick="setView('outputs')">Outputs</button>
             <button data-view="tuning" onclick="setView('tuning')">Notes</button>
           </div>
         </div>
@@ -650,6 +651,7 @@ const state = {
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
   auxVals:new Array(8).fill(0),   // live aux CC values (from auxMeters telemetry)
+  modOut:new Array(13).fill(0),   // live modulation outputs (from modOut telemetry)
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
   wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false, strip:null, stripCols:0},   // active morph wavetable
@@ -938,6 +940,15 @@ function drawVis(){
       for(let i=0;i<n;i++){ const x=10+(i/n)*580, bh=clamp(bins[i],0,1)*176;
         p+=`<rect x="${x.toFixed(1)}" y="${(188-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.2" fill="${col}" opacity="0.85"/>`; }
     }
+  } else if(view==='outputs'){
+    // Live modulation OUTPUTS — what the matrix is driving right now (ModDestID order).
+    const labels=['Cutoff','Reso','VCA','Pitch','Morph','Glide','PW','Noise','Fold','Inharm','Sync','Transient','Detune'];
+    const mo=state.modOut||[], n=labels.length, rowH=200/n, bx=86, bw=600-bx-12;
+    const cf=cssv('--vn-field'), cs=cssv('--vn-slide'), cm=cssv('--vn-muted'), ct=cssv('--vn-text');
+    for(let i=0;i<n;i++){ const y=i*rowH+rowH/2, v=clamp(Math.abs(mo[i]||0),0,1);
+      p+=`<text x="80" y="${(y+3).toFixed(1)}" text-anchor="end" font-family="ui-monospace,monospace" font-size="9" fill="${v>0.01?ct:cm}">${labels[i]}</text>`;
+      p+=`<rect x="${bx}" y="${(y-4).toFixed(1)}" width="${bw}" height="8" rx="4" fill="${cf}"/>`;
+      if(v>0.001) p+=`<rect x="${bx}" y="${(y-4).toFixed(1)}" width="${(bw*v).toFixed(1)}" height="8" rx="4" fill="${cs}"/>`; }
   }
   // (Pitch view dropped — pitchbend & slide already appear per-voice in Sources.)
   svg.innerHTML=p;
@@ -2158,6 +2169,7 @@ Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
 // Real output spectrum (log-spaced FFT magnitude bins).
 Bridge.on('spectrum',({bins})=>{ if(Array.isArray(bins)) state.spec=bins; });
 Bridge.on('auxMeters',({v})=>{ if(Array.isArray(v)) state.auxVals=v; });
+Bridge.on('modOut',({v})=>{ if(Array.isArray(v)) state.modOut=v; });
 // Active wavetable (name + frame count) — pushed on load and on boot.
 Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
   if(ok && name){ state.wt={name,frames:frames||0,phaseAlign:!!phaseAlign}; }

@@ -90,6 +90,7 @@ VaneProcessor::VaneProcessor()
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
                                   &chordRotPlayed);
+                v->setModOutSink(modOut.data());
             }
         }
     }
@@ -599,6 +600,10 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     for (int g = 0; g < ModSlots::NumAux; ++g)
         if (pAuxCC[(size_t) g])
             modMatrix.setAuxCC(g, static_cast<int>(std::lround(pAuxCC[(size_t) g]->load())));
+
+    // Decay the published mod-output meters; the sounding voice overwrites them in
+    // renderNextBlock, so they fade to 0 when nothing is playing (Stage Outputs).
+    for (auto& m : modOut) m.store(m.load(std::memory_order_relaxed) * 0.8f, std::memory_order_relaxed);
 
     // Rig routing: a channel's note-ons sound only if its "notes" role is on.
     // Default mask 0xFFFF passes everything through unchanged (no extra copy).
