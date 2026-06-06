@@ -20,7 +20,11 @@ public:
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
+#if VANE_HEADLESS
+    bool hasEditor() const override { return false; }   // no GUI on Linux/MODEP
+#else
     bool hasEditor() const override { return true; }
+#endif
 
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override  { return true; }

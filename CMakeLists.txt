@@ -227,8 +227,16 @@ juce_add_binary_data(VaneTransients
         Assets/transients/gen_tick.wav)
 target_link_libraries(Vane PRIVATE VaneTransients)
 
+# On Linux (RPi / MODEP) build HEADLESS: MODEP renders plugin controls from the
+# LV2 ports and never shows a plugin's native GUI, so the WebView UI is dropped —
+# which also removes the heavy WebKitGTK + GTK3 build dependency.
+if(IS_LINUX)
+    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+    message(STATUS "Linux build is HEADLESS (no WebView UI; no WebKitGTK dependency)")
+else()
+    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple
+endif()
 target_compile_definitions(Vane PUBLIC
-    JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -254,9 +262,12 @@ target_link_libraries(Vane PRIVATE
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
-    juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+# LTO is fragile on a 4 GB Pi (link can OOM); enable it only off-device.
+if(NOT IS_LINUX)
+    target_link_libraries(Vane PRIVATE juce::juce_recommended_lto_flags)
+endif()
 
 # ── Offline render probe (headless diagnostics) ───────────────────────────────
 # Instantiates VaneProcessor and renders audio with no GUI, so engine behaviour
