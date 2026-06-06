@@ -214,8 +214,10 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withEventListener ("resetParam", [owner] (const Array<var>& a) {
             if (a.isEmpty()) return;
             const auto id = uiToApvts (a[0]["id"].toString());
-            if (auto* p = owner->proc.apvts.getParameter (id))
+            if (auto* p = owner->proc.apvts.getParameter (id)) {
                 p->setValueNotifyingHost (p->getDefaultValue());
+                owner->emitParam (id);   // push the reset value straight to the UI
+            }
         })
         .withEventListener ("panic",        [owner] (const Array<var>&) { owner->proc.panic(); })
         // Portable text export/import of the CURRENT patch (full APVTS state).

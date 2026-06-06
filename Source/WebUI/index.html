@@ -679,12 +679,18 @@ function attachDrag(track, cfg){
   // tries first; the only comfortable fine-adjust on a trackpad).
   track.addEventListener('wheel', e=>{ e.preventDefault();
     const st = (e.shiftKey||e.altKey) ? (cfg.fineStep||cfg.step) : cfg.step;
-    const dir = e.deltaY<0 ? 1 : -1;
+    // Use whichever axis dominates: scroll UP or RIGHT increases (a trackpad's
+    // horizontal scroll gives deltaX, vertical gives deltaY — right was decreasing
+    // because only deltaY was read and it was ~0 for horizontal swipes).
+    const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : -e.deltaY;
+    if(raw===0) return;
+    const dir = raw>0 ? 1 : -1;
     cfg.set(clamp(cfg.get()+dir*st, cfg.min, cfg.max)); cfg.onMove && cfg.onMove(cfg.get());
   }, {passive:false});
   // W3: right-click opens the shared param menu acting on this control.
   track.addEventListener('contextmenu', e=>{ e.preventDefault(); openParamMenu(e.clientX,e.clientY,cfg); });
   track.addEventListener('pointerdown', e=>{
+    if(e.button!==0) return;   // ignore right/middle click — right-click is the menu
     // Reliable double-click/tap → reset (the DOM dblclick event is dropped after a
     // pointerdown preventDefault on WebKit, and never fired on touch at all).
     const now=performance.now();
@@ -739,7 +745,9 @@ function ensureParamMenu(){
     else if(a==='copy'){ if(_pmCfg.getRaw) _paramClip=_pmCfg.getRaw(); }
     else if(a==='paste'){ if(_paramClip!=null && _pmCfg.setRaw) _pmCfg.setRaw(_paramClip); }
     closeParamMenu(); });
-  document.addEventListener('pointerdown',e=>{ if(_pmEl && !_pmEl.contains(e.target)) closeParamMenu(); });
+  // Close on an outside LEFT click; ignore the right-click that opens it (its own
+  // pointerdown would otherwise dismiss the menu before it can be used).
+  document.addEventListener('pointerdown',e=>{ if(e.button===2) return; if(_pmEl && !_pmEl.contains(e.target)) closeParamMenu(); });
   window.addEventListener('blur',closeParamMenu);
   return _pmEl;
 }
@@ -1039,7 +1047,7 @@ function wirePatchSlider(el){
     fill.style.width=(n*100)+'%'; thumb.style.left=(n*100)+'%'; val.textContent=(FMT[key]||FMT.default)(v); };
   patchUpd[key]=fmt;   // param echo updates this slider in place (no rebuild → drag survives)
   const setV=v=>{ v=clamp(v,a,b); if(key==='Morph'&&morphSnap)v=snapMorph(v); state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty(); };
-  const doReset=()=>{ const prev=state.patch[key]; recordUndo('reset '+label, ()=>{ setV(prev); fmt(); });
+  const doReset=()=>{ const prev=state.patch[key]; recordUndo('reset '+key, ()=>{ setV(prev); fmt(); });
     Bridge.send('resetParam',{id:key}); markDirty(); };
   attachDrag(track,{get:()=>toNorm(key,state.patch[key]),set:n=>setV(toVal(key,n)),min:0,max:1,step:0.01,fineStep:0.0025,onMove:fmt,
     reset:doReset,   // double-click handled inside attachDrag (touch-safe)
