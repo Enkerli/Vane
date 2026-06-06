@@ -455,6 +455,10 @@ void SynthVoice::noteStarted()
     if (paramUnisonMode && paramUnisonMode->load() > 0.5f && chordRot && chordSeqFlat && chordLens) {
         const int idx = chordRot->load();
         chordRot->store((idx + 1) % kChordRotWrap);
+        // Publish the index we ACTUALLY play (idx), not the advanced next-counter,
+        // so the editor playhead lights the sounding chord rather than the one to
+        // come (otherwise it reads one step ahead while you play).
+        if (chordRotPlayedPtr) chordRotPlayedPtr->store(idx);
         for (int j = 0; j < kMaxUnison - 1; ++j) {
             const int len = chordLens[j];
             chordInterval[j] = (len > 0)

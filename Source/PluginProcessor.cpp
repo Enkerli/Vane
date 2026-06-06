@@ -88,7 +88,8 @@ VaneProcessor::VaneProcessor()
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
-                                  chordSeq[0].data(), chordLen.data(), &chordRotIndex);
+                                  chordSeq[0].data(), chordLen.data(), &chordRotIndex,
+                                  &chordRotPlayed);
             }
         }
     }

@@ -102,9 +102,12 @@ public:
     //               just ratios like 3:2 keep their exact 701.96c), row-major
     //   lens      : per-voice sequence loop length
     //   rotIndex  : shared rotation counter (cross-voice; advances per note-on)
+    //   rotPlayed : where to publish the index actually sounding (for the UI playhead)
     void setChordParams(std::atomic<float>* modeParam, const float* seqFlat,
-                        const int* lens, std::atomic<int>* rotIndex) noexcept {
-        paramUnisonMode = modeParam; chordSeqFlat = seqFlat; chordLens = lens; chordRot = rotIndex;
+                        const int* lens, std::atomic<int>* rotIndex,
+                        std::atomic<int>* rotPlayed = nullptr) noexcept {
+        paramUnisonMode = modeParam; chordSeqFlat = seqFlat; chordLens = lens;
+        chordRot = rotIndex; chordRotPlayedPtr = rotPlayed;
     }
 
     // Cross-voice handoff state for stereo unison (mono legato allocates a NEW
@@ -275,7 +278,8 @@ private:
     std::atomic<float>* paramUnisonMode   = nullptr;  // 0 = Detune, 1 = Chord
     const float*        chordSeqFlat      = nullptr;  // (kMaxUnison-1)·kChordSteps semitones (fractional)
     const int*          chordLens         = nullptr;  // per-voice loop length
-    std::atomic<int>*   chordRot          = nullptr;  // shared rotation counter
+    std::atomic<int>*   chordRot          = nullptr;  // shared rotation counter (next index)
+    std::atomic<int>*   chordRotPlayedPtr = nullptr;  // publishes the sounding index (UI playhead)
     float               chordInterval[kMaxUnison - 1] {};  // this note's harmony intervals (semitones)
     double sampleRate = 44100.0;
 

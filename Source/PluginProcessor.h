@@ -253,10 +253,12 @@ public:
     // public so it is unit-testable without driving the whole processor.
     static float parseChordInterval (const juce::String& token);
 
-    // Live rotation index (advances one step per played note; see SynthVoice).
-    // Pushed to the UI so the editor can show which step each voice is on.
-    int  chordRotation() const { return chordRotIndex.load (std::memory_order_relaxed); }
-    void resetChordRotation()  { chordRotIndex.store (0, std::memory_order_relaxed); }
+    // Live rotation index for the UI playhead.  chordRotIndex is the NEXT step to
+    // play; chordRotPlayed is the step actually SOUNDING (set at note-on).  The UI
+    // wants the latter, so the highlight matches what you hear, not the step to come.
+    int  chordRotation() const { return chordRotPlayed.load (std::memory_order_relaxed); }
+    void resetChordRotation()  { chordRotIndex.store (0, std::memory_order_relaxed);
+                                 chordRotPlayed.store (0, std::memory_order_relaxed); }
 
     bool loadWavetable (const juce::File& file);           // load + embed in state
     bool setWavetableFromData (const juce::MemoryBlock&);   // build from bytes + embed
@@ -357,7 +359,8 @@ private:
     // Semitones (fractional, to preserve just-ratio precision), row-major per voice.
     std::array<std::array<float, SynthVoice::kChordSteps>, SynthVoice::kMaxUnison - 1> chordSeq {};
     std::array<int, SynthVoice::kMaxUnison - 1> chordLen {};
-    std::atomic<int> chordRotIndex { 0 };
+    std::atomic<int> chordRotIndex  { 0 };   // next step to play
+    std::atomic<int> chordRotPlayed { 0 };   // step currently sounding (UI playhead)
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
