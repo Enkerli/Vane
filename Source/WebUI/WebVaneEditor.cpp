@@ -463,6 +463,20 @@ void WebVaneEditor::timerCallback()
         { "Velocity",   proc.meterVelocity.load() },
     }));
 
+    // ── Live aux-source values (configurable global CCs) → "auxMeters" ─────────
+    {
+        juce::Array<juce::var> av;
+        for (int g = 0; g < ModSlots::NumAux; ++g) av.add (proc.modMatrix.auxValue (g));
+        webView.emitEventIfBrowserIsVisible ("auxMeters", makeObj ({ { "v", juce::var (av) } }));
+    }
+
+    // ── Modulation OUTPUTS (mods[NumDests]) → "modOut" (Stage Outputs view) ────
+    {
+        juce::Array<juce::var> mo;
+        for (int d = 0; d < ModDestID::NumDests; ++d) mo.add (proc.modOutValue (d));
+        webView.emitEventIfBrowserIsVisible ("modOut", makeObj ({ { "v", juce::var (mo) } }));
+    }
+
     // ── Per-voice MPE expression → "voices" (for the per-note visualiser) ──────
     {
         juce::Array<juce::var> vs;

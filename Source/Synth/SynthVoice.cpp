@@ -655,6 +655,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     };
     auto mods = modMatrix.evaluate(voiceVals, voiceSlewers);
 
+    // Publish this (active) voice's modulation outputs for the Stage Outputs view.
+    // The processor decays the array when no voice is sounding, so this overwrite
+    // tracks the live voice. (Block-rate, last active voice wins — fine for a meter.)
+    if (modOutSink)
+        for (int d = 0; d < ModDestID::NumDests; ++d)
+            modOutSink[d].store(mods[(size_t) d], std::memory_order_relaxed);
+
     // VCA target for this block — computed once, then interpolated per-sample via
     // smoothedVCA to eliminate the block-boundary amplitude steps (AM sidebands at
     // ~689 Hz) that cause audible crunchiness during breath/aftertouch sweeps.

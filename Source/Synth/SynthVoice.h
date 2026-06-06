@@ -110,6 +110,10 @@ public:
         chordRot = rotIndex; chordRotPlayedPtr = rotPlayed;
     }
 
+    // Where to publish this voice's evaluated modulation OUTPUTS (mods[NumDests])
+    // each block, for the Stage "Outputs" view.  Points at the processor's array.
+    void setModOutSink(std::atomic<float>* sink) noexcept { modOutSink = sink; }
+
     // Cross-voice handoff state for stereo unison (mono legato allocates a NEW
     // voice, so the detuned oscs + right-channel filter need the same continuity
     // machinery as the centre osc).  uniPhase points at kMaxUnison-1 contiguous
@@ -280,6 +284,7 @@ private:
     const int*          chordLens         = nullptr;  // per-voice loop length
     std::atomic<int>*   chordRot          = nullptr;  // shared rotation counter (next index)
     std::atomic<int>*   chordRotPlayedPtr = nullptr;  // publishes the sounding index (UI playhead)
+    std::atomic<float>* modOutSink        = nullptr;  // publishes mods[NumDests] (Outputs view)
     float               chordInterval[kMaxUnison - 1] {};  // this note's harmony intervals (semitones)
     double sampleRate = 44100.0;
 
