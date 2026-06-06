@@ -509,6 +509,19 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .vis.tuning-on #tuneStage{display:flex}
 #tuneStage svg{position:static !important;inset:auto !important;width:100% !important}
 .tune-stagebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;flex:none}
+/* Sounding-notes panel (#5): played notes + chord-generated voices, with tuning */
+.notes-panel{border:1px solid var(--vn-line-soft);border-radius:12px;background:var(--vn-field);padding:8px 10px;flex:none}
+.notes-panel .np-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.notes-panel .np-mode{font-family:var(--vn-mono);font-size:10px;color:var(--vn-slide);font-weight:700}
+.notes-row{display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:center;font-size:12px;padding:3px 0;border-top:1px solid var(--vn-line-soft)}
+.notes-row:first-of-type{border-top:none}
+.notes-row.empty{display:block;color:var(--vn-muted);text-align:center;font-size:11px;border:none}
+.notes-row .nl{display:flex;align-items:center;gap:6px;font-weight:600;min-width:0}
+.notes-row .nl i{width:8px;height:8px;border-radius:50%;flex:none}
+.notes-row .nn{font-family:var(--vn-mono);font-weight:700;color:var(--vn-text)}
+.notes-row .nd{font-family:var(--vn-mono);font-size:10.5px;color:var(--vn-muted)}
+.notes-row .nh{color:var(--vn-muted);font-size:11px;text-align:right}
+.notes-row .nx{font-family:var(--vn-mono);font-size:10px;color:var(--vn-slide);text-align:right;min-width:30px}
 .tune-stagebar select{appearance:none;border:1px solid var(--vn-line);background:var(--vn-field);color:var(--vn-text);font-family:var(--vn-ui);font-size:12px;font-weight:600;border-radius:8px;padding:0 10px;height:var(--ctl-h,34px);max-height:34px;cursor:pointer}
 .pbtn{border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-text-2);font-size:11px;font-weight:600;border-radius:8px;height:var(--ctl-h,34px);max-height:32px;min-width:40px;padding:0 10px;cursor:pointer;font-family:var(--vn-ui)}
 .pbtn.on{background:var(--vn-slide);color:#fff;border-color:var(--vn-slide)}
@@ -552,7 +565,7 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
           <div class="viewseg" id="viewseg">
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
-            <button data-view="tuning" onclick="setView('tuning')">Tuning</button>
+            <button data-view="tuning" onclick="setView('tuning')">Notes</button>
           </div>
         </div>
         <div class="vis">
@@ -2026,6 +2039,28 @@ function sourceSys(){ const t=tuningState; const tn=TUN[t.internal]||TUN.just;
   if(t.source==='off')      return '12-EDO 100c/step';
   if(t.source==='internal') return tn.sys;
   return state.mts ? '' : 'Waiting for MTS-ESP master'; }
+// Nearest 12-ET name + cents offset for a frequency (for the Notes panel).
+function hzName(hz){ const m=69+12*Math.log2(hz/440), r=Math.round(m);
+  return { name:PC[((r%12)+12)%12]+(Math.floor(r/12)-1), cents:Math.round((m-r)*100) }; }
+// Sounding notes + (in Chord mode) the harmony voices generated off the played
+// note at the current rotation — names, Hz, and cents-off-equal.
+function soundingNotesHTML(){
+  const vs=(state.voices||[]).filter(v=>v.hz>16);
+  if(!vs.length) return `<div class="notes-row empty">— no notes sounding —</div>`;
+  const chord=Math.round(state.patch.UniMode)===1, rot=state.chordRot||0;
+  const seqs=chord?(state.chordSeqs||'').split(';').map(s=>s.trim().split(',').map(x=>x.trim()).filter(Boolean)):[];
+  const row=(lbl,hz,col,extra='')=>{ const n=hzName(hz);
+    return `<div class="notes-row"><span class="nl"><i style="background:var(${col})"></i>${lbl}</span>
+      <span class="nn">${n.name}</span><span class="nd">${n.cents>=0?'+':''}${n.cents}¢</span>
+      <span class="nh num">${hz.toFixed(1)} Hz</span><span class="nx">${extra}</span></div>`; };
+  let h='';
+  vs.forEach((v,vi)=>{ h+=row(v.note||'Note', v.hz, '--vn-text');
+    if(chord && vi===0) seqs.forEach((seq,hi)=>{ if(!seq.length)return;
+      const tok=seq[((rot%seq.length)+seq.length)%seq.length], p=chordParseTok(tok);
+      h+=row('Voice '+(hi+2), v.hz*Math.pow(2,p.cents/1200), CHORD_VCOL[hi%CHORD_VCOL.length],
+             p.ratio?`${p.n}/${p.d}`:tok); }); });
+  return h;
+}
 function paintStageTuning(){
   const el=$('#tuneStage'); if(!el) return;
   const t=tuningState;
@@ -2046,6 +2081,8 @@ function paintStageTuning(){
            </select>`
         : ''}
     </div>
+    <div class="notes-panel"><div class="np-head"><span class="eyebrow">Sounding notes</span>${Math.round(state.patch.UniMode)===1?'<span class="np-mode">chord · rot '+(state.chordRot||0)+'</span>':''}</div>
+      ${soundingNotesHTML()}</div>
     <div style="flex:none"><div class="tune-map">
       <div class="tm-head"><span class="eyebrow">${sourceName()} - octave map</span><span class="ref">A4 = 440 Hz</span></div>
       ${tuningMapSvg(devT, holeF, live, true)}
