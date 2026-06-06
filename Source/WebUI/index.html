@@ -153,6 +153,11 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
   border:2px solid var(--vn-breath);transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.22)}
 .track.dragging .thumb{transform:translate(-50%,-50%) scale(1.12)}
 .track.fine .thumb{border-style:double;border-width:4px}
+/* make the active/targeted slider obvious: keyboard focus ring + hover cue so it's
+   clear which control the scroll-wheel will move */
+.track:focus-visible,.bipolar:focus-visible{outline:2px solid var(--vn-breath);outline-offset:3px}
+.track:hover,.bipolar:hover{box-shadow:0 0 0 2px color-mix(in srgb,var(--vn-breath) 28%,transparent)}
+.track:hover .thumb,.bipolar:hover .thumb{transform:translate(-50%,-50%) scale(1.1)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .seg{display:inline-flex;background:var(--vn-field);border-radius:var(--r-md);padding:4px;gap:3px;flex-wrap:wrap}
 .seg button{border:none;background:transparent;color:var(--vn-muted);font-size:12px;font-weight:600;padding:var(--seg-pad);border-radius:10px;cursor:pointer;min-height:var(--tap);max-height:38px}
@@ -188,9 +193,12 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .slot .scalecell select{flex:1;min-width:0;font-size:11px;height:calc(var(--ctl-h) - 6px)}
 .slot .amt{grid-column:1/-1;grid-row:2}
 .slot .miniseg{grid-column:1/2;grid-row:3;justify-self:start}
-.slot .ar{grid-column:2/3;grid-row:3;flex-direction:row !important;gap:10px;align-items:center;justify-self:end}
-.slot .tog{grid-column:3/4;grid-row:3;justify-self:end}
-.slot .rowops{grid-column:4/5;grid-row:3;justify-self:end;display:flex;gap:3px;align-items:center}
+/* Row 3 controls flow in a wrapping flex row so they never overflow the narrow
+   docked inspector (curve thumb left; atk/rel + enable + ops right, wrapping). */
+.slot .slotctl{grid-column:1/-1;grid-row:3;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.slot .slotctl-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.slot .ar{flex-direction:row !important;gap:10px;align-items:center}
+.slot .rowops{display:flex;gap:3px;align-items:center}
 .slot .rowops button{width:24px;height:24px;border-radius:7px;border:1px solid var(--vn-line);background:var(--vn-panel);color:var(--vn-muted);font-size:13px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
 .slot .rowops button:hover:not(:disabled){color:var(--vn-text);border-color:var(--vn-muted-2)}
 .slot .rowops button.del:hover{color:var(--vn-pressure)}
@@ -660,7 +668,7 @@ function markDirty(){ state.dirty=true; $('#unsaved').classList.add('on'); }
 function attachDrag(track, cfg){
   // cfg: {get,set,min,max,step,fineStep,onMove} plus optional {reset,type,getRaw,setRaw}
   // for the right-click menu (reset/type/copy/paste).
-  let active=false, startX=0, startY=0, startV=0;
+  let active=false, startX=0, startY=0, startV=0, fineLatch=false, lastFine=false, lastDownT=0;
   track.tabIndex = 0;
   // W2: make the gestures discoverable — every track carries a tooltip (existing
   // explicit titles win).
@@ -677,22 +685,30 @@ function attachDrag(track, cfg){
   // W3: right-click opens the shared param menu acting on this control.
   track.addEventListener('contextmenu', e=>{ e.preventDefault(); openParamMenu(e.clientX,e.clientY,cfg); });
   track.addEventListener('pointerdown', e=>{
+    // Reliable double-click/tap → reset (the DOM dblclick event is dropped after a
+    // pointerdown preventDefault on WebKit, and never fired on touch at all).
+    const now=performance.now();
+    if(now-lastDownT<320 && cfg.reset){ lastDownT=0; active=false; track.classList.remove('dragging','fine'); cfg.reset(); e.preventDefault(); return; }
+    lastDownT=now;
     active=true; track.setPointerCapture(e.pointerId);
     startX=e.clientX; startY=e.clientY; startV=cfg.get();
+    fineLatch=false; lastFine=false;
     track.classList.add('dragging'); e.preventDefault();
   });
   track.addEventListener('pointermove', e=>{
     if(!active) return;
     const w=track.getBoundingClientRect().width;
-    const dy=Math.abs(e.clientY-startY), dx=e.clientX-startX;
-    // fine = modifier held, OR a deliberate vertical drag (touch-friendly precision)
-    const fine = fineNow(e) || (dy>26 && dy>Math.abs(dx));
+    const ddx=e.clientX-startX, ddy=Math.abs(e.clientY-startY);
+    // A deliberate vertical pull LATCHES fine for the rest of the gesture — so a
+    // diagonal drag (vertical + horizontal at once) doesn't flip back to coarse
+    // and jump. Modifiers toggle fine live; either way we rebase on a transition.
+    if(ddy>26 && ddy>Math.abs(ddx)) fineLatch=true;
+    const fine = fineNow(e) || fineLatch;
+    if(fine!==lastFine){ startX=e.clientX; startV=cfg.get(); lastFine=fine; }  // rebase → no jump
     track.classList.toggle('fine', fine);
-    const range=cfg.max-cfg.min;
-    const f = fine ? 0.16 : 1;
-    let v = startV + (dx/w)*range*f;
-    v = clamp(v, cfg.min, cfg.max);
-    cfg.set(v); cfg.onMove && cfg.onMove(v);
+    const range=cfg.max-cfg.min, f=fine?0.16:1, dx=e.clientX-startX;
+    cfg.set(clamp(startV + (dx/w)*range*f, cfg.min, cfg.max));
+    cfg.onMove && cfg.onMove(cfg.get());
   });
   const end=()=>{ if(active){ active=false; track.classList.remove('dragging','fine');
     // W5: a completed drag is one undoable step back to where it started.
@@ -916,7 +932,10 @@ function render(){ ({patch:renderPatch,matrix:renderMatrix,presets:renderPresets
 // ════════════════════════════════════════════════════════════════════════
 const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterTune:v=>v.toFixed(0)+' ¢',
   UniDet:v=>v.toFixed(0)+' ¢', UniWid:v=>Math.round(v*100)+'%',
-  Glide:v=>Math.round(v)+' ms', Morph:v=>'frame '+Math.round(v*Math.max(0,(state.wt.frames||1)-1)), PW:v=>v.toFixed(3), Sync:v=>v.toFixed(2)+'×',
+  Glide:v=>Math.round(v)+' ms',
+  // Morph is continuous; only round to a whole frame when Snap is on — otherwise
+  // show the fractional frame so it's clear the value isn't snapping.
+  Morph:v=>{ const f=v*Math.max(0,(state.wt.frames||1)-1); return 'frame '+(morphSnap?Math.round(f):f.toFixed(2)); }, PW:v=>v.toFixed(3), Sync:v=>v.toFixed(2)+'×',
   TrGain:v=>v.toFixed(2), TrDecay:v=>Math.round(v)+' ms', TrVar:v=>Math.round(v*100)+'%', TrDyn:v=>Math.round(v*100)+'%',
   TrReso:v=>Math.round(v*100)+'%', TrDamp:v=>Math.round(v*100)+'%', TrMorph:v=>Math.round(v)+' ms', default:v=>v.toFixed(2) };
 const RANGE={ Morph:[0,1,.001], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Sync:[1,8,.01], Noise:[0,1,.01], Detune:[-100,100,1],
@@ -1022,9 +1041,8 @@ function wirePatchSlider(el){
   const setV=v=>{ v=clamp(v,a,b); if(key==='Morph'&&morphSnap)v=snapMorph(v); state.patch[key]=v; Bridge.send('setParam',{id:key,value:v}); markDirty(); };
   const doReset=()=>{ const prev=state.patch[key]; recordUndo('reset '+label, ()=>{ setV(prev); fmt(); });
     Bridge.send('resetParam',{id:key}); markDirty(); };
-  track.ondblclick=doReset;   // reset to default
   attachDrag(track,{get:()=>toNorm(key,state.patch[key]),set:n=>setV(toVal(key,n)),min:0,max:1,step:0.01,fineStep:0.0025,onMove:fmt,
-    reset:doReset,
+    reset:doReset,   // double-click handled inside attachDrag (touch-safe)
     type:()=>typeEdit(key,val,a,b,fmt),
     getRaw:()=>state.patch[key], setRaw:v=>{ setV(clamp(v,a,b)); fmt(); }});
   el.querySelectorAll('.stepper').forEach(s=>s.onclick=()=>{ setV(toVal(key,clamp(toNorm(key,state.patch[key])+(+s.dataset.step)*0.02,0,1))); fmt(); });
@@ -1452,17 +1470,21 @@ function slotRow(s,i){
         <div class="thumb" data-bipthumb></div>
       </div>
     </div>
-    <button class="curve-thumb ${curveOpen===i?'open':''}" data-cthumb="${i}" onclick="toggleCurve(${i})" aria-label="response curve" title="edit response curve" style="color:var(${col})">${curveThumb(s,srcName)}</button>
-    <div class="ar">
-      <span class="arf">↑<span class="arv" ondblclick="arEdit(${i},'atk',this)">${s.atk}</span>ms</span>
-      <span class="arf">↓<span class="arv" ondblclick="arEdit(${i},'rel',this)">${s.rel}</span>ms</span>
-    </div>
-    <button class="tog ${s.on?'on':''}" onclick="slotSet(${i},'on',${s.on?0:1})" aria-label="enable route" title="${s.on?'enabled':'disabled'}"></button>
-    <div class="rowops">
-      <button title="Move up" onclick="slotMove(${i},-1)" ${slotCanMove(i,-1)?'':'disabled'}>↑</button>
-      <button title="Move down" onclick="slotMove(${i},1)" ${slotCanMove(i,1)?'':'disabled'}>↓</button>
-      <button title="Duplicate route" onclick="slotDuplicate(${i})" ${state.slots.some(x=>x.src===0)?'':'disabled'}>⧉</button>
-      <button class="del" title="Remove route" onclick="slotDelete(${i})">✕</button>
+    <div class="slotctl">
+      <button class="curve-thumb ${curveOpen===i?'open':''}" data-cthumb="${i}" onclick="toggleCurve(${i})" aria-label="response curve" title="edit response curve" style="color:var(${col})">${curveThumb(s,srcName)}</button>
+      <div class="slotctl-r">
+        <div class="ar">
+          <span class="arf">↑<span class="arv" ondblclick="arEdit(${i},'atk',this)">${s.atk}</span>ms</span>
+          <span class="arf">↓<span class="arv" ondblclick="arEdit(${i},'rel',this)">${s.rel}</span>ms</span>
+        </div>
+        <button class="tog ${s.on?'on':''}" onclick="slotSet(${i},'on',${s.on?0:1})" aria-label="enable route" title="${s.on?'enabled':'disabled'}"></button>
+        <div class="rowops">
+          <button title="Move up" onclick="slotMove(${i},-1)" ${slotCanMove(i,-1)?'':'disabled'}>↑</button>
+          <button title="Move down" onclick="slotMove(${i},1)" ${slotCanMove(i,1)?'':'disabled'}>↓</button>
+          <button title="Duplicate route" onclick="slotDuplicate(${i})" ${state.slots.some(x=>x.src===0)?'':'disabled'}>⧉</button>
+          <button class="del" title="Remove route" onclick="slotDelete(${i})">✕</button>
+        </div>
+      </div>
     </div>
     ${curveOpen===i?curveEditorHTML(i):''}
   </div>`;
@@ -1476,9 +1498,8 @@ function wireSlot(i){
   const amtReset=()=>{ const prev=state.slots[i].amt; recordUndo('reset amount', ()=>{ state.slots[i].amt=prev; pushSlot(i); markDirty(); upd(); });
     state.slots[i].amt=0; pushSlot(i); markDirty(); upd(); };
   attachDrag(bip,{get:()=>state.slots[i].amt,set:val=>{state.slots[i].amt=val; pushSlot(i); markDirty();},min:-1,max:1,step:.01,fineStep:.002,onMove:upd,
-    reset:amtReset, type:()=>slotType(i,v),
+    reset:amtReset, type:()=>slotType(i,v),   // double-click handled inside attachDrag
     getRaw:()=>state.slots[i].amt, setRaw:val=>{ state.slots[i].amt=clamp(val,-1,1); pushSlot(i); markDirty(); upd(); }});
-  bip.ondblclick=amtReset;  // dbl-click → reset to 0
   upd();
 }
 function addSlot(){ const i=state.slots.findIndex(s=>s.src===0); if(i<0)return;
@@ -1564,7 +1585,7 @@ function renderPresets(){
   const f=(type,value,label,count)=>`<div class="filter ${pFilter.type===type&&pFilter.value===value?'on':''}" onclick="setPFilter('${type}','${value}')"><span>${label}</span><span class="c num">${count}</span></div>`;
   const grp=(title,items)=> items.length?`<div class="filter-group"><span class="eyebrow">${title}</span>${items}</div>`:'';
   const list=PRESETS.map((p,i)=>({p,i})).filter(x=>pmatch(x.p));
-  const listHtml = list.length? list.map(({p,i})=>`<div class="preset-item ${i===selPreset?'sel':''}" onclick="pickPreset(${i})">
+  const listHtml = list.length? list.map(({p,i})=>`<div class="preset-item ${i===selPreset?'sel':''}" data-idx="${i}" onclick="pickPreset(${i})">
       <span class="glyph">${glyphSvg(i)}</span>
       <div><div class="nm">${p.name}</div><div class="tags">${p.tags.map(t=>`<span class="tag" style="background:var(${TAGC[t]||'--vn-muted'})">${t}</span>`).join('')}</div></div>
       <span class="fav" onclick="event.stopPropagation();toggleFav(${i})">${p.fav?'★':'☆'}</span>
@@ -1596,6 +1617,19 @@ function toggleMenu(i,el){ const m=$('#menu_'+i); const willOpen=!m.classList.co
   document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open'));
   if(willOpen)m.classList.add('open'); }
 document.addEventListener('click',e=>{ if(!e.target.closest('.kebab'))document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open')); });
+// Right-click: suppress the WebView's "Inspect element" and route to a real
+// contextual menu where we have one (sliders open their own; preset rows reuse
+// the ⋯ menu). Text fields keep their native cut/copy/paste menu.
+document.addEventListener('contextmenu',e=>{
+  const t=e.target, tag=(t.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||t.isContentEditable) return;   // native menu on fields
+  if(t.closest('.track,.bipolar')) return;                            // slider handles its own
+  const pi=t.closest('.preset-item');
+  if(pi){ e.preventDefault(); const idx=+pi.dataset.idx;
+    document.querySelectorAll('.menu.open').forEach(x=>x.classList.remove('open'));
+    const m=document.getElementById('menu_'+idx); if(m) m.classList.add('open'); return; }
+  e.preventDefault();   // everywhere else: no accidental "Inspect element"
+});
 function savePreset(){
   const suggested = (PRESETS[selPreset] && PRESETS[selPreset].name) || '';
   openModal(`<h3>Save preset</h3><p>Name this patch — it is written to disk and shows up in the browser.</p>
