@@ -85,6 +85,32 @@ public:
             expect(! reopened.contains("My Cycle"), "deletion must persist");
         }
         tmp.deleteFile();
+
+        // Every factory shape must parse to valid intervals (no NaN tokens), so a
+        // typo in the curated set can't ship a silently-broken preset.
+        for (const auto& c : ChordConfigStore::factory())
+            for (const auto& voice : juce::StringArray::fromTokens(c.seqs, ";", ""))
+                for (const auto& tok : juce::StringArray::fromTokens(voice.trim(), ",", ""))
+                    if (tok.trim().isNotEmpty())
+                        expect(! std::isnan(VaneProcessor::parseChordInterval(tok)),
+                               juce::String("factory '") + c.name + "' has unparseable token '" + tok + "'");
+
+        beginTest("ChordConfigStore: versioned upgrade merges new factory shapes once");
+        {
+            // Simulate an OLD library: one user shape, no factoryVersion stamp.
+            tmp.replaceWithText("{\"configs\":[{\"name\":\"Mine\",\"seqs\":\"3/2;2/3\",\"voices\":3,\"mode\":1}]}");
+            ChordConfigStore upgraded(tmp);
+            expect(upgraded.contains("Mine"), "user shape must survive the upgrade");
+            expect(upgraded.contains("Contrary Primes"), "new factory shape must be merged in");
+            const int afterMerge = upgraded.all().size();
+
+            // Delete a merged factory shape; at the current version it must NOT come back.
+            upgraded.remove("Contrary Primes");
+            ChordConfigStore reopened(tmp);
+            expect(! reopened.contains("Contrary Primes"), "deleted factory shape stays deleted at current version");
+            expect(reopened.all().size() == afterMerge - 1, "no spurious re-merge on same-version reopen");
+        }
+        tmp.deleteFile();
     }
 };
 

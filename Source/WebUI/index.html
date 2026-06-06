@@ -287,6 +287,13 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .cshape .cgl{width:100%;height:40px;background:var(--vn-field);border-radius:7px;margin-bottom:6px;display:block}
 .cshape .cnm{font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cshape .cmeta{font-size:9px;color:var(--vn-muted);font-family:var(--vn-mono)}
+/* thin, subtle scrollbars on the chord editor's scroll areas (the OS default
+   chunky bars looked out of place against the app's responsive feel) */
+.ctrack,.cshelf,.cpgrid,.cpick{scrollbar-width:thin;scrollbar-color:var(--vn-muted-2) transparent}
+.ctrack::-webkit-scrollbar,.cshelf::-webkit-scrollbar,.cpgrid::-webkit-scrollbar,.cpick::-webkit-scrollbar{width:6px;height:6px}
+.ctrack::-webkit-scrollbar-thumb,.cshelf::-webkit-scrollbar-thumb,.cpgrid::-webkit-scrollbar-thumb,.cpick::-webkit-scrollbar-thumb{background:var(--vn-muted-2);border-radius:999px}
+.ctrack::-webkit-scrollbar-track,.cshelf::-webkit-scrollbar-track,.cpgrid::-webkit-scrollbar-track,.cpick::-webkit-scrollbar-track{background:transparent}
+.ctrack::-webkit-scrollbar-thumb:hover,.cshelf::-webkit-scrollbar-thumb:hover{background:var(--vn-muted)}
 /* single-line semicolon entry */
 .craw{display:flex;align-items:center;gap:7px;margin-top:8px}
 .craw .lbl2{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--vn-muted);font-weight:700;white-space:nowrap}
