@@ -167,7 +167,8 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 /* collapsible patch sections (#14) */
 .grp-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;margin-bottom:10px}
 .grp-head .eyebrow{margin-bottom:0}
-.grp-head .chev{color:var(--vn-muted-2);font-size:11px}
+.grp-head .chev{color:var(--vn-muted);font-size:15px;line-height:1;width:18px;text-align:center}
+.grp-head:hover .chev{color:var(--vn-text-2)}
 .group.collapsed > :not(.grp-head){display:none}
 .field-num{font-family:var(--vn-mono);font-size:13px;width:78px;border:1px solid var(--vn-breath);border-radius:6px;
   padding:3px 6px;background:var(--vn-panel);color:var(--vn-text)}
@@ -505,6 +506,16 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .tm-legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
 /* Stage-view variant: hide the normal vis, show the tuning panel */
 .vis.tuning-on>#visSvg,.vis.tuning-on>.vis-legend,.vis.tuning-on>.vis-read,.vis.tuning-on>.vis-t{visibility:hidden}
+/* Modulation Outputs view — HTML overlay (crisp labels, no SVG text stretching) */
+.vis.outputs-on>#visSvg,.vis.outputs-on>.vis-legend,.vis.outputs-on>.vis-read,.vis.outputs-on>.vis-t{visibility:hidden}
+#outStage{position:absolute;inset:0;display:none;flex-direction:column;gap:2px;padding:10px 14px;overflow:auto}
+.vis.outputs-on #outStage{display:flex}
+#outStage .out-head{margin-bottom:6px}
+.out-row{display:grid;grid-template-columns:74px 1fr 46px;gap:9px;align-items:center;font-size:11px;padding:1px 0}
+.out-row .ol{color:var(--vn-text-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.out-row .ot{height:8px;background:var(--vn-line-soft);border-radius:999px;overflow:hidden}
+.out-row .of{height:100%;background:var(--vn-slide);border-radius:999px;transition:width .05s linear}
+.out-row .ov{font-family:var(--vn-mono);font-size:10px;color:var(--vn-muted);text-align:right}
 #tuneStage{position:absolute;inset:0;display:none;flex-direction:column;gap:8px;padding:10px 12px;overflow:auto}
 .vis.tuning-on #tuneStage{display:flex}
 #tuneStage svg{position:static !important;inset:auto !important;width:100% !important}
@@ -573,6 +584,7 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
           <div class="vis-legend" id="visLegend"></div>
           <svg id="visSvg" preserveAspectRatio="none" viewBox="0 0 600 200"></svg>
           <div id="tuneStage"></div>
+          <div id="outStage"></div>
           <div class="vis-read">
             <span class="chip num" id="noteRead">♪ —</span>
             <span class="chip num" id="voiceRead">Saw · LP 1.1k</span>
@@ -823,10 +835,24 @@ document.addEventListener('keydown', e=>{
 // so MPE pitchbend (per-member-channel) registers correctly. A short hold keeps
 // the set from flickering. Falls back to the controller's catalog list when idle.
 const srcActiveUntil={}; const ACT_HOLD=1500;
+// Velocity is only worth showing when it's EXPRESSIVE — i.e. it varies note to
+// note. A controller that sends a fixed velocity (e.g. the Sylphyo) is bypassed
+// automatically rather than cluttering the Stage. Tracked across note-on edges.
+let velMin=1, velMax=0, velPrev=0;
+// Aux sources show only when MOVING (like pitchbend), not merely bound.
+const auxActiveUntil=new Array(8).fill(0); const auxPrev=new Array(8).fill(0);
+function auxActive(g){ return (auxActiveUntil[g]||0)>performance.now(); }
 function updateActivity(){ const now=performance.now(); const bump=s=>{ srcActiveUntil[s]=now+ACT_HOLD; };
   if((state.meters.Breath||0)>0.02)     bump('Breath');
   if((state.meters.Expression||0)>0.02) bump('Expression');
-  if((state.meters.Velocity||0)>0.02)   bump('Velocity');
+  // velocity: record the value at each note-on edge; show only once it has spread
+  const vel=state.meters.Velocity||0;
+  if(vel>0.02 && velPrev<=0.02){ velMin=Math.min(velMin,vel); velMax=Math.max(velMax,vel); }
+  velPrev=vel;
+  if(vel>0.02 && (velMax-velMin)>0.05) bump('Velocity');
+  // aux: bump on change
+  for(let g=0;g<8;g++){ const v=(state.auxVals&&state.auxVals[g])||0;
+    if(Math.abs(v-auxPrev[g])>0.02) auxActiveUntil[g]=now+ACT_HOLD; auxPrev[g]=v; }
   let aP=(state.meters.Pressure||0)>0.02, aS=false, aB=false;
   for(const v of (state.voices||[])){
     if((v.pressure||0)>0.02)                aP=true;
@@ -839,7 +865,7 @@ function activeSources(){ const now=performance.now();
   return out.length ? out : ctrlSources(); }   // idle → controller's catalog set
 let lastMeterKey='';
 function refreshMetersIfChanged(){
-  const k=activeSources().join(',')+'|'+[0,1,2,3,4,5,6,7].filter(auxBound).join('');
+  const k=activeSources().join(',')+'|'+[0,1,2,3,4,5,6,7].filter(auxActive).join('');
   if(k!==lastMeterKey){ lastMeterKey=k; buildMeters(); } }
 function buildMeters(){
   const el=$('#meters'); if(!el) return; el.innerHTML='';
@@ -850,8 +876,8 @@ function buildMeters(){
        <div class="meter"><div class="fill" id="m_${s}" style="background:var(${SRC_COLOR[s]})"></div></div>
        <span class="meter-cc num">${SRC_CC[s]}</span></div>`);
   });
-  // configured aux sources (global CCs) — always shown once bound
-  for(let g=0;g<8;g++){ if(!auxBound(g)) continue; const a=state.aux[g];
+  // configured aux sources (global CCs) — shown only while moving
+  for(let g=0;g<8;g++){ if(!auxActive(g)) continue; const a=state.aux[g]; if(!a) continue;
     el.insertAdjacentHTML('beforeend',
       `<div class="meter-row"><span class="meter-label"><span class="dot" style="background:var(--vn-muted)"></span>${escH(a.label||AUX[g])}</span>
        <div class="meter"><div class="fill" id="m_aux${g}" style="background:var(--vn-muted)"></div></div>
@@ -929,7 +955,7 @@ function drawVis(){
     }
     // Configured aux sources (global CCs) — dashed muted streams so they read
     // as secondary next to the coloured primary sources.
-    for(let g=0;g<8;g++){ if(!auxBound(g)) continue;
+    for(let g=0;g<8;g++){ if(!auxActive(g)) continue;
       let d=''; const h=auxHist[g];
       for(let i=0;i<h.length;i++){ const x=i/(h.length-1)*W; d+=(i?'L':'M')+x.toFixed(1)+','+yOf(h[i]).toFixed(1); }
       p+=`<path d="${d}" fill="none" stroke="${cssv('--vn-muted')}" stroke-width="1.4" stroke-dasharray="4 4" opacity="${(0.5+g*0.04).toFixed(2)}"/>`; }
@@ -940,16 +966,8 @@ function drawVis(){
       for(let i=0;i<n;i++){ const x=10+(i/n)*580, bh=clamp(bins[i],0,1)*176;
         p+=`<rect x="${x.toFixed(1)}" y="${(188-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.2" fill="${col}" opacity="0.85"/>`; }
     }
-  } else if(view==='outputs'){
-    // Live modulation OUTPUTS — what the matrix is driving right now (ModDestID order).
-    const labels=['Cutoff','Reso','VCA','Pitch','Morph','Glide','PW','Noise','Fold','Inharm','Sync','Transient','Detune'];
-    const mo=state.modOut||[], n=labels.length, rowH=200/n, bx=86, bw=600-bx-12;
-    const cf=cssv('--vn-field'), cs=cssv('--vn-slide'), cm=cssv('--vn-muted'), ct=cssv('--vn-text');
-    for(let i=0;i<n;i++){ const y=i*rowH+rowH/2, v=clamp(Math.abs(mo[i]||0),0,1);
-      p+=`<text x="80" y="${(y+3).toFixed(1)}" text-anchor="end" font-family="ui-monospace,monospace" font-size="9" fill="${v>0.01?ct:cm}">${labels[i]}</text>`;
-      p+=`<rect x="${bx}" y="${(y-4).toFixed(1)}" width="${bw}" height="8" rx="4" fill="${cf}"/>`;
-      if(v>0.001) p+=`<rect x="${bx}" y="${(y-4).toFixed(1)}" width="${(bw*v).toFixed(1)}" height="8" rx="4" fill="${cs}"/>`; }
   }
+  // (Outputs view is an HTML overlay — see renderOutputs.)
   // (Pitch view dropped — pitchbend & slide already appear per-voice in Sources.)
   svg.innerHTML=p;
   // voice readout reflects live patch
@@ -963,6 +981,15 @@ function drawVis(){
 function harshness(){ const b=state.spec||[]; const n=b.length; if(n<2) return 0;
   let num=0, den=0; for(let i=0;i<n;i++){ const m=Math.max(0,b[i]); num+=i*m; den+=m; }
   if(den<1e-4) return 0; return clamp((num/den)/(n-1),0,1); }
+// Modulation Outputs view — HTML bars (built once, widths updated live).
+const OUT_LABELS=['Cutoff','Reso','VCA','Pitch','Morph','Glide','PW','Noise','Fold','Inharm','Sync','Transient','Detune'];
+function renderOutputs(){ const el=$('#outStage'); if(!el) return;
+  if(!el.firstChild) el.innerHTML='<div class="out-head"><span class="eyebrow">Modulation outputs · live</span></div>'+
+    OUT_LABELS.map((l,i)=>`<div class="out-row"><span class="ol">${l}</span><div class="ot"><div class="of" id="of_${i}"></div></div><span class="ov num" id="ov_${i}">0</span></div>`).join('');
+  const mo=state.modOut||[];
+  for(let i=0;i<OUT_LABELS.length;i++){ const raw=mo[i]||0, v=clamp(Math.abs(raw),0,1);
+    const f=document.getElementById('of_'+i); if(f) f.style.width=(v*100)+'%';
+    const t=document.getElementById('ov_'+i); if(t) t.textContent=(raw<0?'−':'')+Math.abs(raw).toFixed(2); } }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Tabs
@@ -2092,8 +2119,6 @@ function paintStageTuning(){
            </select>`
         : ''}
     </div>
-    <div class="notes-panel"><div class="np-head"><span class="eyebrow">Sounding notes</span>${Math.round(state.patch.UniMode)===1?'<span class="np-mode">chord · rot '+(state.chordRot||0)+'</span>':''}</div>
-      ${soundingNotesHTML()}</div>
     <div style="flex:none"><div class="tune-map">
       <div class="tm-head"><span class="eyebrow">${sourceName()} - octave map</span><span class="ref">A4 = 440 Hz</span></div>
       ${tuningMapSvg(devT, holeF, live, true)}
@@ -2101,7 +2126,9 @@ function paintStageTuning(){
         <span><i style="background:var(--vn-slide)"></i>tuned degree</span>
         <span><i style="background:var(--vn-bend)"></i>sounding</span>
         <span><i style="background:var(--vn-pressure)"></i>hole</span>
-      </div></div></div>`;
+      </div></div></div>
+    <div class="notes-panel"><div class="np-head"><span class="eyebrow">Sounding notes</span>${Math.round(state.patch.UniMode)===1?'<span class="np-mode">chord · rot '+(state.chordRot||0)+'</span>':''}</div>
+      ${soundingNotesHTML()}</div>`;
   el.querySelectorAll('[data-prec]').forEach(b=>b.onclick=()=>{
     if(b.disabled)return;
     tuningState.source=b.dataset.prec;
@@ -2117,8 +2144,9 @@ const _origSetView=setView;
 setView=function(v){   // override in place (not a new declaration)
   _origSetView(v);
   const vis=$('.stage .vis');
-  if(vis) vis.classList.toggle('tuning-on', v==='tuning');
+  if(vis){ vis.classList.toggle('tuning-on', v==='tuning'); vis.classList.toggle('outputs-on', v==='outputs'); }
   if(v==='tuning'){ lastLivePcKey=''; paintStageTuning(); }
+  if(v==='outputs'){ const o=$('#outStage'); if(o)o.innerHTML=''; renderOutputs(); }
 };
 // Keep sounding-notes live while the tuning stage is open.
 // Tuning live-note tracking: only repaint when sounding pitch-classes change.
@@ -2129,7 +2157,9 @@ const _origDrawVis=drawVis;
 drawVis=function(){ if(view==='tuning'){
   const key=[...livePcSet()].sort().join(',');
   if(key!==lastLivePcKey){ lastLivePcKey=key; paintStageTuning(); }
-  return; } _origDrawVis(); };
+  return; }
+  if(view==='outputs'){ renderOutputs(); return; }
+  _origDrawVis(); };
 // Header chip now jumps to the Tuning stage view.
 Bridge.on('tuningStatus',({connected,source,name,internalId,devTable,holeFlags})=>{
   // Update state FIRST, then the chip — so the chip always reads fresh values.
