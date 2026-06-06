@@ -164,6 +164,11 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
 .seg button.active{background:var(--vn-panel);color:var(--vn-text);box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .group{margin-bottom:18px}
 .group .eyebrow{margin-bottom:10px;display:block}
+/* collapsible patch sections (#14) */
+.grp-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;margin-bottom:10px}
+.grp-head .eyebrow{margin-bottom:0}
+.grp-head .chev{color:var(--vn-muted-2);font-size:11px}
+.group.collapsed > :not(.grp-head){display:none}
 .field-num{font-family:var(--vn-mono);font-size:13px;width:78px;border:1px solid var(--vn-breath);border-radius:6px;
   padding:3px 6px;background:var(--vn-panel);color:var(--vn-text)}
 .fine-hint{font-size:10.5px;color:var(--vn-muted);margin-top:10px;line-height:1.5}
@@ -547,7 +552,6 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
           <div class="viewseg" id="viewseg">
             <button class="active" data-view="breath" onclick="setView('breath')">Sources</button>
             <button data-view="spectrum" onclick="setView('spectrum')">Spectrum</button>
-            <button data-view="pitch" onclick="setView('pitch')">Pitch</button>
             <button data-view="tuning" onclick="setView('tuning')">Tuning</button>
           </div>
         </div>
@@ -558,6 +562,7 @@ input,textarea,[contenteditable]{ -webkit-user-select:text; user-select:text; -w
           <div class="vis-read">
             <span class="chip num" id="noteRead">♪ —</span>
             <span class="chip num" id="voiceRead">Saw · LP 1.1k</span>
+            <span class="chip num" id="harshRead" title="Timbral complexity — spectral brightness of the output">⚡ —</span>
           </div>
           <div class="vis-t num" id="visT">t = 0.000s · ch 1</div>
         </div>
@@ -900,22 +905,20 @@ function drawVis(){
       for(let i=0;i<n;i++){ const x=10+(i/n)*580, bh=clamp(bins[i],0,1)*176;
         p+=`<rect x="${x.toFixed(1)}" y="${(188-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.2" fill="${col}" opacity="0.85"/>`; }
     }
-  } else { // pitch
-    const colb=cssv('--vn-bend'), cols=cssv('--vn-slide');
-    const h=hist.Pitchbend, hs=hist.Slide; let d='', d2='';
-    for(let i=0;i<h.length;i++){const x=i/(h.length-1)*600;
-      d+=(i?'L':'M')+x.toFixed(1)+','+(190-h[i]*170).toFixed(1);
-      d2+=(i?'L':'M')+x.toFixed(1)+','+(190-hs[i]*170).toFixed(1);}
-    p+=`<line x1="0" y1="105" x2="600" y2="105" stroke="${cssv('--vn-muted-2')}" stroke-width="1" stroke-dasharray="3 5" opacity="0.5"/>`;
-    p+=`<path d="${d2}" fill="none" stroke="${cols}" stroke-width="1.6" opacity="0.4"/>`;
-    p+=`<path d="${d}" fill="none" stroke="${colb}" stroke-width="2.6" stroke-linecap="round" opacity="0.95"/>`;
   }
+  // (Pitch view dropped — pitchbend & slide already appear per-voice in Sources.)
   svg.innerHTML=p;
   // voice readout reflects live patch
   const wave='frame '+Math.round(state.patch.Morph*Math.max(0,(state.wt.frames||1)-1));
   const mode=["LP","BP","HP"][state.patch.Mode];
   $('#voiceRead').textContent=`${wave} · ${mode} ${(state.patch.Cutoff/1000).toFixed(1)}k`;
+  const hr=$('#harshRead'); if(hr) hr.textContent='⚡ '+Math.round(harshness()*100)+'%';
 }
+// Timbral complexity (#6): normalised spectral centroid of the live output
+// (0 = dark/pure, 1 = bright/harsh). Derived from the FFT bins already pushed.
+function harshness(){ const b=state.spec||[]; const n=b.length; if(n<2) return 0;
+  let num=0, den=0; for(let i=0;i<n;i++){ const m=Math.max(0,b[i]); num+=i*m; den+=m; }
+  if(den<1e-4) return 0; return clamp((num/den)/(n-1),0,1); }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Tabs
@@ -970,11 +973,17 @@ function pslider(key,label,color="--vn-breath"){
     </div></div>`;
 }
 const patchUpd={};   // key → in-place updater, so param echoes don't rebuild the tab
+// Collapsible patch sections (#14): clickable header + persisted open/closed.
+const collapsed={};
+function gh(name){ return `<div class="grp-head" onclick="toggleGroup('${name}')"><span class="eyebrow">${name}</span><span class="chev">${collapsed[name]?'▸':'▾'}</span></div>`; }
+function toggleGroup(name){ collapsed[name]=!collapsed[name];
+  const g=document.querySelector(`.group[data-grp="${name}"]`); if(g){ g.classList.toggle('collapsed',!!collapsed[name]);
+    const c=g.querySelector('.chev'); if(c)c.textContent=collapsed[name]?'▸':'▾'; } }
 function renderPatch(){
   for(const k in patchUpd) delete patchUpd[k];
   const _sc=$('#tabbody').scrollTop;
   $('#tabbody').innerHTML=`<div class="params">
-    <div class="group"><span class="eyebrow">Oscillator</span>
+    <div class="group ${collapsed['Oscillator']?'collapsed':''}" data-grp="Oscillator">${gh('Oscillator')}
       <div class="pslider" style="grid-column:1/-1">
         <div class="top"><span class="lbl">Wavetable</span>
           <span class="num" id="wtFrame" style="color:var(--vn-slide)">frame —</span></div>
@@ -1002,12 +1011,12 @@ function renderPatch(){
       ${Math.round(state.patch.UniMode)===1 ? chordSeqEditorHTML() : pslider('UniDet','Uni Detune','--vn-slide')}
       ${pslider('UniWid','Uni Width','--vn-slide')}
     </div>
-    <div class="group"><span class="eyebrow">Filter</span>
+    <div class="group ${collapsed['Filter']?'collapsed':''}" data-grp="Filter">${gh('Filter')}
       ${pslider('Cutoff','Cutoff','--vn-breath')}${pslider('Reso','Resonance','--vn-breath')}
       <div class="pslider"><div class="top"><span class="lbl">Mode</span></div>
         <div class="seg">${["LP","BP","HP"].map((n,i)=>`<button class="${state.patch.Mode===i?'active':''}" onclick="setChoice('Mode',${i})">${n}</button>`).join('')}</div></div>
     </div>
-    <div class="group"><span class="eyebrow">Performance</span>
+    <div class="group ${collapsed['Performance']?'collapsed':''}" data-grp="Performance">${gh('Performance')}
       ${pslider('Output','Output','--vn-pressure')}${pslider('VelVCA','Vel → VCA','--vn-pressure')}
       ${pslider('Glide','Glide','--vn-pressure')}${pslider('MasterTune','Master Tune','--vn-pressure')}
       <div class="row2">
@@ -1018,7 +1027,7 @@ function renderPatch(){
       </div>
       ${Math.round(state.patch.GlideCurve)===3?glideEditorHTML():''}
     </div>
-    <div class="group"><span class="eyebrow">Transient</span>
+    <div class="group ${collapsed['Transient']?'collapsed':''}" data-grp="Transient">${gh('Transient')}
       <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Sample</span>
           <span class="val num">${(state.transients||['None'])[Math.round(state.patch.TrChoice)]||'None'}</span></div>
         <div class="seg" style="flex-wrap:wrap">${(state.transients||['None']).map((n,i)=>`<button class="${Math.round(state.patch.TrChoice)===i?'active':''}" onclick="trChoice(${i})">${n}</button>`).join('')}</div>
