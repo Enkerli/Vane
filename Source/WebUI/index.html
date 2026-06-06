@@ -679,12 +679,13 @@ function attachDrag(track, cfg){
   // tries first; the only comfortable fine-adjust on a trackpad).
   track.addEventListener('wheel', e=>{ e.preventDefault();
     const st = (e.shiftKey||e.altKey) ? (cfg.fineStep||cfg.step) : cfg.step;
-    // Use whichever axis dominates: scroll UP or RIGHT increases (a trackpad's
-    // horizontal scroll gives deltaX, vertical gives deltaY — right was decreasing
-    // because only deltaY was read and it was ~0 for horizontal swipes).
-    const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : -e.deltaY;
-    if(raw===0) return;
-    const dir = raw>0 ? 1 : -1;
+    // The value FOLLOWS the gesture: swipe right or up to increase. With macOS
+    // natural scrolling a rightward swipe reports deltaX<0 and an upward swipe
+    // reports deltaY>0, so increase on deltaX<0 (horizontal) / deltaY>0 (vertical).
+    const useX = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    const d = useX ? e.deltaX : e.deltaY;
+    if(d===0) return;
+    const dir = useX ? (e.deltaX<0 ? 1 : -1) : (e.deltaY>0 ? 1 : -1);
     cfg.set(clamp(cfg.get()+dir*st, cfg.min, cfg.max)); cfg.onMove && cfg.onMove(cfg.get());
   }, {passive:false});
   // W3: right-click opens the shared param menu acting on this control.
