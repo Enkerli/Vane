@@ -108,6 +108,17 @@ public:
     void  setCCValue(int ccNumber, float zeroToOne);
     float getCCValue(int ccNumber) const;
 
+    // Live value of configurable aux source g (0..NumAux-1) via its bound CC.
+    // 0 when unbound (CC 0) — used to draw aux on the Stage.
+    float auxValue(int g) const {
+        if (g < 0 || g >= ModSlots::NumAux) return 0.0f;
+        const int cc = auxCC[(size_t) g];
+        return (cc > 0 && cc < 128) ? ccValues[(size_t) cc] : 0.0f;
+    }
+    int   auxCCNumber(int g) const {
+        return (g >= 0 && g < ModSlots::NumAux) ? auxCC[(size_t) g] : 0;
+    }
+
     // Global (non-MPE) channel pressure / Aftertouch
     void  setAftertouch(float zeroToOne) { aftertouchValue = std::clamp(zeroToOne, 0.0f, 1.0f); }
     float getAftertouch() const { return aftertouchValue; }

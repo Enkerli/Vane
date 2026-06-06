@@ -636,6 +636,7 @@ const state = {
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,scale:0,atk:5,rel:80,on:true,anchors:[]})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
+  auxVals:new Array(8).fill(0),   // live aux CC values (from auxMeters telemetry)
   profiles:[], profileName:'',   // saved controller profiles
   controller:'Sylphyo',    // primary controller (= rig.instances[0].ctrl)
   wt:{name:'Harmonic Stack (built-in)', frames:16, phaseAlign:false, strip:null, stripCols:0},   // active morph wavetable
@@ -822,7 +823,9 @@ function activeSources(){ const now=performance.now();
   const out=METER_SRC.filter(s=>(srcActiveUntil[s]||0)>now);
   return out.length ? out : ctrlSources(); }   // idle → controller's catalog set
 let lastMeterKey='';
-function refreshMetersIfChanged(){ const k=activeSources().join(','); if(k!==lastMeterKey){ lastMeterKey=k; buildMeters(); } }
+function refreshMetersIfChanged(){
+  const k=activeSources().join(',')+'|'+[0,1,2,3,4,5,6,7].filter(auxBound).join('');
+  if(k!==lastMeterKey){ lastMeterKey=k; buildMeters(); } }
 function buildMeters(){
   const el=$('#meters'); if(!el) return; el.innerHTML='';
   const active=activeSources();
@@ -832,8 +835,16 @@ function buildMeters(){
        <div class="meter"><div class="fill" id="m_${s}" style="background:var(${SRC_COLOR[s]})"></div></div>
        <span class="meter-cc num">${SRC_CC[s]}</span></div>`);
   });
+  // configured aux sources (global CCs) — always shown once bound
+  for(let g=0;g<8;g++){ if(!auxBound(g)) continue; const a=state.aux[g];
+    el.insertAdjacentHTML('beforeend',
+      `<div class="meter-row"><span class="meter-label"><span class="dot" style="background:var(--vn-muted)"></span>${escH(a.label||AUX[g])}</span>
+       <div class="meter"><div class="fill" id="m_aux${g}" style="background:var(--vn-muted)"></div></div>
+       <span class="meter-cc num">CC${a.cc}</span></div>`); }
 }
 const hist={}; METER_SRC.forEach(s=>hist[s]=new Array(80).fill(0));
+const auxHist=Array.from({length:8},()=>new Array(80).fill(0));   // aux-source scroll history
+const auxBound=g=>!!(state.aux[g]&&state.aux[g].cc>0);            // aux g is configured
 let view='breath';
 function setView(v){ view=v; document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); }
 let simT=0;
@@ -869,6 +880,9 @@ function tickMeters(){
     hist[s].push(v); hist[s].shift();
   }
   pushVoices();
+  // aux-source streams (global CCs) — scroll history + legend fills
+  for(let g=0;g<8;g++){ const v=clamp((state.auxVals&&state.auxVals[g])||0,0,1);
+    auxHist[g].push(v); auxHist[g].shift(); const m=$('#m_aux'+g); if(m)m.style.width=(v*100)+'%'; }
   // row meters in matrix tab
   document.querySelectorAll('[data-rowmeter]').forEach(el=>{
     const s=el.getAttribute('data-rowmeter'); const v=clamp(state.meters[s]||0,0,1);
@@ -898,6 +912,12 @@ function drawVis(){
       if(op<=0.02) continue;
       for(const [k,col] of dims) p+=line(t[k], col, 1.6, op.toFixed(2));
     }
+    // Configured aux sources (global CCs) — dashed muted streams so they read
+    // as secondary next to the coloured primary sources.
+    for(let g=0;g<8;g++){ if(!auxBound(g)) continue;
+      let d=''; const h=auxHist[g];
+      for(let i=0;i<h.length;i++){ const x=i/(h.length-1)*W; d+=(i?'L':'M')+x.toFixed(1)+','+yOf(h[i]).toFixed(1); }
+      p+=`<path d="${d}" fill="none" stroke="${cssv('--vn-muted')}" stroke-width="1.4" stroke-dasharray="4 4" opacity="${(0.5+g*0.04).toFixed(2)}"/>`; }
   } else if(view==='spectrum'){
     // Real FFT magnitudes of the output (log-spaced bins, 0..1 = −80..0 dB).
     const bins=state.spec||[], col=cssv('--vn-breath'), n=bins.length;
@@ -2100,6 +2120,7 @@ Bridge.on('paramChanged',({id,value})=>{
 Bridge.on('tuningStatus',({connected})=>setMtsLabel(connected));
 // Real output spectrum (log-spaced FFT magnitude bins).
 Bridge.on('spectrum',({bins})=>{ if(Array.isArray(bins)) state.spec=bins; });
+Bridge.on('auxMeters',({v})=>{ if(Array.isArray(v)) state.auxVals=v; });
 // Active wavetable (name + frame count) — pushed on load and on boot.
 Bridge.on('wavetableInfo',({name,frames,phaseAlign,ok})=>{
   if(ok && name){ state.wt={name,frames:frames||0,phaseAlign:!!phaseAlign}; }
