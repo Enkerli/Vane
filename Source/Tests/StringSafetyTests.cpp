@@ -1,6 +1,7 @@
 #include <juce_core/juce_core.h>
 #include "Preset/PresetManager.h"
 #include <cstring>
+#include <limits>
 
 // ── JUCE String safety tests ───────────────────────────────────────────────
 //

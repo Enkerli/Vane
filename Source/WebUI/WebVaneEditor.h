@@ -18,6 +18,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <atomic>
 #include "../PluginProcessor.h"
 
 class WebVaneEditor : public juce::AudioProcessorEditor,

@@ -2,6 +2,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include "Synth/SynthVoice.h"
 #include "Synth/TransientLibrary.h"
 #include "Modulation/ModMatrix.h"
@@ -20,7 +22,11 @@ public:
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
+#if VANE_HEADLESS
+    bool hasEditor() const override { return false; }   // no GUI on Linux/MODEP
+#else
     bool hasEditor() const override { return true; }
+#endif
 
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override  { return true; }
@@ -29,10 +35,22 @@ public:
     bool supportsMPE()  const override { return true; }
     double getTailLengthSeconds() const override { return 0.5; }
 
+#if VANE_HEADLESS
+    // Headless (MODEP/LV2): expose the on-disk .vanepreset files as host programs,
+    // which JUCE's LV2 wrapper turns into selectable LV2 presets (MODEP shows these
+    // in its per-plugin preset menu) — the way to use presets with no GUI.
+    int  getNumPrograms() override          { return juce::jmax (1, programNames.size()); }
+    int  getCurrentProgram() override       { return currentProgram; }
+    void setCurrentProgram(int index) override;   // loads programNames[index] (.cpp)
+    const juce::String getProgramName(int index) override
+        { return juce::isPositiveAndBelow (index, programNames.size()) ? programNames[index] : juce::String ("Init"); }
+    void rescanPrograms();                        // refresh the list from disk
+#else
     int  getNumPrograms() override                              { return 1; }
     int  getCurrentProgram() override                          { return 0; }
     void setCurrentProgram(int) override                       {}
     const juce::String getProgramName(int) override            { return {}; }
+#endif
     void changeProgramName(int, const juce::String&) override  {}
 
     void getStateInformation(juce::MemoryBlock&) override;
@@ -41,6 +59,10 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presetManager;
     ChordConfigStore chordConfigStore;   // global rotating-chord palette (JSON on disk)
+#if VANE_HEADLESS
+    juce::StringArray programNames;      // .vanepreset names exposed as LV2 presets
+    int currentProgram = 0;
+#endif
     ProfileManager profileManager;
     ModMatrix    modMatrix;
     TuningClient tuning;

@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "WebUI/WebVaneEditor.h"
+#if !VANE_HEADLESS
+ #include "WebUI/WebVaneEditor.h"
+#endif
 #include <BinaryDataLibrary.h>
 #include <cmath>    // std::log2 / std::isnan (chord-interval ratio parsing)
 #include <limits>
@@ -121,6 +123,10 @@ VaneProcessor::VaneProcessor()
     parseLibraryManifest();   // parse the bundled factory table catalogue
     restoreGlideCurve();      // glide LUT → identity until a curve is drawn
     restoreChordSeqs();       // rotating-chord interval sequences (default until edited)
+
+#if VANE_HEADLESS
+    rescanPrograms();         // expose on-disk presets as LV2 programs (MODEP menu)
+#endif
 
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately while
@@ -659,11 +665,35 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
 }
 
+#if VANE_HEADLESS
+// Headless program <-> preset bridge.  JUCE's LV2 wrapper emits one LV2 preset
+// per program (MODEP's preset menu); selecting one calls setCurrentProgram(),
+// which loads the matching .vanepreset from ~/.config/Vane/Presets.
+void VaneProcessor::rescanPrograms()
+{
+    programNames = presetManager.getPresetNames();
+    const auto cur = presetManager.getCurrentPresetName();
+    const int idx = programNames.indexOf (cur);
+    currentProgram = juce::jmax (0, idx);
+}
+void VaneProcessor::setCurrentProgram (int index)
+{
+    if (juce::isPositiveAndBelow (index, programNames.size())) {
+        presetManager.loadPreset (programNames[index]);
+        currentProgram = index;
+    }
+}
+#endif
+
 juce::AudioProcessorEditor* VaneProcessor::createEditor()
 {
+#if VANE_HEADLESS
+    return nullptr;   // headless (Linux/MODEP) — host renders controls from ports
+#else
     // WebView UI (design_handoff v2).  The legacy native editor (VaneEditor) is
     // retained in the build for reference/fallback but no longer instantiated.
     return new WebVaneEditor(*this);
+#endif
 }
 
 void VaneProcessor::getStateInformation(juce::MemoryBlock& dest)
@@ -1222,22 +1252,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
             const SlotDef d = (n < kNumFactory) ? kFactory[n] : SlotDef{ 0, 0, 0, 0.0f };
             const juce::String base = "modSlot" + juce::String(n);
             const juce::String human = "Slot " + juce::String(n) + " ";
+            // Matrix structural fields (source/dest/curve/scale/enable) are config,
+            // not performance gestures: mark them non-automatable so they drop out
+            // of the host's automation/addressing list (MODEP, Logic, …).  Presets
+            // still save them (state save ignores the automatable flag); the WebView
+            // still drives them via APVTS attachments.  Only the amounts (_amt) stay
+            // automatable, as those are the live performance values.
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   d.src));
+                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   d.src,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   d.dst));
+                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   d.dst,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             layout.add(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ base + "_amt", 1 },   human + "Amount",
                 juce::NormalisableRange<float>(-1.0f, 1.0f), d.amt));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve));
+                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             // Mod-of-mod: amount scaled by another source (0 = Off).  Same choice list.
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0));
+                juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             // Per-slot enable (default on).  Disabling gates the route without
             // clearing its settings; old presets without this param load as on.
             layout.add(std::make_unique<juce::AudioParameterBool>(
-                juce::ParameterID{ base + "_en", 1 },    human + "Enable", true));
+                juce::ParameterID{ base + "_en", 1 },    human + "Enable", true,
+                juce::AudioParameterBoolAttributes().withAutomatable(false)));
         }
     }
 
@@ -1248,7 +1289,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     for (int g = 0; g < ModSlots::NumAux; ++g)
         layout.add(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID{ "aux" + juce::String(g) + "_cc", 1 },
-            "Aux " + juce::String(g + 1) + " CC", 0, 127, 0));
+            "Aux " + juce::String(g + 1) + " CC", 0, 127, 0,
+            // CC binding is config, not a performance gesture — keep it off the
+            // host automation/addressing list (it's set via the Controllers UI).
+            juce::AudioParameterIntAttributes().withAutomatable(false)));
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its

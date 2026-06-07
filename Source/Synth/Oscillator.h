@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <algorithm>
+#include <cstdint>
 #include <juce_core/juce_core.h>
 #include "Wavetable.h"
 

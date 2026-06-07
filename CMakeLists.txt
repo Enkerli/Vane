@@ -227,8 +227,16 @@ juce_add_binary_data(VaneTransients
         Assets/transients/gen_tick.wav)
 target_link_libraries(Vane PRIVATE VaneTransients)
 
+# On Linux (RPi / MODEP) build HEADLESS: MODEP renders plugin controls from the
+# LV2 ports and never shows a plugin's native GUI, so the WebView UI is dropped —
+# which also removes the heavy WebKitGTK + GTK3 build dependency.
+if(IS_LINUX)
+    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+    message(STATUS "Linux build is HEADLESS (no WebView UI; no WebKitGTK dependency)")
+else()
+    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple
+endif()
 target_compile_definitions(Vane PUBLIC
-    JUCE_WEB_BROWSER=1          # WebView UI (WebVaneEditor) — WKWebView on Apple
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -254,9 +262,12 @@ target_link_libraries(Vane PRIVATE
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
-    juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+# LTO is fragile on a 4 GB Pi (link can OOM); enable it only off-device.
+if(NOT IS_LINUX)
+    target_link_libraries(Vane PRIVATE juce::juce_recommended_lto_flags)
+endif()
 
 # ── Offline render probe (headless diagnostics) ───────────────────────────────
 # Instantiates VaneProcessor and renders audio with no GUI, so engine behaviour
@@ -322,6 +333,40 @@ if(VANE_HAS_MTS)
     target_link_libraries(VanePresetGen PRIVATE VaneMTS)
 endif()
 target_link_libraries(VanePresetGen PRIVATE
+    VaneWebUI VaneLibrary VaneTransients
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_processors juce::juce_audio_utils juce::juce_core
+    juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+# ── Preset exporter (→ MODEP-style LV2 preset bundles, on demand) ─────────────
+# Converts every *.vanepreset into a /var/modep/lv2-presets/Vane-<name>.lv2 bundle
+# by running the real getStateInformation() → base64.  Built headless on Linux so
+# it pulls in no WebKitGTK (mirrors the main plugin's VANE_HEADLESS path).
+juce_add_console_app(VanePresetExport PRODUCT_NAME VanePresetExport)
+set_target_properties(VanePresetExport PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_sources(VanePresetExport PRIVATE
+    Tools/PresetExport/main.cpp
+    Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
+    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
+    Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp)
+target_include_directories(VanePresetExport PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(VanePresetExport PUBLIC
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
+if(IS_LINUX)
+    target_compile_definitions(VanePresetExport PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VanePresetExport PUBLIC JUCE_WEB_BROWSER=1)
+endif()
+add_dependencies(VanePresetExport Vane_GenBuildStamp)
+if(VANE_HAS_MTS)
+    target_compile_definitions(VanePresetExport PUBLIC VANE_HAS_MTS=1)
+    target_link_libraries(VanePresetExport PRIVATE VaneMTS)
+endif()
+target_link_libraries(VanePresetExport PRIVATE
     VaneWebUI VaneLibrary VaneTransients
     juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
     juce::juce_audio_processors juce::juce_audio_utils juce::juce_core

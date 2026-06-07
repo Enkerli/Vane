@@ -1,0 +1,65 @@
+<!-- Vane minimal modgui for MOD-UI / MODEP.
+     JUCE 8 exposes parameters as LV2 patch parameters (not control ports), so
+     controls bind by mod-parameter-uri (MOD-UI 1.13 modgui.js: line ~1481 takes
+     mod-port-symbol OR mod-parameter-uri; value field uses
+     mod-role="input-parameter-value").  The __VANE_URI__ token is replaced with
+     the plugin URI by Tools/modgui/apply.py at install time, yielding e.g.
+     mod-parameter-uri="https://enkerli.com/plugins/Vane:filterCutoff".
+     Knobs use the default 'film' widget driven by modgui/knob.png. -->
+<div class="mod-pedal mod-pedal-vane{{{cns}}} mod-{{color}}">
+    <div mod-role="drag-handle" class="mod-drag-handle"></div>
+
+    <div class="mod-plugin-brand"><h1>{{brand}}</h1></div>
+    <div class="mod-plugin-name"><h1>{{label}}</h1></div>
+    <div class="mod-light on" mod-role="bypass-light"></div>
+
+    <div class="mod-control-group clearfix">
+        <div class="mod-knob">
+            <div class="mod-knob-image" mod-role="input-parameter" mod-parameter-uri="__VANE_URI__:filterCutoff"></div>
+            <span class="mod-knob-title">Cutoff</span>
+            <span class="mod-knob-value" mod-role="input-parameter-value"
+                  mod-parameter-uri="__VANE_URI__:filterCutoff"></span>
+        </div>
+        <div class="mod-knob">
+            <div class="mod-knob-image" mod-role="input-parameter" mod-parameter-uri="__VANE_URI__:glideTime"></div>
+            <span class="mod-knob-title">Glide</span>
+            <span class="mod-knob-value" mod-role="input-parameter-value"
+                  mod-parameter-uri="__VANE_URI__:glideTime"></span>
+        </div>
+        <div class="mod-knob">
+            <div class="mod-knob-image" mod-role="input-parameter" mod-parameter-uri="__VANE_URI__:monoMode"></div>
+            <span class="mod-knob-title">Mono</span>
+            <span class="mod-knob-value" mod-role="input-parameter-value"
+                  mod-parameter-uri="__VANE_URI__:monoMode"></span>
+        </div>
+        <div class="mod-knob">
+            <div class="mod-knob-image" mod-role="input-parameter" mod-parameter-uri="__VANE_URI__:unisonMode"></div>
+            <span class="mod-knob-title">Voicing</span>
+            <span class="mod-knob-value" mod-role="input-parameter-value"
+                  mod-parameter-uri="__VANE_URI__:unisonMode"></span>
+        </div>
+    </div>
+
+    <div class="mod-footswitch" mod-role="bypass" title="On / Off"></div>
+
+    <div class="mod-pedal-input">
+        {{#effect.ports.audio.input}}
+        <div class="mod-input mod-input-disconnected" title="{{name}}"
+             mod-role="input-audio-port" mod-port-symbol="{{symbol}}">
+            <div class="mod-pedal-input-image"></div></div>
+        {{/effect.ports.audio.input}}
+        {{#effect.ports.midi.input}}
+        <div class="mod-input mod-input-disconnected" title="{{name}}"
+             mod-role="input-midi-port" mod-port-symbol="{{symbol}}">
+            <div class="mod-pedal-input-image"></div></div>
+        {{/effect.ports.midi.input}}
+    </div>
+
+    <div class="mod-pedal-output">
+        {{#effect.ports.audio.output}}
+        <div class="mod-output mod-output-disconnected" title="{{name}}"
+             mod-role="output-audio-port" mod-port-symbol="{{symbol}}">
+            <div class="mod-pedal-output-image"></div></div>
+        {{/effect.ports.audio.output}}
+    </div>
+</div>

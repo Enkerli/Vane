@@ -2,9 +2,14 @@
 // The UI bundle (Source/WebUI/index.html) is compiled into BinaryData by
 // juce_add_binary_data(VaneWebUI …) and served by the resource provider.
 
+// Headless builds (Linux / MODEP) drop the WebView entirely so WebKitGTK is not
+// a build dependency; this whole TU compiles to nothing there.
+#if !VANE_HEADLESS
+
 #include "WebVaneEditor.h"
 #include <BinaryDataWebUI.h>
 #include "../Modulation/ModSource.h"
+#include <cstring>
 
 // ── Friendly UI key ↔ APVTS id map ──────────────────────────────────────────────
 namespace {
@@ -817,3 +822,5 @@ void WebVaneEditor::sendInitialState()
         makeObj ({ { "name", proc.apvts.state.getProperty ("controllerName", "Generic MPE").toString() } }));
     // tuningStatus is now sent by sendTuningState() called above.
 }
+
+#endif  // !VANE_HEADLESS
