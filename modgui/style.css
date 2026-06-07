@@ -1,0 +1,110 @@
+/* Vane minimal modgui stylesheet — self-contained (no sprite binaries).
+ * mod-ui appends a per-instance namespace to {{{cns}}}; selectors use the base
+ * class names, which mod-ui scopes automatically.  Knobs are drawn in pure CSS,
+ * so controls are grabbable/draggable even without MOD's stock knob filmstrip. */
+
+.mod-pedal-vane {
+    position: relative;
+    width: 360px;
+    height: 200px;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    background: linear-gradient(160deg, #232329 0%, #15151a 100%);
+    border: 2px solid #3a3a44;
+    border-radius: 12px;
+    color: #e8e8ee;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+
+.mod-pedal-vane .mod-plugin-brand h1 {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #8a7fb0;
+}
+.mod-pedal-vane .mod-plugin-name h1 {
+    margin: 2px 0 0 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #c9b8ff;
+}
+
+/* On/off indicator */
+.mod-pedal-vane .mod-light {
+    position: absolute;
+    top: 14px; right: 16px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #444;
+}
+.mod-pedal-vane .mod-light.on { background: #b06fff; box-shadow: 0 0 8px #b06fff; }
+
+/* Control row */
+.mod-pedal-vane .mod-control-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-top: 22px;
+    padding: 0 4px;
+}
+.mod-pedal-vane .mod-knob {
+    width: 70px;
+    text-align: center;
+}
+.mod-pedal-vane .mod-knob-image {
+    width: 46px; height: 46px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 38%, #4a4a55 0%, #26262d 70%, #161619 100%);
+    border: 2px solid #54545f;
+    box-shadow: inset 0 2px 4px rgba(255,255,255,0.08), 0 2px 4px rgba(0,0,0,0.5);
+    cursor: ns-resize;
+    position: relative;
+}
+/* pointer notch */
+.mod-pedal-vane .mod-knob-image::after {
+    content: "";
+    position: absolute;
+    top: 5px; left: 50%;
+    width: 2px; height: 12px;
+    margin-left: -1px;
+    background: #c9b8ff;
+    border-radius: 1px;
+}
+.mod-pedal-vane .mod-knob-title {
+    display: block;
+    margin-top: 6px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: #b8b8c4;
+    white-space: nowrap;
+}
+
+/* Footswitch (bypass) */
+.mod-pedal-vane .mod-footswitch {
+    position: absolute;
+    bottom: 12px; left: 50%;
+    width: 44px; height: 44px;
+    margin-left: -22px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, #555 0%, #2a2a30 75%);
+    border: 2px solid #5c5c66;
+    cursor: pointer;
+}
+.mod-pedal-vane .mod-footswitch.on { box-shadow: 0 0 10px #b06fff; }
+
+/* Jacks */
+.mod-pedal-vane .mod-pedal-input  { position: absolute; left: 4px;  top: 84px; }
+.mod-pedal-vane .mod-pedal-output { position: absolute; right: 4px; top: 84px; }
+.mod-pedal-vane .mod-input,
+.mod-pedal-vane .mod-output {
+    width: 14px; height: 14px;
+    margin: 4px 0;
+    border-radius: 50%;
+    background: #0d0d10;
+    border: 2px solid #4a4a55;
+}
