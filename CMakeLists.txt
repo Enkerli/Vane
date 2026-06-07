@@ -116,9 +116,21 @@ elseif(IS_MACOS)
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
     )
 elseif(IS_LINUX)
+    # Two Linux personalities, selected by VANE_LINUX_WEBVIEW (default OFF):
+    #   OFF → headless LV2 (+ Standalone) for MODEP: no WebView, no WebKitGTK.
+    #   ON  → WebView Standalone for desktop/VNC use (needs libwebkit2gtk dev)
+    #         with JACK audio.  No LV2 here — a WebView LV2 is useless to MODEP.
+    # Build the two into separate dirs (e.g. build/ and build-app/).
+    option(VANE_LINUX_WEBVIEW
+        "Linux: build the WebView Standalone (+JACK) for desktop/VNC instead of the headless MODEP LV2" OFF)
+    if(VANE_LINUX_WEBVIEW)
+        set(_vane_linux_formats Standalone)
+    else()
+        set(_vane_linux_formats LV2 Standalone)
+    endif()
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
-        FORMATS                     LV2 Standalone
+        FORMATS                     ${_vane_linux_formats}
         LV2_URI                     "https://enkerli.com/plugins/vane"
         COPY_PLUGIN_AFTER_BUILD     TRUE
     )
@@ -230,11 +242,17 @@ target_link_libraries(Vane PRIVATE VaneTransients)
 # On Linux (RPi / MODEP) build HEADLESS: MODEP renders plugin controls from the
 # LV2 ports and never shows a plugin's native GUI, so the WebView UI is dropped —
 # which also removes the heavy WebKitGTK + GTK3 build dependency.
-if(IS_LINUX)
+if(IS_LINUX AND NOT VANE_LINUX_WEBVIEW)
     target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
     message(STATUS "Linux build is HEADLESS (no WebView UI; no WebKitGTK dependency)")
 else()
-    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple
+    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple / WebKitGTK on Linux
+    if(IS_LINUX)
+        # Desktop/VNC standalone: WebView UI (needs libwebkit2gtk-4.1-dev) + JACK
+        # so Vane shows up as a JACK client you can patch in the Patchbox graph.
+        target_compile_definitions(Vane PUBLIC JUCE_JACK=1)
+        message(STATUS "Linux build uses WebView UI + JACK (needs libwebkit2gtk + JACK)")
+    endif()
 endif()
 target_compile_definitions(Vane PUBLIC
     JUCE_USE_CURL=0
