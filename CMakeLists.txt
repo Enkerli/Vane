@@ -264,9 +264,20 @@ target_link_libraries(Vane PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
 )
-# LTO is fragile on a 4 GB Pi (link can OOM); enable it only off-device.
-if(NOT IS_LINUX)
+# Link-time optimisation.  Historically disabled on Linux because the LTO link
+# can OOM a 4 GB Pi — re-enabled for runtime headroom.  If the Pi link runs out
+# of memory, add swap (or set -DVANE_LINUX_LTO=OFF).
+option(VANE_LINUX_LTO "Enable LTO on Linux builds (may OOM a low-RAM Pi link)" ON)
+if(NOT IS_LINUX OR VANE_LINUX_LTO)
     target_link_libraries(Vane PRIVATE juce::juce_recommended_lto_flags)
+endif()
+
+# CPU tuning for the build host.  On the Pi (Cortex-A72) -mcpu=native lets GCC
+# schedule for the actual core and use its NEON/VFP — a few % off the DSP for a
+# rebuild.  ARM-guarded so an x86 Linux build doesn't choke on -mcpu; on-device
+# builds only (native = whatever core is compiling).
+if(IS_LINUX AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64")
+    target_compile_options(Vane PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-mcpu=native>)
 endif()
 
 # ── Offline render probe (headless diagnostics) ───────────────────────────────
