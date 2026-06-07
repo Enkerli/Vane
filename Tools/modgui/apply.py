@@ -43,8 +43,10 @@ def find_uri(ttl):
 
 
 def symbol_indices(ttl):
-    """Map every control-port symbol to its lv2:index (index precedes symbol
-    within each JUCE port block)."""
+    """Map every control-port symbol to its lv2:index.  Each symbol takes the
+    most recent lv2:index seen before it (nested scalePoint blank nodes carry
+    neither predicate, so they don't interfere).  Order-independent re: which
+    appears first is not assumed beyond 'index precedes symbol in JUCE output'."""
     out, cur = {}, None
     for line in ttl.splitlines():
         mi = re.search(r"lv2:index\s+(\d+)", line)
@@ -52,8 +54,7 @@ def symbol_indices(ttl):
             cur = int(mi.group(1))
         ms = re.search(r'lv2:symbol\s+"([^"]+)"', line)
         if ms and cur is not None:
-            out[ms.group(1)] = cur
-            cur = None
+            out[ms.group(1)] = cur   # do NOT reset cur; see docstring
     return out
 
 
@@ -99,17 +100,30 @@ def main():
     if not os.path.isdir(bundle):
         sys.exit(f"not a directory: {bundle}")
 
+    # Validate BEFORE touching the bundle so a parse miss can never corrupt it.
+    ttl = read_all_ttl(bundle)
+    uri = find_uri(ttl)
+    idx = symbol_indices(ttl)
+    print(f"plugin URI: {uri}")
+
+    # Safety: never write an empty modgui:port list (invalid Turtle that
+    # corrupts manifest.ttl and makes MOD unable to instantiate the plugin).
+    found = [s for s, _ in CONTROLS if s in idx]
+    if not found:
+        sample = sorted(idx)[:8]
+        sys.exit("ERROR: none of the control symbols were found in the bundle "
+                 "TTL — aborting WITHOUT modifying the bundle.\n"
+                 f"  wanted: {[s for s, _ in CONTROLS]}\n"
+                 f"  parsed {len(idx)} symbols, e.g.: {sample}\n"
+                 "Send a maintainer the dsp.ttl port format so the parser/symbols "
+                 "can be corrected.")
+
     src_modgui = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "..", "modgui")
     dst_modgui = os.path.join(bundle, "modgui")
     shutil.rmtree(dst_modgui, ignore_errors=True)
     shutil.copytree(src_modgui, dst_modgui)
     print(f"copied modgui assets -> {dst_modgui}")
-
-    ttl = read_all_ttl(bundle)
-    uri = find_uri(ttl)
-    idx = symbol_indices(ttl)
-    print(f"plugin URI: {uri}")
 
     manifest = os.path.join(bundle, "manifest.ttl")
     with open(manifest, encoding="utf-8") as f:
