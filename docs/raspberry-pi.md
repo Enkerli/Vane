@@ -90,6 +90,37 @@ systemctl --user enable --now vane.service
 loginctl enable-linger "$USER"     # so the user service runs without a login session
 ```
 
+### Patchbox: module + mode (recommended for the VNC-desktop workflow)
+Patchbox boots into a **module** (`patchbox` CLI, or the boot menu) and a
+**mode** (console/desktop):
+
+- **Module**: the standalone uses **ALSA/PulseAudio** by default, while MODEP's
+  module owns the audio device via **JACK**. For standalone-only use, select the
+  **`none`** module (default Patchbox environment) so JACK/MODEP isn't holding
+  the device. Keep **`modep`** only if you actually want both running (expect
+  audio-device contention; you'd then want Vane on JACK, not Pulse).
+  ```bash
+  patchbox          # TUI: Modules → choose 'none'
+  ```
+- **Mode**: set **desktop** + **autologin** so an X session exists at boot
+  (that's what your VNC shows). `raspi-config` ▸ System ▸ Boot/Auto Login ▸
+  Desktop Autologin. With no monitor, set a forced/headless resolution
+  (`raspi-config` ▸ Display) so the desktop has a framebuffer.
+
+Then autostart Vane with a desktop entry (simplest for a desktop session):
+```ini
+# ~/.config/autostart/vane.desktop
+[Desktop Entry]
+Type=Application
+Name=Vane
+Exec=/home/patch/Vane/build-app/Vane_artefacts/Release/Standalone/Vane
+X-GNOME-Autostart-enabled=true
+```
+Vane launches when the (auto-logged-in) desktop starts, and stays up when you
+disconnect the VNC viewer. It restores its last audio/MIDI device + preset, so
+once you've picked the Sylphyo + output and loaded a patch, it comes back the
+same way each boot.
+
 ### Audio / MIDI
 - In Vane's standalone **Options** (wrench icon, via VNC), pick the **JACK**
   device type and your **MIDI input** (e.g. the Sylphyo). With `JUCE_JACK=1`

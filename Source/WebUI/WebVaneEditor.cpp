@@ -49,16 +49,28 @@ juce::var makeObj (std::initializer_list<std::pair<juce::String, juce::var>> pai
 std::optional<juce::WebBrowserComponent::Resource>
 WebVaneEditor::provideResource (const juce::String& path)
 {
-    auto serve = [] (const char* data, int size, juce::String mime)
+    // prependBom: emit a UTF-8 BOM before the payload.  The BOM is the
+    // highest-priority character-encoding signal in HTML — it overrides the
+    // HTTP Content-Type charset, the <meta charset>, and any locale default.
+    // WKWebView (macOS) infers UTF-8 fine, but WebKitGTK (Linux/MODEP-Pi) does
+    // not always honour our charset and falls back to the system locale codec
+    // (→ mojibake: "♪" shown as "â™ª").  The BOM forces UTF-8 everywhere,
+    // including the inline <script> string literals (decoded with the document).
+    auto serve = [] (const char* data, int size, juce::String mime,
+                     bool prependBom = false)
         -> juce::WebBrowserComponent::Resource {
-        std::vector<std::byte> bytes (static_cast<std::size_t> (size));
-        std::memcpy (bytes.data(), data, static_cast<std::size_t> (size));
+        static constexpr unsigned char kBom[] = { 0xEF, 0xBB, 0xBF };
+        const std::size_t pre = prependBom ? sizeof (kBom) : 0;
+        std::vector<std::byte> bytes (pre + static_cast<std::size_t> (size));
+        if (pre != 0)
+            std::memcpy (bytes.data(), kBom, pre);
+        std::memcpy (bytes.data() + pre, data, static_cast<std::size_t> (size));
         return { std::move (bytes), std::move (mime) };
     };
 
     if (path == "/" || path == "/index.html")
         return serve (BinaryData::index_html, BinaryData::index_htmlSize,
-                      "text/html; charset=utf-8");
+                      "text/html; charset=utf-8", /*prependBom*/ true);
     return std::nullopt;
 }
 
