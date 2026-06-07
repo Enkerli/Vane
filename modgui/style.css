@@ -1,106 +1,99 @@
-/* Vane minimal modgui stylesheet — self-contained (no sprite binaries).
- * mod-ui appends a per-instance namespace to {{{cns}}}; selectors use the base
- * class names, which mod-ui scopes automatically.  Knobs are drawn in pure CSS,
- * so controls are grabbable/draggable even without MOD's stock knob filmstrip. */
+/* Vane minimal modgui stylesheet for MOD-UI / MODEP.
+ *
+ * CRITICAL: MOD-UI namespaces each instance by replacing {{{cns}}} in BOTH the
+ * HTML class and this stylesheet, so every selector MUST carry {{{cns}}} or it
+ * matches nothing (symptom: a blank/unstyled pedal).  Resource URLs use the
+ * {{{ns}}} cache-busting suffix and reference MOD-UI's built-in sprites under
+ * /resources/ (knobs, footswitch) — proven geometry, present on every mod-ui. */
 
-.mod-pedal-vane {
+.mod-pedal-vane{{{cns}}} {
     position: relative;
-    width: 360px;
-    height: 200px;
+    width: 340px;
+    height: 290px;
     box-sizing: border-box;
-    padding: 10px 14px;
+    padding: 50px 12px 0 12px;
     background: linear-gradient(160deg, #232329 0%, #15151a 100%);
     border: 2px solid #3a3a44;
     border-radius: 12px;
     color: #e8e8ee;
     font-family: "Helvetica Neue", Arial, sans-serif;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
-    overflow: hidden;
 }
 
-.mod-pedal-vane .mod-plugin-brand h1 {
-    margin: 0;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: #8a7fb0;
-}
-.mod-pedal-vane .mod-plugin-name h1 {
-    margin: 2px 0 0 0;
-    font-size: 20px;
-    font-weight: 700;
-    color: #c9b8ff;
-}
-
-/* On/off indicator */
-.mod-pedal-vane .mod-light {
+/* whole-pedal drag area, behind the controls */
+.mod-pedal-vane{{{cns}}} .mod-drag-handle {
     position: absolute;
-    top: 14px; right: 16px;
-    width: 12px; height: 12px;
-    border-radius: 50%;
-    background: #444;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
 }
-.mod-pedal-vane .mod-light.on { background: #b06fff; box-shadow: 0 0 8px #b06fff; }
+.mod-pedal-vane{{{cns}}} .mod-control-group,
+.mod-pedal-vane{{{cns}}} .mod-footswitch,
+.mod-pedal-vane{{{cns}}} .mod-plugin-brand,
+.mod-pedal-vane{{{cns}}} .mod-plugin-name { position: relative; z-index: 1; }
 
-/* Control row */
-.mod-pedal-vane .mod-control-group {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-top: 22px;
+.mod-pedal-vane{{{cns}}} .mod-plugin-brand h1 {
+    position: absolute; top: 14px; left: 16px; margin: 0;
+    font-size: 10px; font-weight: 600; letter-spacing: 2px;
+    text-transform: uppercase; color: #8a7fb0;
+}
+.mod-pedal-vane{{{cns}}} .mod-plugin-name h1 {
+    position: absolute; top: 24px; left: 16px; margin: 0;
+    font-size: 20px; font-weight: 700; color: #c9b8ff;
+}
+
+/* On/off indicator (CSS only) */
+.mod-pedal-vane{{{cns}}} .mod-light {
+    position: absolute; top: 18px; right: 16px;
+    width: 12px; height: 12px; border-radius: 50%; background: #444; z-index: 1;
+}
+.mod-pedal-vane{{{cns}}} .mod-light.on {
+    background: #b06fff; box-shadow: 0 0 8px #b06fff;
+}
+
+/* Four knobs in a row */
+.mod-pedal-vane{{{cns}}} .mod-control-group {
+    display: flex; justify-content: space-between; align-items: flex-start;
     padding: 0 4px;
 }
-.mod-pedal-vane .mod-knob {
-    width: 70px;
-    text-align: center;
+.mod-pedal-vane{{{cns}}} .mod-control-group .mod-knob {
+    width: 76px; text-align: center;
 }
-/* MOD's 'film' widget steps background-position through knob.png (61 frames,
- * 48x48 each).  Element size MUST equal one frame so filmSteps auto-derives. */
-.mod-pedal-vane .mod-knob-image {
-    width: 48px; height: 48px;
-    margin: 0 auto;
-    background-image: url(knob.png);
+/* MOD's 'film' widget steps the stock knob sprite; geometry copied from the
+ * stock boxy 3+-knob spec so filmSteps auto-derives correctly. */
+.mod-pedal-vane{{{cns}}} .mod-control-group .mod-knob .mod-knob-image {
+    background-image: url(/resources/knobs/lata/lata.png{{{ns}}});
     background-repeat: no-repeat;
-    background-position: 0 0;
+    background-size: auto 60px;
+    width: 60px; height: 60px;
+    margin: 0 auto;
     cursor: ns-resize;
 }
-.mod-pedal-vane .mod-knob-title {
-    display: block;
-    margin-top: 4px;
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    color: #b8b8c4;
-    white-space: nowrap;
+.mod-pedal-vane{{{cns}}} .mod-control-group .mod-knob > span.mod-knob-title {
+    display: block; margin-top: 4px;
+    font-size: 11px; letter-spacing: 0.5px; color: #b8b8c4; white-space: nowrap;
 }
-.mod-pedal-vane .mod-knob-value {
-    display: block;
-    font-size: 9px;
-    color: #8a8a96;
-    min-height: 11px;
+.mod-pedal-vane{{{cns}}} .mod-control-group .mod-knob > span.mod-knob-value {
+    display: block; font-size: 10px; color: #8a8a96; min-height: 12px;
 }
 
-/* Footswitch (bypass) */
-.mod-pedal-vane .mod-footswitch {
-    position: absolute;
-    bottom: 12px; left: 50%;
-    width: 44px; height: 44px;
-    margin-left: -22px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 35%, #555 0%, #2a2a30 75%);
-    border: 2px solid #5c5c66;
+/* Footswitch (bypass) — stock 2-frame sprite (off = bottom, on = top) */
+.mod-pedal-vane{{{cns}}} .mod-footswitch {
+    position: absolute !important;
+    bottom: 14px; left: 0; right: 0; margin: auto;
+    width: 66px; height: 66px;
+    background-image: url(/resources/pedals/footswitch.png{{{ns}}});
+    background-repeat: no-repeat;
+    background-position: bottom center;
+    background-size: auto 132px;
     cursor: pointer;
 }
-.mod-pedal-vane .mod-footswitch.on { box-shadow: 0 0 10px #b06fff; }
+.mod-pedal-vane{{{cns}}} .mod-footswitch.on { background-position-y: top !important; }
 
 /* Jacks */
-.mod-pedal-vane .mod-pedal-input  { position: absolute; left: 4px;  top: 84px; }
-.mod-pedal-vane .mod-pedal-output { position: absolute; right: 4px; top: 84px; }
-.mod-pedal-vane .mod-input,
-.mod-pedal-vane .mod-output {
-    width: 14px; height: 14px;
-    margin: 4px 0;
-    border-radius: 50%;
-    background: #0d0d10;
-    border: 2px solid #4a4a55;
+.mod-pedal-vane{{{cns}}} .mod-pedal-input  { position: absolute; left: 2px;  top: 120px; z-index: 1; }
+.mod-pedal-vane{{{cns}}} .mod-pedal-output { position: absolute; right: 2px; top: 120px; z-index: 1; }
+.mod-pedal-vane{{{cns}}} .mod-input,
+.mod-pedal-vane{{{cns}}} .mod-output {
+    width: 14px; height: 14px; margin: 4px 0;
+    border-radius: 50%; background: #0d0d10; border: 2px solid #4a4a55;
 }
