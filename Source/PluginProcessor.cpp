@@ -1252,22 +1252,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
             const SlotDef d = (n < kNumFactory) ? kFactory[n] : SlotDef{ 0, 0, 0, 0.0f };
             const juce::String base = "modSlot" + juce::String(n);
             const juce::String human = "Slot " + juce::String(n) + " ";
+            // Matrix structural fields (source/dest/curve/scale/enable) are config,
+            // not performance gestures: mark them non-automatable so they drop out
+            // of the host's automation/addressing list (MODEP, Logic, …).  Presets
+            // still save them (state save ignores the automatable flag); the WebView
+            // still drives them via APVTS attachments.  Only the amounts (_amt) stay
+            // automatable, as those are the live performance values.
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   d.src));
+                juce::ParameterID{ base + "_src", 1 },   human + "Source",      srcChoices,   d.src,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   d.dst));
+                juce::ParameterID{ base + "_dst", 1 },   human + "Destination", dstChoices,   d.dst,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             layout.add(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ base + "_amt", 1 },   human + "Amount",
                 juce::NormalisableRange<float>(-1.0f, 1.0f), d.amt));
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve));
+                juce::ParameterID{ base + "_curve", 1 }, human + "Curve",       curveChoices, d.curve,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             // Mod-of-mod: amount scaled by another source (0 = Off).  Same choice list.
             layout.add(std::make_unique<juce::AudioParameterChoice>(
-                juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0));
+                juce::ParameterID{ base + "_scale", 1 }, human + "Scale Source", srcChoices,  0,
+                juce::AudioParameterChoiceAttributes().withAutomatable(false)));
             // Per-slot enable (default on).  Disabling gates the route without
             // clearing its settings; old presets without this param load as on.
             layout.add(std::make_unique<juce::AudioParameterBool>(
-                juce::ParameterID{ base + "_en", 1 },    human + "Enable", true));
+                juce::ParameterID{ base + "_en", 1 },    human + "Enable", true,
+                juce::AudioParameterBoolAttributes().withAutomatable(false)));
         }
     }
 
@@ -1278,7 +1289,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     for (int g = 0; g < ModSlots::NumAux; ++g)
         layout.add(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID{ "aux" + juce::String(g) + "_cc", 1 },
-            "Aux " + juce::String(g + 1) + " CC", 0, 127, 0));
+            "Aux " + juce::String(g + 1) + " CC", 0, 127, 0,
+            // CC binding is config, not a performance gesture — keep it off the
+            // host automation/addressing list (it's set via the Controllers UI).
+            juce::AudioParameterIntAttributes().withAutomatable(false)));
 
     // ── Pitchbend ranges ──────────────────────────────────────────────────────
     // MPE and non-MPE controllers use very different ranges, so each has its
