@@ -431,7 +431,14 @@ WebVaneEditor::WebVaneEditor (VaneProcessor& p)
         }
 
     juce::MessageManager::callAsync ([this] { navigateIfNeeded(); });
+    // WebKitGTK on a Pi4 is CPU-heavy; half the UI telemetry rate on Linux to
+    // leave DSP headroom (still smooth enough for meters/stage).  Apple WKWebView
+    // is cheap, so keep 30 Hz there.
+   #if JUCE_LINUX
+    startTimerHz (15);
+   #else
     startTimerHz (30);
+   #endif
 }
 
 WebVaneEditor::~WebVaneEditor()
@@ -471,6 +478,13 @@ static juce::String hzToNote (float hz)
 void WebVaneEditor::timerCallback()
 {
     if (! pageReady) return;
+    // Everything below is pure UI telemetry — and the snapshots are not free
+    // (spectrum runs an FFT, wavetableDisplay walks the table, per-voice loops).
+    // emitEventIfBrowserIsVisible already gates the *sends*, but the work to
+    // build them runs regardless, so skip it entirely when the window isn't
+    // on-screen.  On the Pi this means: minimise the standalone after setup and
+    // the UI stops costing DSP headroom (restore it to tweak again).
+    if (! isShowing()) return;
     webView.emitEventIfBrowserIsVisible ("meters", makeObj ({
         { "Breath",     proc.meterBreath.load() },
         { "Expression", proc.meterExpr.load() },
