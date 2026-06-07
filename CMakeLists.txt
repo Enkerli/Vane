@@ -340,6 +340,40 @@ target_link_libraries(VanePresetGen PRIVATE
     juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+# ── Preset exporter (→ MODEP-style LV2 preset bundles, on demand) ─────────────
+# Converts every *.vanepreset into a /var/modep/lv2-presets/Vane-<name>.lv2 bundle
+# by running the real getStateInformation() → base64.  Built headless on Linux so
+# it pulls in no WebKitGTK (mirrors the main plugin's VANE_HEADLESS path).
+juce_add_console_app(VanePresetExport PRODUCT_NAME VanePresetExport)
+set_target_properties(VanePresetExport PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_sources(VanePresetExport PRIVATE
+    Tools/PresetExport/main.cpp
+    Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
+    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
+    Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp)
+target_include_directories(VanePresetExport PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(VanePresetExport PUBLIC
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
+if(IS_LINUX)
+    target_compile_definitions(VanePresetExport PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VanePresetExport PUBLIC JUCE_WEB_BROWSER=1)
+endif()
+add_dependencies(VanePresetExport Vane_GenBuildStamp)
+if(VANE_HAS_MTS)
+    target_compile_definitions(VanePresetExport PUBLIC VANE_HAS_MTS=1)
+    target_link_libraries(VanePresetExport PRIVATE VaneMTS)
+endif()
+target_link_libraries(VanePresetExport PRIVATE
+    VaneWebUI VaneLibrary VaneTransients
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_processors juce::juce_audio_utils juce::juce_core
+    juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
 # ── VaneSelfTest ──────────────────────────────────────────────────────────────
 # Authoritative headless unit-test gate.  Mirrors VanePresetGen's source/link set
 # (so the in-tree tests + their deps compile in directly and are not dead-stripped
