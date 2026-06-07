@@ -248,10 +248,19 @@ if(IS_LINUX AND NOT VANE_LINUX_WEBVIEW)
 else()
     target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple / WebKitGTK on Linux
     if(IS_LINUX)
-        # Desktop/VNC standalone: WebView UI (needs libwebkit2gtk-4.1-dev) + JACK
+        # Desktop/VNC standalone: WebView UI (needs libwebkit2gtk-*-dev) + JACK
         # so Vane shows up as a JACK client you can patch in the Patchbox graph.
         target_compile_definitions(Vane PUBLIC JUCE_JACK=1)
         message(STATUS "Linux build uses WebView UI + JACK (needs libwebkit2gtk + JACK)")
+        # juce_gui_extra's WebBrowserComponent includes <gtk/gtk.h> + WebKitGTK,
+        # but JUCE's module CMake doesn't always propagate their include dirs to
+        # the consuming target — add them explicitly (try 4.1, fall back to 4.0).
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(VANE_WEBKIT QUIET IMPORTED_TARGET webkit2gtk-4.1 gtk+-x11-3.0)
+        if(NOT VANE_WEBKIT_FOUND)
+            pkg_check_modules(VANE_WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.0 gtk+-x11-3.0)
+        endif()
+        target_link_libraries(Vane PRIVATE PkgConfig::VANE_WEBKIT)
     endif()
 endif()
 target_compile_definitions(Vane PUBLIC
