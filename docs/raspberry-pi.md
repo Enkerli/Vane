@@ -22,7 +22,14 @@ sudo cp -r build/Vane_artefacts/Release/LV2/Vane.lv2 /var/modep/lv2/
 sudo systemctl restart modep-mod-ui modep-mod-host
 ```
 
-Presets: see `Tools/PresetExport/` (converts `*.vanepreset` → MODEP User presets).
+Presets: use **User** presets via `Tools/PresetExport/` (converts `*.vanepreset`
+→ self-contained MODEP User-preset bundles). **Ignore the "Factory" list** —
+those are the LV2 baked *program* presets, which load by re-reading the
+`.vanepreset` files at runtime from the home of the user `mod-host` runs as
+(`modep`), not `/home/patch`, so they fail. User-preset bundles embed the full
+state inline (no file dependency), so they always load. Prepare on the Mac, run
+`VanePresetExport`, install the bundles.
+
 The custom modgui is shelved on MODEP — see `Tools/modgui/README.md`.
 
 ---
@@ -43,10 +50,14 @@ If `libwebkit2gtk-4.1-dev` isn't found, try `libwebkit2gtk-4.0-dev`.
 ### Build
 ```bash
 cd ~/Vane
-cmake -B build-app -DVANE_LINUX_WEBVIEW=ON
+cmake -B build-app -DVANE_LINUX_WEBVIEW=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-app --target Vane_Standalone -j2
 # binary: build-app/Vane_artefacts/Release/Standalone/Vane
 ```
+**Set `-DCMAKE_BUILD_TYPE=Release`** — without it CMake builds `-O0` (no
+optimisation): much higher CPU and audible glitches. If your artefacts land in
+`Vane_artefacts/Standalone/` (no `Release/`), you forgot the flag — `rm -rf
+build-app` and reconfigure.
 
 ### Run headless so it survives VNC disconnect
 The standalone is a GUI app — it needs an X display even though audio runs
@@ -122,13 +133,23 @@ once you've picked the Sylphyo + output and loaded a patch, it comes back the
 same way each boot.
 
 ### Audio / MIDI
-- In Vane's standalone **Options** (wrench icon, via VNC), pick the **JACK**
-  device type and your **MIDI input** (e.g. the Sylphyo). With `JUCE_JACK=1`
-  Vane registers as a JACK client.
-- Patch its outputs to `system:playback_*` (or via `qjackctl` / Patchbox's
-  routing) once and save the JACK session.
-- Vane reads `~/.config/Vane/Presets/` (same dir as the MODEP build), so your
-  transferred presets are available here too.
+- **Output device matters a lot.** The default "Playback through PulseAudio"
+  usually routes to the Pi's built-in `bcm2835` PWM headphone out, which is
+  noisy and *glitches at higher output levels* (sounds like crackle that gets
+  worse as you raise Output, and is buffer-independent). On a Pisound box, use
+  the real DAC instead:
+  - **JACK** device type (recommended) — same backend MODEP uses, bound to the
+    Pisound; with `JUCE_JACK=1` Vane registers as a JACK client. Patch its
+    outputs to `system:playback_*` (qjackctl / Patchbox routing) and save the
+    JACK session. Note JACK can't be shared with MODEP at once — run module
+    `none` (or stop MODEP) so JACK is free for the standalone.
+  - or **ALSA → "pisound … Direct hardware device"** if you'd rather not run
+    JACK. Avoid the bcm2835 outputs.
+- Pick your **MIDI input** (e.g. the Sylphyo) in the same dialog. It's only
+  restored on next launch if the device is present at launch (plug the Sylphyo
+  in before boot for autostart).
+- Vane reads `~/.config/Vane/Presets/` (the patch user's home), so your
+  transferred presets are available here.
 
 ### Notes
 - WebView on Linux uses WebKitGTK; first launch can be slow as it initialises.
