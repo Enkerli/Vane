@@ -49,16 +49,28 @@ juce::var makeObj (std::initializer_list<std::pair<juce::String, juce::var>> pai
 std::optional<juce::WebBrowserComponent::Resource>
 WebVaneEditor::provideResource (const juce::String& path)
 {
-    auto serve = [] (const char* data, int size, juce::String mime)
+    // prependBom: emit a UTF-8 BOM before the payload.  The BOM is the
+    // highest-priority character-encoding signal in HTML — it overrides the
+    // HTTP Content-Type charset, the <meta charset>, and any locale default.
+    // WKWebView (macOS) infers UTF-8 fine, but WebKitGTK (Linux/MODEP-Pi) does
+    // not always honour our charset and falls back to the system locale codec
+    // (→ mojibake: "♪" shown as "â™ª").  The BOM forces UTF-8 everywhere,
+    // including the inline <script> string literals (decoded with the document).
+    auto serve = [] (const char* data, int size, juce::String mime,
+                     bool prependBom = false)
         -> juce::WebBrowserComponent::Resource {
-        std::vector<std::byte> bytes (static_cast<std::size_t> (size));
-        std::memcpy (bytes.data(), data, static_cast<std::size_t> (size));
+        static constexpr unsigned char kBom[] = { 0xEF, 0xBB, 0xBF };
+        const std::size_t pre = prependBom ? sizeof (kBom) : 0;
+        std::vector<std::byte> bytes (pre + static_cast<std::size_t> (size));
+        if (pre != 0)
+            std::memcpy (bytes.data(), kBom, pre);
+        std::memcpy (bytes.data() + pre, data, static_cast<std::size_t> (size));
         return { std::move (bytes), std::move (mime) };
     };
 
     if (path == "/" || path == "/index.html")
         return serve (BinaryData::index_html, BinaryData::index_htmlSize,
-                      "text/html; charset=utf-8");
+                      "text/html; charset=utf-8", /*prependBom*/ true);
     return std::nullopt;
 }
 
@@ -419,7 +431,14 @@ WebVaneEditor::WebVaneEditor (VaneProcessor& p)
         }
 
     juce::MessageManager::callAsync ([this] { navigateIfNeeded(); });
+    // WebKitGTK on a Pi4 is CPU-heavy; half the UI telemetry rate on Linux to
+    // leave DSP headroom (still smooth enough for meters/stage).  Apple WKWebView
+    // is cheap, so keep 30 Hz there.
+   #if JUCE_LINUX
+    startTimerHz (15);
+   #else
     startTimerHz (30);
+   #endif
 }
 
 WebVaneEditor::~WebVaneEditor()
@@ -459,6 +478,13 @@ static juce::String hzToNote (float hz)
 void WebVaneEditor::timerCallback()
 {
     if (! pageReady) return;
+    // Everything below is pure UI telemetry — and the snapshots are not free
+    // (spectrum runs an FFT, wavetableDisplay walks the table, per-voice loops).
+    // emitEventIfBrowserIsVisible already gates the *sends*, but the work to
+    // build them runs regardless, so skip it entirely when the window isn't
+    // on-screen.  On the Pi this means: minimise the standalone after setup and
+    // the UI stops costing DSP headroom (restore it to tweak again).
+    if (! isShowing()) return;
     webView.emitEventIfBrowserIsVisible ("meters", makeObj ({
         { "Breath",     proc.meterBreath.load() },
         { "Expression", proc.meterExpr.load() },

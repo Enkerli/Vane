@@ -35,23 +35,17 @@ public:
     bool supportsMPE()  const override { return true; }
     double getTailLengthSeconds() const override { return 0.5; }
 
-#if VANE_HEADLESS
-    // Headless (MODEP/LV2): expose the on-disk .vanepreset files as host programs,
-    // which JUCE's LV2 wrapper turns into selectable LV2 presets (MODEP shows these
-    // in its per-plugin preset menu) — the way to use presets with no GUI.
-    int  getNumPrograms() override          { return juce::jmax (1, programNames.size()); }
-    int  getCurrentProgram() override       { return currentProgram; }
-    void setCurrentProgram(int index) override;   // loads programNames[index] (.cpp)
-    const juce::String getProgramName(int index) override
-        { return juce::isPositiveAndBelow (index, programNames.size()) ? programNames[index] : juce::String ("Init"); }
-    void rescanPrograms();                        // refresh the list from disk
-#else
-    int  getNumPrograms() override                              { return 1; }
-    int  getCurrentProgram() override                          { return 0; }
-    void setCurrentProgram(int) override                       {}
-    const juce::String getProgramName(int) override            { return {}; }
-#endif
-    void changeProgramName(int, const juce::String&) override  {}
+    // No host programs are exposed (single default).  The headless build used to
+    // expose the .vanepreset library as LV2 "programs", but on MODEP those load
+    // by re-reading the files at runtime from the home of the user mod-host runs
+    // as ('modep', not where the files live), so they only ever appeared as
+    // broken "Factory" entries.  Presets ship as self-contained LV2 User-preset
+    // bundles instead (Tools/PresetExport/); GUI builds use the WebView browser.
+    int  getNumPrograms() override                             { return 1; }
+    int  getCurrentProgram() override                         { return 0; }
+    void setCurrentProgram(int) override                      {}
+    const juce::String getProgramName(int) override           { return "Default"; }
+    void changeProgramName(int, const juce::String&) override { }
 
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
@@ -59,10 +53,6 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presetManager;
     ChordConfigStore chordConfigStore;   // global rotating-chord palette (JSON on disk)
-#if VANE_HEADLESS
-    juce::StringArray programNames;      // .vanepreset names exposed as LV2 presets
-    int currentProgram = 0;
-#endif
     ProfileManager profileManager;
     ModMatrix    modMatrix;
     TuningClient tuning;
