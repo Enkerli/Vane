@@ -93,16 +93,16 @@ VaneProcessor::VaneProcessor()
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
                                   &chordRotPlayed);
                 v->setModOutSink(modOut.data());
-                v->setVowelParams(apvts.getRawParameterValue("vowelEnable"),
-                                  apvts.getRawParameterValue("vowelPos"),
-                                  apvts.getRawParameterValue("vowelAmount"),
-                                  apvts.getRawParameterValue("vowelReso"),
-                                  apvts.getRawParameterValue("vowelMove"));
             }
         }
     }
 
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
+    pVowelEnable    = apvts.getRawParameterValue("vowelEnable");
+    pVowelPos       = apvts.getRawParameterValue("vowelPos");
+    pVowelAmount    = apvts.getRawParameterValue("vowelAmount");
+    pVowelReso      = apvts.getRawParameterValue("vowelReso");
+    pVowelMove      = apvts.getRawParameterValue("vowelMove");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
@@ -165,6 +165,8 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // 20 ms ramp so output-level automation never causes a zipper click.
     masterGain.reset(sampleRate, 0.020);
     masterGain.setCurrentAndTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
+    formantL.prepare(sampleRate);
+    formantR.prepare(sampleRate);
 
     // Oscillator::prepare() reset each voice to the built-in default; re-apply the
     // loaded table (if any) so it survives a sample-rate change.
@@ -653,14 +655,28 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     meterBreath.store(modMatrix.getMacroValue(0), std::memory_order_relaxed);  // MacroBreath
     meterExpr.store  (modMatrix.getMacroValue(1), std::memory_order_relaxed);  // MacroExpr
 
-    // Apply master output level per-sample so automation ramps smoothly.
+    // ── Global vowel/formant stage (post-mix, in series after the synth) ───────
+    // One persistent filter → mono legato stays seamless (vs a per-voice formant
+    // that restarts cold each note).  vowelPos = base + the sounding voice's
+    // VowelPos modulation (published into modOut), so Breath→Vowel still drives it.
+    const bool  vEn  = pVowelEnable && pVowelEnable->load() > 0.5f;
+    const float vAmt = vEn ? (pVowelAmount ? pVowelAmount->load() : 0.0f) : 0.0f;
+    const float vPos = std::clamp((pVowelPos ? pVowelPos->load() : 0.0f)
+                       + modOut[ModDestID::VowelPos].load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const float vRes = pVowelReso ? pVowelReso->load() : 0.5f;
+    const float vMov = pVowelMove ? pVowelMove->load() : 0.0f;
+    formantL.setParams(vPos, vAmt, vRes, vMov);
+    formantR.setParams(vPos, vAmt, vRes, vMov);
+
+    // Apply master output level per-sample so automation ramps smoothly, then the
+    // formant (pass-through when amount==0).
     masterGain.setTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
     auto* L = buffer.getWritePointer(0);
     auto* R = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
     for (int i = 0; i < buffer.getNumSamples(); ++i) {
         float g = masterGain.getNextValue();
-        L[i] *= g;
-        if (R) R[i] *= g;
+        L[i] = formantL.process(L[i] * g);
+        if (R) R[i] = formantR.process(R[i] * g);
     }
 
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output

@@ -4,23 +4,24 @@
 #include <cmath>
 #include <cstdint>
 
-// FormantFilter — a 3-band vowel/formant resonator that runs in series AFTER the
-// per-voice SVF (osc → noise → fold → SVF → *formant* → VCA).  Per voice, so a
-// single held note behaves like a talkbox "mouth" while a rotating chord becomes
-// a vocal ensemble (each note its own vowel).
+// FormantFilter — a 5-band vowel/formant resonator applied GLOBALLY on the summed
+// post-mix output (after the per-voice SVF + VCA), in series with the synth.
 //
-// Topology: three RBJ constant-0 dB-peak band-pass biquads at the vowel's F1/F2/F3,
+// Global (not per-voice) on purpose: one persistent filter instance has no
+// per-note reset, so mono legato stays seamless (a per-voice formant restarts
+// cold each handoff → transient that destroys legato).  It's also the classic
+// "master vowel filter" topology — a single resonant mouth over the whole sound.
+//
+// Topology: five RBJ constant-0 dB-peak band-pass biquads at the vowel's F1..F5,
 // summed with per-formant gains.  vowelPos (0..1) morphs continuously across
-// A–E–I–O–U (log-interp on frequency, linear on gain/bandwidth).  `reso` narrows
-// the bands (talkbox bite); `amount` is dry→formant mix; `move` adds a slow,
-// per-instance random drift to vowelPos for life/movement.
+// A–E–I–O–U (log-interp on frequency, linear on gain/bandwidth) — the "morphs
+// across" behaviour of a proper vowel filter.  `reso` narrows the bands (talkbox
+// bite); `amount` is dry→formant mix; `move` adds a slow random drift for life.
 //
-// mode is scaffolded for the follow-ups in this thread (sordina Mute, Wah);
-// only Vowel is implemented now — Mute/Wah will reuse the same biquad bank.
+// Formant table = the classic CSound "tenor" sung-vowel values (5 formants:
+// frequency / gain dB / bandwidth).  mode is scaffolded for Mute/Wah follow-ups.
 //
-// DSP note: gains/Q below are sensible starting values; final balance wants
-// ear-tuning on the target (can't audition here).  Output is conservatively
-// trimmed so high `reso` + low F1 vowels don't clip.
+// DSP note: outTrim/bite mapping are starting values; expect ear-tuning.
 class FormantFilter {
 public:
     enum class Mode { Vowel, Mute, Wah };
@@ -79,20 +80,21 @@ public:
     }
 
 private:
-    static constexpr int N = 3;
+    static constexpr int N = 5;
 
-    // ── Vowel formant table (F1..F3): frequency Hz, gain dB, bandwidth Hz ──────
-    // Neutral "tenor/bass" sung-vowel values (classic CSound-style table, F1–F3).
+    // ── Vowel formant table (F1..F5): frequency Hz, gain dB, bandwidth Hz ──────
+    // Classic CSound "tenor" sung-vowel values — the widely-used reference set
+    // that gives convincing, recognisable vowels.
     struct Vowel { float f[N]; float gDb[N]; float bw[N]; };
     static constexpr int kNumVowels = 5;   // A E I O U
     static const Vowel& vowels (int i)
     {
         static const Vowel V[kNumVowels] = {
-            /* A */ {{ 800.f, 1150.f, 2800.f }, {  0.f,  -6.f, -12.f }, {  80.f, 110.f, 160.f }},
-            /* E */ {{ 400.f, 1700.f, 2600.f }, {  0.f,  -8.f, -14.f }, {  70.f, 120.f, 160.f }},
-            /* I */ {{ 320.f, 2100.f, 2900.f }, {  0.f, -12.f, -16.f }, {  60.f, 120.f, 160.f }},
-            /* O */ {{ 450.f,  800.f, 2830.f }, {  0.f, -10.f, -16.f }, {  70.f, 100.f, 160.f }},
-            /* U */ {{ 325.f,  700.f, 2530.f }, {  0.f, -16.f, -20.f }, {  60.f, 100.f, 160.f }},
+            /* A */ {{ 650.f, 1080.f, 2650.f, 2900.f, 3250.f }, { 0.f,  -6.f,  -7.f,  -8.f, -22.f }, { 80.f,  90.f, 120.f, 130.f, 140.f }},
+            /* E */ {{ 400.f, 1700.f, 2600.f, 3200.f, 3580.f }, { 0.f, -14.f, -12.f, -14.f, -20.f }, { 70.f,  80.f, 100.f, 120.f, 120.f }},
+            /* I */ {{ 290.f, 1870.f, 2800.f, 3250.f, 3540.f }, { 0.f, -15.f, -18.f, -20.f, -30.f }, { 40.f,  90.f, 100.f, 120.f, 120.f }},
+            /* O */ {{ 400.f,  800.f, 2600.f, 2800.f, 3000.f }, { 0.f, -10.f, -12.f, -12.f, -26.f }, { 70.f,  80.f, 100.f, 130.f, 135.f }},
+            /* U */ {{ 350.f,  600.f, 2700.f, 2900.f, 3300.f }, { 0.f, -20.f, -17.f, -14.f, -26.f }, { 40.f,  60.f, 100.f, 120.f, 120.f }},
         };
         return V[juce::jlimit (0, kNumVowels - 1, i)];
     }
@@ -163,8 +165,9 @@ private:
     float amount = 0.0f, reso = 0.5f, move = 0.0f;
     float targetPos = 0.0f, lastPos = -1.0f, lastReso = -1.0f;
 
-    // makeup so summed formants sit near unity without clipping at high reso
-    static constexpr float outTrim = 1.6f;
+    // makeup so the summed (band-passed) formants sit near unity; 5 bands sum to
+    // more than 3, so trim lower than before.  Tune by ear on the target.
+    static constexpr float outTrim = 1.1f;
 
     // drift (movement)
     std::uint64_t rng = 0x9E3779B97F4A7C15ull;

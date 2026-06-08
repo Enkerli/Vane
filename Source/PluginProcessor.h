@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include "Synth/SynthVoice.h"
+#include "Synth/FormantFilter.h"
 #include "Synth/TransientLibrary.h"
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
@@ -408,6 +409,15 @@ private:
     // Cached raw parameter pointers — safe to read on the audio thread.
     // Initialised in the constructor after the APVTS is constructed.
     std::atomic<float>* pOutputLevel      = nullptr;
+
+    // Global vowel/formant stage (post-mix, in series after the synth).  Global —
+    // not per-voice — so one persistent filter keeps mono legato seamless.
+    std::atomic<float>* pVowelEnable      = nullptr;
+    std::atomic<float>* pVowelPos         = nullptr;
+    std::atomic<float>* pVowelAmount      = nullptr;
+    std::atomic<float>* pVowelReso        = nullptr;
+    std::atomic<float>* pVowelMove        = nullptr;
+    FormantFilter       formantL, formantR;
 
     // Macro source bindings — resolved each processBlock via setMacroSlot().
     // Breath: 0 = CC (pMacroBreathCC), 1 = Aftertouch, 2 = MPE Pressure.

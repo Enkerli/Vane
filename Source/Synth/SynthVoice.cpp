@@ -71,8 +71,6 @@ void SynthVoice::prepare(double sr, int blockSize)
     for (auto& o : unisonOscs) o.prepare(sr);
     filter.prepare(sr);
     filterR.prepare(sr);
-    formantL.prepare(sr);
-    formantR.prepare(sr);
     transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
     transientReso.prepare(sr);     // pitch resonator delay line
 
@@ -770,20 +768,6 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     filter.setResonance(resonance);
     smoothedCutoff.setTargetValue(juce::jlimit(20.0f, 20000.0f, targetCutoff));
 
-    // ── Vowel / formant stage (block-rate; runs in series after the SVF) ──────────
-    // amount 0 (or disabled) makes process() a pass-through.  VowelPos destination
-    // adds to the base so Breath → Vowel gives wind-driven talkbox sweeps.
-    {
-        const bool  vEnabled = paramVowelEnable && paramVowelEnable->load() > 0.5f;
-        const float vAmt     = vEnabled ? (paramVowelAmount ? paramVowelAmount->load() : 0.0f) : 0.0f;
-        const float vPos     = std::clamp((paramVowelPos ? paramVowelPos->load() : 0.0f)
-                                          + mods[ModDestID::VowelPos], 0.0f, 1.0f);
-        const float vReso    = paramVowelReso ? paramVowelReso->load() : 0.5f;
-        const float vMove    = paramVowelMove ? paramVowelMove->load() : 0.0f;
-        formantL.setParams(vPos, vAmt, vReso, vMove);
-        formantR.setParams(vPos, vAmt, vReso, vMove);
-    }
-
     // ── Stereo unison ───────────────────────────────────────────────────────────
     // Spread `uN` detuned voices across the field; each channel gets its own filter
     // so the detune becomes a true stereo image.  uN == 1 → the original mono path.
@@ -1014,15 +998,14 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
 
         // Filter L (and R separately when unison is active → true stereo width).
         const float vgain = gain * tailLevel;
-        // SVF → formant/vowel stage (pass-through when the vowel stage is off).
-        float sampleL = formantL.process(filter.process(foldedL, filterMode) * vgain);
+        float sampleL = filter.process(foldedL, filterMode) * vgain;
         float sampleR;
         if (unisonOn) {
             filterR.setCutoff(cutoffNow);
             const float foldedR = Oscillator::wavefold(rawR, foldDrive) * subGain;
-            sampleR = formantR.process(filterR.process(foldedR, filterMode) * vgain);
+            sampleR = filterR.process(foldedR, filterMode) * vgain;
         } else {
-            sampleR = sampleL;   // already formant-processed
+            sampleR = sampleL;
         }
 
         // Noise→tone morph: duck the note body so the oscillator emerges from
