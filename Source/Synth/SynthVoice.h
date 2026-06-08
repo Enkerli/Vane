@@ -7,6 +7,7 @@
 #include "MPE/TuningClient.h"
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
+#include "Synth/FormantFilter.h"
 #include "Synth/SamplePlayer.h"
 #include "Synth/CombResonator.h"
 #include "Synth/TransientLibrary.h"
@@ -115,6 +116,15 @@ public:
     // Where to publish this voice's evaluated modulation OUTPUTS (mods[NumDests])
     // each block, for the Stage "Outputs" view.  Points at the processor's array.
     void setModOutSink(std::atomic<float>* sink) noexcept { modOutSink = sink; }
+
+    // Wire the vowel/formant stage params (owned by APVTS).  nullptr-safe.
+    void setVowelParams(std::atomic<float>* en,  std::atomic<float>* pos,
+                        std::atomic<float>* amt, std::atomic<float>* reso,
+                        std::atomic<float>* move) noexcept
+    {
+        paramVowelEnable = en;  paramVowelPos = pos;  paramVowelAmount = amt;
+        paramVowelReso   = reso; paramVowelMove = move;
+    }
 
     // Cross-voice handoff state for stereo unison (mono legato allocates a NEW
     // voice, so the detuned oscs + right-channel filter need the same continuity
@@ -274,6 +284,12 @@ private:
     std::array<Oscillator, kMaxUnison - 1> unisonOscs;
     SVFilter   filter;     // left / centre channel
     SVFilter   filterR;    // right channel (used only when unison voices > 1)
+    FormantFilter formantL, formantR;   // vowel/formant stage, in series after the SVF
+    std::atomic<float>* paramVowelEnable = nullptr;  // 0 = bypass formant stage
+    std::atomic<float>* paramVowelPos    = nullptr;  // 0..1 A→E→I→O→U (base, +mods[VowelPos])
+    std::atomic<float>* paramVowelAmount = nullptr;  // 0..1 dry→formant mix
+    std::atomic<float>* paramVowelReso   = nullptr;  // 0..1 talkbox bite (band Q)
+    std::atomic<float>* paramVowelMove   = nullptr;  // 0..1 random drift depth
     std::atomic<float>* paramUnisonVoices = nullptr;  // choice index → {1,2,3,4,6}
     std::atomic<float>* paramUnisonDetune = nullptr;  // 0..50 cents spread
     std::atomic<float>* paramUnisonWidth  = nullptr;  // 0..1 stereo spread

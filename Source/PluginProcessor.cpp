@@ -93,6 +93,11 @@ VaneProcessor::VaneProcessor()
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
                                   &chordRotPlayed);
                 v->setModOutSink(modOut.data());
+                v->setVowelParams(apvts.getRawParameterValue("vowelEnable"),
+                                  apvts.getRawParameterValue("vowelPos"),
+                                  apvts.getRawParameterValue("vowelAmount"),
+                                  apvts.getRawParameterValue("vowelReso"),
+                                  apvts.getRawParameterValue("vowelMove"));
             }
         }
     }
@@ -860,6 +865,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"filterMode", 1}, "Filter Mode",
         juce::StringArray{"LP", "BP", "HP"}, 0));
+
+    // ── Vowel / formant stage (in series after the SVF, per voice) ────────────────
+    // A 3-band formant resonator morphing A→E→I→O→U.  Disabled by default (adds
+    // CPU per voice).  vowelPos is a mod destination (Breath → Vowel = talkbox).
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"vowelEnable", 1}, "Vowel Enable", false));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelPos", 1}, "Vowel",          // 0=A … 1=U
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelAmount", 1}, "Vowel Amount",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelReso", 1}, "Vowel Bite",     // band Q / talkbox bite
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelMove", 1}, "Vowel Move",     // random drift depth
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // ── Oscillator ───────────────────────────────────────────────────────────
     layout.add(std::make_unique<juce::AudioParameterFloat>(

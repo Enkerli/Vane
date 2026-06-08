@@ -82,7 +82,12 @@ struct ModDestID {
     //   spread.  activeDetune = clamp(unisonDetune + mods[UnisonDetune]·50c, 0, 50)
     static constexpr int UnisonDetune  = 12;  // unison detune spread
 
-    static constexpr int NumDests = 13;
+    // VowelPos: additive offset to the formant filter's vowel position (0..1).
+    //   activeVowel = clamp(vowelPos + mods[VowelPos], 0, 1)
+    //   Breath → VowelPos gives wind-driven talkbox vowel sweeps.
+    static constexpr int VowelPos      = 13;  // formant/vowel position
+
+    static constexpr int NumDests = 14;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -122,9 +127,9 @@ namespace ModSlots {
     // would shift existing presets' destination assignments.
     inline const char* const kDestNames[] = {
         "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync",
-        "Transient", "Uni Detune"
+        "Transient", "Uni Detune", "Vowel"
     };
-    static constexpr int NumDestChoices = 12;
+    static constexpr int NumDestChoices = 13;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -159,6 +164,7 @@ namespace ModSlots {
             case 9: return ModDestID::OscSync;
             case 10: return ModDestID::TransientLevel;
             case 11: return ModDestID::UnisonDetune;
+            case 12: return ModDestID::VowelPos;
             default: return -1;
         }
     }

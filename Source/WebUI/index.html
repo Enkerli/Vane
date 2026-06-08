@@ -630,7 +630,7 @@ const SRC_COLOR={Breath:"--vn-breath",Expression:"--vn-expr",Pressure:"--vn-pres
 AUX.forEach(a=>{ SRC_COLOR[a]="--vn-muted"; SRC_CC[a]="CC?"; });   // bound via the Controllers profile (next phase)
 SRC_COLOR["Keytrack"]="--vn-pressure"; SRC_CC["Keytrack"]="note";   // per-note pitch source (bipolar)
 const BINDABLE = {Breath:true,Expression:true};   // these sources expose a CC# binding
-const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm","Sync","Transient","Uni Detune"];
+const DESTS   = ["VCA","Cutoff","Reso","Pitch","Morph","PW","Fold","Noise","Inharm","Sync","Transient","Uni Detune","Vowel"];
 const CURVES  = ["Lin","Exp","S"];
 const NUM_SLOTS = 24;
 const METER_SRC = ["Breath","Expression","Pressure","Slide","Pitchbend","Velocity"];
@@ -982,7 +982,7 @@ function harshness(){ const b=state.spec||[]; const n=b.length; if(n<2) return 0
   let num=0, den=0; for(let i=0;i<n;i++){ const m=Math.max(0,b[i]); num+=i*m; den+=m; }
   if(den<1e-4) return 0; return clamp((num/den)/(n-1),0,1); }
 // Modulation Outputs view — HTML bars (built once, widths updated live).
-const OUT_LABELS=['Cutoff','Reso','VCA','Pitch','Morph','Glide','PW','Noise','Fold','Inharm','Sync','Transient','Detune'];
+const OUT_LABELS=['Cutoff','Reso','VCA','Pitch','Morph','Glide','PW','Noise','Fold','Inharm','Sync','Transient','Detune','Vowel'];
 function renderOutputs(){ const el=$('#outStage'); if(!el) return;
   if(!el.firstChild) el.innerHTML='<div class="out-head"><span class="eyebrow">Modulation outputs · live</span></div>'+
     OUT_LABELS.map((l,i)=>`<div class="out-row"><span class="ol">${l}</span><div class="ot"><div class="of" id="of_${i}"></div></div><span class="ov num" id="ov_${i}">0</span></div>`).join('');
