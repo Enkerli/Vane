@@ -124,10 +124,6 @@ VaneProcessor::VaneProcessor()
     restoreGlideCurve();      // glide LUT → identity until a curve is drawn
     restoreChordSeqs();       // rotating-chord interval sequences (default until edited)
 
-#if VANE_HEADLESS
-    rescanPrograms();         // expose on-disk presets as LV2 programs (MODEP menu)
-#endif
-
 #if JUCE_DEBUG
     // Run unit tests on every Debug build so regressions surface immediately while
     // debugging in a host.  NOTE: in the assembled plugin/standalone these test TUs
@@ -664,26 +660,6 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
 }
-
-#if VANE_HEADLESS
-// Headless program <-> preset bridge.  JUCE's LV2 wrapper emits one LV2 preset
-// per program (MODEP's preset menu); selecting one calls setCurrentProgram(),
-// which loads the matching .vanepreset from ~/.config/Vane/Presets.
-void VaneProcessor::rescanPrograms()
-{
-    programNames = presetManager.getPresetNames();
-    const auto cur = presetManager.getCurrentPresetName();
-    const int idx = programNames.indexOf (cur);
-    currentProgram = juce::jmax (0, idx);
-}
-void VaneProcessor::setCurrentProgram (int index)
-{
-    if (juce::isPositiveAndBelow (index, programNames.size())) {
-        presetManager.loadPreset (programNames[index]);
-        currentProgram = index;
-    }
-}
-#endif
 
 juce::AudioProcessorEditor* VaneProcessor::createEditor()
 {
