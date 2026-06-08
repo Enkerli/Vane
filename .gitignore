@@ -3,3 +3,7 @@ build*/
 *.xcuserstate
 xcuserdata/
 JUCE
+
+# macOS/tool artifact in design folder
+Vane Design/.thumbnail
+.thumbnail
