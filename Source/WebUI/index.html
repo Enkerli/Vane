@@ -658,7 +658,8 @@ const state = {
   patch:{ Morph:0.0,PW:0.5,Fold:0.0,Inharm:0.0,Sync:1.0,Noise:0.0,NoiseType:0,Detune:0,
           TrGain:0.0,TrDecay:200,TrChoice:0,TrTrigger:1,TrVar:0.3,TrFilt:1,TrDyn:0.75,TrReso:0.3,TrDamp:0.5,TrMorph:12,
           Cutoff:1128,Reso:0.1,Mode:0,Output:0.8,VelVCA:0.0,
-          Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0,UniVox:0,UniDet:14,UniWid:0.7,UniMode:0 },
+          Glide:0,GlideMode:0,GlideCurve:0,MasterTune:0,UniVox:0,UniDet:14,UniWid:0.7,UniMode:0,
+          VowelEn:0,Vowel:0,VowelAmt:1,VowelBite:0.5,VowelMove:0 },
   slots: Array.from({length:NUM_SLOTS},()=>({src:0,dst:0,amt:0,curve:0,scale:0,atk:5,rel:80,on:true,anchors:[]})),
   voices:[],   // live per-note MPE expression: [{note,hz,level,pressure,slide,bend,vel}]
   aux:[],      // controller-profile aux sources: [{label, cc}] (from controllerState)
@@ -1020,11 +1021,14 @@ const FMT={ Cutoff:v=>Math.round(v)+' Hz', Detune:v=>v.toFixed(0)+' ¢', MasterT
   // show the fractional frame so it's clear the value isn't snapping.
   Morph:v=>{ const f=v*Math.max(0,(state.wt.frames||1)-1); return 'frame '+(morphSnap?Math.round(f):f.toFixed(2)); }, PW:v=>v.toFixed(3), Sync:v=>v.toFixed(2)+'×',
   TrGain:v=>v.toFixed(2), TrDecay:v=>Math.round(v)+' ms', TrVar:v=>Math.round(v*100)+'%', TrDyn:v=>Math.round(v*100)+'%',
-  TrReso:v=>Math.round(v*100)+'%', TrDamp:v=>Math.round(v*100)+'%', TrMorph:v=>Math.round(v)+' ms', default:v=>v.toFixed(2) };
+  TrReso:v=>Math.round(v*100)+'%', TrDamp:v=>Math.round(v*100)+'%', TrMorph:v=>Math.round(v)+' ms',
+  Vowel:v=>['A','E','I','O','U'][clamp(Math.round(v*4),0,4)], VowelAmt:v=>Math.round(v*100)+'%',
+  VowelBite:v=>Math.round(v*100)+'%', VowelMove:v=>Math.round(v*100)+'%', default:v=>v.toFixed(2) };
 const RANGE={ Morph:[0,1,.001], PW:[0.5,0.999,.001], Fold:[0,1,.01], Inharm:[0,1,.01], Sync:[1,8,.01], Noise:[0,1,.01], Detune:[-100,100,1],
               TrGain:[0,2,.01], TrDecay:[10,2000,1], TrVar:[0,1,.01], TrDyn:[0,1,.01], TrReso:[0,1,.01], TrDamp:[0,1,.01], TrMorph:[0,50,1],
   Cutoff:[20,20000,10], Reso:[0,1,.01], Output:[0,1,.01], VelVCA:[0,1,.01], Glide:[0,2000,5], MasterTune:[-100,100,1],
-  UniDet:[0,50,1], UniWid:[0,1,.01] };
+  UniDet:[0,50,1], UniWid:[0,1,.01],
+  Vowel:[0,1,.01], VowelAmt:[0,1,.01], VowelBite:[0,1,.01], VowelMove:[0,1,.01] };
 // Sliders that map exponentially (log) — most of the musical action is low.
 const LOGK={ Cutoff:true, TrDecay:true };
 function toNorm(key,v){ const [a,b]=RANGE[key]; if(LOGK[key]&&a>0&&v>0) return clamp(Math.log(v/a)/Math.log(b/a),0,1); return clamp((v-a)/(b-a),0,1); }
@@ -1086,6 +1090,12 @@ function renderPatch(){
       ${pslider('Cutoff','Cutoff','--vn-breath')}${pslider('Reso','Resonance','--vn-breath')}
       <div class="pslider"><div class="top"><span class="lbl">Mode</span></div>
         <div class="seg">${["LP","BP","HP"].map((n,i)=>`<button class="${state.patch.Mode===i?'active':''}" onclick="setChoice('Mode',${i})">${n}</button>`).join('')}</div></div>
+    </div>
+    <div class="group ${collapsed['Vowel']?'collapsed':''}" data-grp="Vowel">${gh('Vowel')}
+      <div class="pslider" style="grid-column:1/-1"><div class="top"><span class="lbl">Vowel Filter</span></div>
+        <div class="seg">${["Off","On"].map((n,i)=>`<button class="${Math.round(state.patch.VowelEn)===i?'active':''}" onclick="setChoice('VowelEn',${i})">${n}</button>`).join('')}</div></div>
+      ${pslider('Vowel','Vowel (A-U)','--vn-breath')}${pslider('VowelAmt','Amount','--vn-breath')}
+      ${pslider('VowelBite','Bite','--vn-breath')}${pslider('VowelMove','Move','--vn-breath')}
     </div>
     <div class="group ${collapsed['Performance']?'collapsed':''}" data-grp="Performance">${gh('Performance')}
       ${pslider('Output','Output','--vn-pressure')}${pslider('VelVCA','Vel → VCA','--vn-pressure')}
