@@ -21,7 +21,7 @@ const ParamPair kParamMap[] = {
     { "Detune",  "oscDetune"   }, { "Cutoff",  "filterCutoff" }, { "Reso", "filterRes"  },
     { "Mode",    "filterMode"  }, { "Output",  "outputLevel" }, { "VelVCA", "velocityMix" },
     { "VowelEn", "vowelEnable" }, { "Vowel",   "vowelPos"    }, { "VowelAmt","vowelAmount" },
-    { "VowelBite","vowelReso"  }, { "VowelMove","vowelMove"   },
+    { "VowelBite","vowelReso"  }, { "VowelMove","vowelMove"   }, { "VowelMode","vowelMode" },
     { "Glide",   "glideTime"   }, { "GlideMode","glideMode"  }, { "GlideCurve","glideCurve" },
     { "MasterTune","masterTune"}, { "monoMode","monoMode"    },
     { "UniVox",  "unisonVoices"}, { "UniDet","unisonDetune"  }, { "UniWid","unisonWidth" },

@@ -103,6 +103,7 @@ VaneProcessor::VaneProcessor()
     pVowelAmount    = apvts.getRawParameterValue("vowelAmount");
     pVowelReso      = apvts.getRawParameterValue("vowelReso");
     pVowelMove      = apvts.getRawParameterValue("vowelMove");
+    pVowelMode      = apvts.getRawParameterValue("vowelMode");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
@@ -665,6 +666,9 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                        + modOut[ModDestID::VowelPos].load(std::memory_order_relaxed), 0.0f, 1.0f);
     const float vRes = pVowelReso ? pVowelReso->load() : 0.5f;
     const float vMov = pVowelMove ? pVowelMove->load() : 0.0f;
+    const auto  vMode = (pVowelMode && pVowelMode->load() > 0.5f)
+                        ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel;
+    formantL.setMode(vMode);  formantR.setMode(vMode);
     formantL.setParams(vPos, vAmt, vRes, vMov);
     formantR.setParams(vPos, vAmt, vRes, vMov);
 
@@ -899,6 +903,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"vowelMove", 1}, "Vowel Move",     // random drift depth
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // Formant stage mode.  Vowel = 5-formant morph; Wah = single swept resonant
+    // band (position = sweep, Bite = Q, Breath→Vowel = auto-wah).  Append-only.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"vowelMode", 1}, "Formant Mode",
+        juce::StringArray{"Vowel", "Wah"}, 0));
 
     // ── Oscillator ───────────────────────────────────────────────────────────
     layout.add(std::make_unique<juce::AudioParameterFloat>(

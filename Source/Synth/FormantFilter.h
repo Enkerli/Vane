@@ -50,6 +50,8 @@ public:
         targetPos = juce::jlimit (0.0f, 1.0f, vowelPos_);
     }
 
+    void setMode (Mode m) noexcept { mode = m; }
+
     // Per-sample.  Returns dry when amount==0 (and is effectively bypassable by
     // the caller when the stage is disabled).
     float process (float x)
@@ -71,10 +73,19 @@ public:
 
         updateCoeffsIfMoved (pos);
 
-        float wet = 0.0f;
-        for (int i = 0; i < N; ++i)
-            wet += band[i].process (x) * gLin[i];
-        wet *= outTrim;
+        float wet;
+        if (mode == Mode::Wah)
+        {
+            // single swept resonant band-pass (classic wah); auto-wah via move/mod.
+            wet = band[0].process (x) * outTrim;
+        }
+        else   // Vowel (Mute reserved → falls back to vowel until implemented)
+        {
+            wet = 0.0f;
+            for (int i = 0; i < N; ++i)
+                wet += band[i].process (x) * gLin[i];
+            wet *= outTrim;
+        }
 
         return x + amount * (wet - x);
     }
@@ -101,16 +112,25 @@ private:
 
     void updateCoeffsIfMoved (float pos)
     {
+        // re-tune only on meaningful movement (avoids per-sample tan/cos cost)
+        if (std::abs (pos - lastPos) < 1.0e-4f && reso == lastReso && mode == lastMode) return;
+        lastPos = pos; lastReso = reso; lastMode = mode;
+
+        if (mode == Mode::Wah)
+        {
+            // one resonant band swept 300 Hz → 3 kHz (log); Bite → Q.
+            const float f = 300.0f * std::pow (10.0f, juce::jlimit (0.0f, 1.0f, pos));
+            const float q = 2.0f + reso * 18.0f;
+            band[0].setBandpass (f, q, sr);
+            return;
+        }
+
         // morph A→E→I→O→U
         const float seg = pos * (kNumVowels - 1);
         const int   i0  = juce::jlimit (0, kNumVowels - 2, (int) seg);
         const float t   = seg - (float) i0;
         const auto& a = vowels (i0);
         const auto& b = vowels (i0 + 1);
-
-        // re-tune only on meaningful movement (avoids per-sample tan/cos cost)
-        if (std::abs (pos - lastPos) < 1.0e-4f && reso == lastReso) return;
-        lastPos = pos; lastReso = reso;
 
         // reso narrows bandwidth (higher Q / more bite): scale bw down to ~35%.
         const float bwScale = 1.0f - 0.65f * reso;
@@ -164,6 +184,7 @@ private:
     float sr = 48000.0f;
     float amount = 0.0f, reso = 0.5f, move = 0.0f;
     float targetPos = 0.0f, lastPos = -1.0f, lastReso = -1.0f;
+    Mode  mode = Mode::Vowel, lastMode = Mode::Vowel;
 
     // makeup so the summed (band-passed) formants sit near unity; 5 bands sum to
     // more than 3, so trim lower than before.  Tune by ear on the target.

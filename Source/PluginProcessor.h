@@ -417,6 +417,7 @@ private:
     std::atomic<float>* pVowelAmount      = nullptr;
     std::atomic<float>* pVowelReso        = nullptr;
     std::atomic<float>* pVowelMove        = nullptr;
+    std::atomic<float>* pVowelMode        = nullptr;   // 0 = Vowel, 1 = Wah
     FormantFilter       formantL, formantR;
 
     // Macro source bindings — resolved each processBlock via setMacroSlot().
