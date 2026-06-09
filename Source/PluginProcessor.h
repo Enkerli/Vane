@@ -413,7 +413,9 @@ private:
     // Global vowel/formant stage (post-mix, in series after the synth).  Global —
     // not per-voice — so one persistent filter keeps mono legato seamless.
     std::atomic<float>* pVowelEnable      = nullptr;
-    std::atomic<float>* pVowelPos         = nullptr;
+    std::atomic<float>* pVowelPos         = nullptr;   // = Open axis (F1) / Wah sweep
+    std::atomic<float>* pVowelFront       = nullptr;   // Front axis (F2)
+    std::atomic<float>* pVowelRound       = nullptr;   // Round axis (lip rounding)
     std::atomic<float>* pVowelAmount      = nullptr;
     std::atomic<float>* pVowelReso        = nullptr;
     std::atomic<float>* pVowelMove        = nullptr;
