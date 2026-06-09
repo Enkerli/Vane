@@ -40,14 +40,18 @@ public:
         drift = 0.0f;
     }
 
-    // vowelPos/amount/reso/move all 0..1.  Call once per block (cheap); the heavy
-    // coefficient update only re-runs when the morphed vowel actually moves.
-    void setParams (float vowelPos_, float amount_, float reso_, float move_)
+    // Articulatory vowel axes (all 0..1): open (close→open, drives F1), front
+    // (back→front, drives F2), round (lip rounding, lowers F2/F3).  In Wah mode
+    // only `open` is used (the sweep position).  Call once per block.
+    void setParams (float open_, float front_, float round_,
+                    float amount_, float reso_, float move_)
     {
         amount = juce::jlimit (0.0f, 1.0f, amount_);
         reso   = juce::jlimit (0.0f, 1.0f, reso_);
         move   = juce::jlimit (0.0f, 1.0f, move_);
-        targetPos = juce::jlimit (0.0f, 1.0f, vowelPos_);
+        targetPos = juce::jlimit (0.0f, 1.0f, open_);
+        front     = juce::jlimit (0.0f, 1.0f, front_);
+        round     = juce::jlimit (0.0f, 1.0f, round_);
     }
 
     void setMode (Mode m) noexcept { mode = m; }
@@ -93,56 +97,45 @@ public:
 private:
     static constexpr int N = 5;
 
-    // ── Vowel formant table (F1..F5): frequency Hz, gain dB, bandwidth Hz ──────
-    // Classic CSound "tenor" sung-vowel values — the widely-used reference set
-    // that gives convincing, recognisable vowels.
-    struct Vowel { float f[N]; float gDb[N]; float bw[N]; };
-    static constexpr int kNumVowels = 5;   // A E I O U
-    static const Vowel& vowels (int i)
+    // log-interpolate a frequency by t∈[0,1] between lo and hi
+    static float lerpHz (float lo, float hi, float t)
     {
-        static const Vowel V[kNumVowels] = {
-            /* A */ {{ 650.f, 1080.f, 2650.f, 2900.f, 3250.f }, { 0.f,  -6.f,  -7.f,  -8.f, -22.f }, { 80.f,  90.f, 120.f, 130.f, 140.f }},
-            /* E */ {{ 400.f, 1700.f, 2600.f, 3200.f, 3580.f }, { 0.f, -14.f, -12.f, -14.f, -20.f }, { 70.f,  80.f, 100.f, 120.f, 120.f }},
-            /* I */ {{ 290.f, 1870.f, 2800.f, 3250.f, 3540.f }, { 0.f, -15.f, -18.f, -20.f, -30.f }, { 40.f,  90.f, 100.f, 120.f, 120.f }},
-            /* O */ {{ 400.f,  800.f, 2600.f, 2800.f, 3000.f }, { 0.f, -10.f, -12.f, -12.f, -26.f }, { 70.f,  80.f, 100.f, 130.f, 135.f }},
-            /* U */ {{ 350.f,  600.f, 2700.f, 2900.f, 3300.f }, { 0.f, -20.f, -17.f, -14.f, -26.f }, { 40.f,  60.f, 100.f, 120.f, 120.f }},
-        };
-        return V[juce::jlimit (0, kNumVowels - 1, i)];
+        return lo * std::pow (hi / lo, juce::jlimit (0.0f, 1.0f, t));
     }
 
-    void updateCoeffsIfMoved (float pos)
+    void updateCoeffsIfMoved (float pos)   // pos = the (drifted) `open` axis
     {
         // re-tune only on meaningful movement (avoids per-sample tan/cos cost)
-        if (std::abs (pos - lastPos) < 1.0e-4f && reso == lastReso && mode == lastMode) return;
-        lastPos = pos; lastReso = reso; lastMode = mode;
+        if (std::abs (pos - lastPos) < 1.0e-4f && front == lastFront && round == lastRound
+            && reso == lastReso && mode == lastMode) return;
+        lastPos = pos; lastFront = front; lastRound = round; lastReso = reso; lastMode = mode;
 
         if (mode == Mode::Wah)
         {
             // one resonant band swept 300 Hz → 3 kHz (log); Bite → Q.
-            const float f = 300.0f * std::pow (10.0f, juce::jlimit (0.0f, 1.0f, pos));
-            const float q = 2.0f + reso * 18.0f;
-            band[0].setBandpass (f, q, sr);
+            band[0].setBandpass (300.0f * std::pow (10.0f, juce::jlimit (0.0f, 1.0f, pos)),
+                                 2.0f + reso * 18.0f, sr);
             return;
         }
 
-        // morph A→E→I→O→U
-        const float seg = pos * (kNumVowels - 1);
-        const int   i0  = juce::jlimit (0, kNumVowels - 2, (int) seg);
-        const float t   = seg - (float) i0;
-        const auto& a = vowels (i0);
-        const auto& b = vowels (i0 + 1);
+        // ── Articulatory vowel space (the IPA chart, continuously) ────────────
+        // open → F1 (close 270 Hz → open 850 Hz); front → F2 (back 700 → front
+        // 2300); rounding pulls F2/F3 down (so front+round = /y/, the French "u").
+        // F4/F5 are fixed "voice character" (tenor-ish).  Gains: F1 strongest,
+        // rounding darkens F2.  Corners → i / a / u / y, etc.
+        const float f1 = lerpHz (270.0f,  850.0f, pos);
+        const float f2 = lerpHz (700.0f, 2300.0f, front) * (1.0f - 0.22f * round);
+        const float f3 = 2550.0f * (1.0f - 0.10f * round);
+        const float fHz[N]    = { f1, f2, f3, 3200.0f, 3580.0f };
+        const float bwBase[N] = { 80.0f, 90.0f, 120.0f, 130.0f, 140.0f };
+        const float gDb[N]    = { 0.0f, -7.0f - 6.0f * round, -9.0f, -12.0f, -22.0f };
 
-        // reso narrows bandwidth (higher Q / more bite): scale bw down to ~35%.
-        const float bwScale = 1.0f - 0.65f * reso;
-
+        const float bwScale = 1.0f - 0.65f * reso;   // Bite narrows the bands
         for (int i = 0; i < N; ++i)
         {
-            const float f  = std::exp (juce::jmap (t, std::log (a.f[i]),  std::log (b.f[i])));
-            const float g  = juce::jmap (t, a.gDb[i], b.gDb[i]);
-            const float bw = juce::jmap (t, a.bw[i],  b.bw[i]) * bwScale;
-            const float q  = juce::jmax (0.5f, f / juce::jmax (1.0f, bw));
-            band[i].setBandpass (f, q, sr);
-            gLin[i] = std::pow (10.0f, g / 20.0f);
+            const float bw = bwBase[i] * bwScale;
+            band[i].setBandpass (fHz[i], juce::jmax (0.5f, fHz[i] / juce::jmax (1.0f, bw)), sr);
+            gLin[i] = std::pow (10.0f, gDb[i] / 20.0f);
         }
     }
 
@@ -183,7 +176,8 @@ private:
 
     float sr = 48000.0f;
     float amount = 0.0f, reso = 0.5f, move = 0.0f;
-    float targetPos = 0.0f, lastPos = -1.0f, lastReso = -1.0f;
+    float front = 0.5f, round = 0.0f;
+    float targetPos = 0.0f, lastPos = -1.0f, lastFront = -1.0f, lastRound = -1.0f, lastReso = -1.0f;
     Mode  mode = Mode::Vowel, lastMode = Mode::Vowel;
 
     // makeup so the summed (band-passed) formants sit near unity; 5 bands sum to

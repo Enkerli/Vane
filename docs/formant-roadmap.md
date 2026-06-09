@@ -5,7 +5,23 @@ resonator bank in series after the synth. Current modes: **Vowel** (5-formant
 A–E–I–O–U morph) and **Wah** (single swept resonant band). This file captures
 the planned extensions.
 
-## 1. Vowel v2 — articulatory space (the real upgrade)
+## 1. Vowel v2 — articulatory space ✅ (controls done)
+
+DONE: `vowelPos` is now the **Open** axis (F1), plus **Front** (F2) and **Round**
+params; the formant freqs are computed from them (see FormantFilter
+`updateCoeffsIfMoved`), spanning the IPA chart (incl. /y/, /ø/ rounded fronts).
+UI has Open/Front/Round sliders + a cardinal-vowel preset row, mode-aware. Open
+is the VowelPos mod destination (Breath→Open).
+
+STILL TO DO:
+- **Voice selector** (bass/tenor/alto/soprano) scaling F1..F5 + F4/F5 character.
+- **Front/Round mod destinations** (only Open is modulatable today) — add
+  VowelFront/VowelRound ModDests so Slide→Front etc. work.
+- Ear-tune the F1/F2 ranges + rounding amounts against reference vowels.
+
+Original design notes:
+
+## (orig) Vowel v2 — articulatory space
 
 The limitation of A→E→I→O→U isn't the count, it's that those vowels aren't on a
 1-D line in formant space — morphing straight through them passes through

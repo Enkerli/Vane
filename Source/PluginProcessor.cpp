@@ -100,6 +100,8 @@ VaneProcessor::VaneProcessor()
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
     pVowelEnable    = apvts.getRawParameterValue("vowelEnable");
     pVowelPos       = apvts.getRawParameterValue("vowelPos");
+    pVowelFront     = apvts.getRawParameterValue("vowelFront");
+    pVowelRound     = apvts.getRawParameterValue("vowelRound");
     pVowelAmount    = apvts.getRawParameterValue("vowelAmount");
     pVowelReso      = apvts.getRawParameterValue("vowelReso");
     pVowelMove      = apvts.getRawParameterValue("vowelMove");
@@ -660,17 +662,19 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     // One persistent filter → mono legato stays seamless (vs a per-voice formant
     // that restarts cold each note).  vowelPos = base + the sounding voice's
     // VowelPos modulation (published into modOut), so Breath→Vowel still drives it.
-    const bool  vEn  = pVowelEnable && pVowelEnable->load() > 0.5f;
-    const float vAmt = vEn ? (pVowelAmount ? pVowelAmount->load() : 0.0f) : 0.0f;
-    const float vPos = std::clamp((pVowelPos ? pVowelPos->load() : 0.0f)
-                       + modOut[ModDestID::VowelPos].load(std::memory_order_relaxed), 0.0f, 1.0f);
-    const float vRes = pVowelReso ? pVowelReso->load() : 0.5f;
-    const float vMov = pVowelMove ? pVowelMove->load() : 0.0f;
+    const bool  vEn   = pVowelEnable && pVowelEnable->load() > 0.5f;
+    const float vAmt  = vEn ? (pVowelAmount ? pVowelAmount->load() : 0.0f) : 0.0f;
+    const float vOpen = std::clamp((pVowelPos ? pVowelPos->load() : 0.0f)
+                        + modOut[ModDestID::VowelPos].load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const float vFrnt = pVowelFront ? pVowelFront->load() : 0.5f;
+    const float vRnd  = pVowelRound ? pVowelRound->load() : 0.0f;
+    const float vRes  = pVowelReso ? pVowelReso->load() : 0.5f;
+    const float vMov  = pVowelMove ? pVowelMove->load() : 0.0f;
     const auto  vMode = (pVowelMode && pVowelMode->load() > 0.5f)
                         ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel;
     formantL.setMode(vMode);  formantR.setMode(vMode);
-    formantL.setParams(vPos, vAmt, vRes, vMov);
-    formantR.setParams(vPos, vAmt, vRes, vMov);
+    formantL.setParams(vOpen, vFrnt, vRnd, vAmt, vRes, vMov);
+    formantR.setParams(vOpen, vFrnt, vRnd, vAmt, vRes, vMov);
 
     // Apply master output level per-sample so automation ramps smoothly, then the
     // formant (pass-through when amount==0).
@@ -891,8 +895,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // CPU per voice).  vowelPos is a mod destination (Breath → Vowel = talkbox).
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"vowelEnable", 1}, "Vowel Enable", false));
+    // Articulatory axes (vowel v2): Open (vowelPos, also the Wah sweep), Front,
+    // Round — together they span the IPA vowel chart.  Open is the VowelPos mod
+    // destination (Breath→Open = mouth opens with air).
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"vowelPos", 1}, "Vowel",          // 0=A … 1=U
+        juce::ParameterID{"vowelPos", 1}, "Vowel Open",     // close→open (F1) / Wah sweep
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelFront", 1}, "Vowel Front",  // back→front (F2)
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"vowelRound", 1}, "Vowel Round",  // lip rounding (lowers F2/F3)
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"vowelAmount", 1}, "Vowel Amount",
