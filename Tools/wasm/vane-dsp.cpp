@@ -28,14 +28,20 @@ constexpr int kMaxVoices  = 16;
 constexpr int kMaxBlock    = 2048;
 double gSampleRate = 48000.0;
 
-// Global (patch) params — ids match param-map.js on the JS side.
-float pCutoff   = 4000.0f;   // base filter cutoff (Hz)
-float pReso     = 0.2f;      // 0..1
+// Global (patch) params. Ids 1/2/8 mirror real Vane param ids (Cutoff Hz,
+// Reso 0..1, Output 0..1 — index.html's own RANGE table), wired from the page's
+// Bridge.send('setParam',...) channel via synth-main.js. Ids 3-7 are this
+// standalone voice's own envelope/MPE-range knobs — Vane's actual amp envelope
+// lives in the mod-matrix (per-slot atk/rel), not a flat param, so there is no
+// real id to map them to yet; that arrives with the mod-matrix (v2) increment.
+float pCutoff   = 4000.0f;   // base filter cutoff (Hz)              [id 1, real]
+float pReso     = 0.2f;      // 0..1                                 [id 2, real]
 float pAttack   = 0.005f;    // seconds
 float pDecay    = 0.20f;
 float pSustain  = 0.75f;     // 0..1
 float pRelease  = 0.30f;
 float pBendRange = 48.0f;    // MPE member-channel pitch-bend range (semitones)
+float pOutput   = 0.8f;      // 0..1 master gain                     [id 8, real; matches state.patch.Output default]
 
 struct Voice {
     Oscillator osc;
@@ -106,6 +112,7 @@ void vane_set_param (int id, float val) {
         case 5: pSustain   = val; break;
         case 6: pRelease   = val; break;
         case 7: pBendRange = val; break;
+        case 8: pOutput    = val; break;
         default: break;
     }
 }
@@ -139,6 +146,8 @@ void vane_render (int n) {
             if (! v.active) break;
         }
     }
+
+    for (int s = 0; s < n; ++s) renderBuf[s] *= pOutput;
 }
 
 } // extern "C"
