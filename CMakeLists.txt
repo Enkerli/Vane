@@ -186,14 +186,25 @@ target_sources(Vane PRIVATE
 target_include_directories(Vane PRIVATE Source)
 
 # ── WebUI bundle ──────────────────────────────────────────────────────────────
-# Compile the self-contained UI (Source/WebUI/index.html) into BinaryData; the
-# WebVaneEditor resource provider serves it to the WKWebView (no local server).
-# HEADER_NAME keeps it in its own header so it never clashes with other binary
-# data; linking the target adds its include dir for <BinaryDataWebUI.h>.
+# The UI source (index.html) lives in the music-suite monorepo (apps/vane) —
+# single source shared with the standalone webapp; only the C++ editor
+# (WebVaneEditor.*) stays here. Default to the maintainer's sibling checkout;
+# override per machine in webui.local.cmake (gitignored) — needed here since this
+# repo isn't beside music-suite. The WebVaneEditor resource provider serves the
+# embedded HTML to the WKWebView (no local server).
+set(VANE_WEBUI_DIR "${CMAKE_SOURCE_DIR}/../music-suite/apps/vane"
+    CACHE PATH "Path to the Vane WebUI source (music-suite/apps/vane)")
+include("${CMAKE_CURRENT_SOURCE_DIR}/webui.local.cmake" OPTIONAL)
+if(NOT EXISTS "${VANE_WEBUI_DIR}/index.html")
+    message(FATAL_ERROR
+        "Vane WebUI source not found at ${VANE_WEBUI_DIR}. It now lives in the "
+        "music-suite monorepo (apps/vane). Check out music-suite, or set "
+        "VANE_WEBUI_DIR in webui.local.cmake.")
+endif()
 juce_add_binary_data(VaneWebUI
     HEADER_NAME BinaryDataWebUI.h
     NAMESPACE   BinaryData
-    SOURCES     Source/WebUI/index.html)
+    SOURCES     "${VANE_WEBUI_DIR}/index.html")
 target_link_libraries(Vane PRIVATE VaneWebUI)
 
 # ── Factory wavetable library (bundled, CC0 / Public Domain) ─────────────────

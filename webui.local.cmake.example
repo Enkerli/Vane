@@ -1,0 +1,5 @@
+# Per-machine WebUI source override — copy to `webui.local.cmake` (gitignored).
+# Vane's UI source lives in the music-suite monorepo (apps/vane). CMake defaults
+# to a sibling checkout (../music-suite); if yours is elsewhere, point
+# VANE_WEBUI_DIR at its apps/vane directory here.
+set(VANE_WEBUI_DIR "/path/to/music-suite/apps/vane" CACHE PATH "" FORCE)
