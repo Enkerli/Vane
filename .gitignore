@@ -11,3 +11,4 @@ Vane Design/.thumbnail
 # WebUI source now lives in the music-suite monorepo (apps/vane); only the C++
 # editor (WebVaneEditor.*) remains under Source/WebUI here.
 webui.local.cmake
+Tools/wasm/vane-dsp.wasm
