@@ -1,66 +1,137 @@
 // vane-dsp.cpp — C-ABI Web Audio voice engine for the Vane *standalone* webapp.
 //
 // Reuses the plugin's real DSP — Oscillator (built-in band-limited waveforms) +
-// SVFilter — compiled to WASM, wrapped in a small polyphonic voice pool with an
-// amp ADSR and MPE expression. JUCE is stubbed (Tools/wasm/juce-stub) down to
+// SVFilter — compiled to WASM. JUCE is stubbed (Tools/wasm/juce-stub) down to
 // jlimit/MathConstants, so no JUCE module is linked. The morph wavetable
-// (Oscillator::nextMorphed + Wavetable FFT loading) is a later stage; v1 uses
-// the built-in waveforms, so Wavetable.cpp is NOT compiled here.
+// (Oscillator::nextMorphed + Wavetable FFT loading) is a later stage; this
+// voice uses the built-in waveforms, so Wavetable.cpp is NOT compiled here.
 //
-// The AudioWorklet drives this: vane_init(sr) once, then per MIDI event
-// vane_note_on/off + vane_set_expr, and per render quantum vane_render(n) →
-// read vane_buffer()[0..n) (mono) out of WASM memory.
+// AMPLITUDE MODEL — reproduces Vane's real one, not a generic synth's. Vane has
+// NO flat Attack/Decay/Sustain/Release knob: the audible envelope is whatever
+// the mod matrix routes to VCA, and the FACTORY routing (PluginProcessor.cpp
+// kFactory[]) is:
+//   Breath → VCA  1.00 lin   Expression → VCA  1.00 lin   Pressure → VCA  0.50 lin
+//   Slide → Cutoff 0.90 lin  Breath/Expr/Pressure → Cutoff 0.25/0.25/0.20 exp
+//   Breath/Expr → Reso 0.15/0.15 exp     Velocity → Cutoff 0.15 lin
+// vcaLevel = clamp(VelVCA·√velocity + that sum, 0, 1) — VelVCA defaults to 0, so
+// out of the box velocity contributes NOTHING to loudness; breath/expression/
+// pressure are the real envelope (SynthVoice.cpp ~line 668). Each mod source is
+// independently slewed (one-pole, asymmetric attack/release — ModSlots::
+// slewRates) before being summed, exactly like the real engine's Slewer.h
+// (reproduced verbatim below — it has no JUCE dependency).
+//
+// LEGATO — mono mode only (matches SynthVoice::noteStarted). A new note is
+// "legato" iff the previous mono voice's VCA was still above 0.02 (breath was
+// still flowing): pitch portamento-glides instead of jumping, and VCA/filter
+// continue instead of re-attacking. Implements the DEFAULT glide curve (Linear-
+// semitone, Fixed-Time) plus the always-on minimum 1-period anti-click ramp;
+// the Exponential/RC/Bézier curve variants are not yet ported (deferred, like
+// the rest of the mod-matrix UI/aux sources/macros).
+//
+// tailLevel is the real engine's *separate*, fixed (non-editable) note-off
+// safety ramp — ×0.9995 per sample — so a MIDI note-off is never abrupt even
+// though breath (not note-off) is the real dynamic control.
+//
+// The AudioWorklet drives this: vane_init(sr) once, then per MIDI/CC event
+// vane_note_on/off + vane_set_expr + vane_set_cc, per knob vane_set_param, and
+// per render quantum vane_render(n) → read vane_buffer()[0..n) (mono) out of
+// WASM memory.
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
 #include "Synth/Wavetable.h"
 #include <cmath>
 
 // Oscillator::prepare() points its morph table at Wavetable::builtInDefault()
-// (defined in the FFT-heavy Wavetable.cpp). v1 renders via Oscillator::next()
-// (built-in analytic waveforms), which never reads the morph table, so a trivial
-// empty default links it without compiling Wavetable.cpp. The real wavetable
-// (offline-baked + loaded) arrives with the morph stage.
+// (defined in the FFT-heavy Wavetable.cpp). This voice renders via
+// Oscillator::next() (built-in analytic waveforms), which never reads the morph
+// table, so a trivial empty default links it without compiling Wavetable.cpp.
 const Wavetable& Wavetable::builtInDefault() { static const Wavetable kEmpty; return kEmpty; }
 
 namespace {
 
-constexpr int kMaxVoices  = 16;
-constexpr int kMaxBlock    = 2048;
+// ── Slewer — verbatim port of Source/Modulation/Slewer.h (zero JUCE deps) ────
+// One-pole lag, asymmetric attack/release, block-rate (process() called once
+// per vane_render(n), mirroring the real engine's once-per-buffer call rate).
+class Slewer {
+public:
+    void prepare (double sampleRate, int samplesPerStep = 1) {
+        sr = (float) sampleRate; step = samplesPerStep < 1 ? 1 : samplesPerStep;
+        recompute();
+    }
+    void setRates (float atkMs, float relMs) { attackMs = atkMs; releaseMs = relMs; recompute(); }
+    // process() is called once per vane_render(n) call (block-rate), and n varies
+    // by render quantum — recompute the coefficients for the ACTUAL block size each
+    // call (cheap), or the slew is calibrated to the wrong call rate (the exact trap
+    // Slewer.h's real-engine comment warns about: step=1 assumed but called every
+    // n samples makes the release n× slower than the configured ms).
+    void setStep (int samplesPerStep) { step = samplesPerStep < 1 ? 1 : samplesPerStep; recompute(); }
+    void reset (float v = 0.0f) { current = v; }
+    float process (float target) {
+        float coeff = (target > current) ? attackCoeff : releaseCoeff;
+        current += (1.0f - coeff) * (target - current);
+        return current;
+    }
+    float value() const { return current; }
+private:
+    void recompute() { attackCoeff = coeff (attackMs); releaseCoeff = coeff (releaseMs); }
+    float coeff (float ms) const {
+        if (ms <= 0.0f) return 0.0f;
+        return std::exp (-(float) step / (sr * ms * 0.001f));
+    }
+    float sr = 48000.0f; int step = 1;
+    float attackMs = 5.0f, releaseMs = 30.0f, attackCoeff = 0.0f, releaseCoeff = 0.0f, current = 0.0f;
+};
+
+constexpr int kMaxVoices = 16;
+constexpr int kMaxBlock  = 2048;
 double gSampleRate = 48000.0;
 
-// Global (patch) params. Ids 1/2/8 mirror real Vane param ids (Cutoff Hz,
-// Reso 0..1, Output 0..1 — index.html's own RANGE table), wired from the page's
-// Bridge.send('setParam',...) channel via synth-main.js. Ids 3-7 are this
-// standalone voice's own envelope/MPE-range knobs — Vane's actual amp envelope
-// lives in the mod-matrix (per-slot atk/rel), not a flat param, so there is no
-// real id to map them to yet; that arrives with the mod-matrix (v2) increment.
-float pCutoff   = 4000.0f;   // base filter cutoff (Hz)              [id 1, real]
-float pReso     = 0.2f;      // 0..1                                 [id 2, real]
-float pAttack   = 0.005f;    // seconds
-float pDecay    = 0.20f;
-float pSustain  = 0.75f;     // 0..1
-float pRelease  = 0.30f;
-float pBendRange = 48.0f;    // MPE member-channel pitch-bend range (semitones)
-float pOutput   = 0.8f;      // 0..1 master gain                     [id 8, real; matches state.patch.Output default]
+// Global (patch) params, real Vane ids (index.html RANGE table) where noted.
+float pCutoff   = 1128.0f;  // Hz                              [id 1]
+float pReso     = 0.1f;     // 0..1                            [id 2]
+float pOutput   = 0.8f;     // 0..1 master gain (separate from VCA) [id 8]
+float pVelVCA   = 0.0f;     // 0..1 — "Velocity to VCA" amount; 0 = velocity contributes nothing [id 9]
+float pBendRange = 48.0f;   // MPE member-channel pitch-bend range, semitones [id 7]
+float pGlideMs  = 0.0f;     // ms — portamento time (Fixed Time mode)        [id 10]
+bool  gMono     = false;
+
+// Breath (CC2) / Expression (CC11) are GLOBAL sources (shared route.slewer in
+// the real engine — all voices hear the same breath), unlike per-voice MPE.
+float ccBreathRaw = 0.0f, ccExprRaw = 0.0f;
+Slewer breathSlewer, exprSlewer;   // atk 5ms / rel 80ms — ModSlots::slewRates case 1/2
 
 struct Voice {
     Oscillator osc;
     SVFilter   filt;
-    bool  active   = false;
-    int   note     = -1;
-    int   channel  = -1;
-    float vel      = 0.0f;   // 0..1
-    float bend     = 0.0f;   // -1..1  (MPE X)
-    float slide    = 0.0f;   // 0..1   (MPE Y / CC74)
-    float pressure = 0.0f;   // 0..1   (MPE Z)
-    float env      = 0.0f;
-    int   stage    = 0;      // 0 idle · 1 attack · 2 decay · 3 sustain · 4 release
+    bool  active    = false;
+    int   note      = -1;
+    int   channel   = -1;
+    float vel       = 0.0f;   // 0..1, captured at note-on (constant for the note, like the real engine)
+    float bend      = 0.0f;   // -1..1  (MPE X)
+    float slide     = 0.0f;   // 0..1   (MPE Y / CC74), bipolarised before use
+    float pressure  = 0.0f;   // 0..1   (MPE Z)
+    float tailLevel = 0.0f;   // 1 while held; ×0.9995/sample after note-off (fixed safety ramp, not a user knob)
+    bool  releasing = false;
+    float vca       = 0.0f;   // smoothedVCA equivalent — linearly rate-limited toward the block target
+    Slewer pressureSlewer;    // atk 3ms / rel 50ms  — case 3
+    Slewer slideSlewer;       // atk 2ms / rel 20ms  — case 4 (operates on the bipolar value)
+    Slewer velSlewer;         // atk 20ms / rel 0ms  — case 6
+
+    // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
+    // default). currentHz approaches targetHz multiplicatively each sample.
+    float currentHz  = 440.0f;
+    float targetHz   = 440.0f;
+    float glideCoeff = 1.0f;   // per-sample multiplicative step exponent base; 1 = snap
 };
 
-Voice voices[kMaxVoices];
-float renderBuf[kMaxBlock];
+Voice   voices[kMaxVoices];
+int     monoVoiceIdx = -1;
+float   monoLastHz   = 0.0f;
+float   monoLastVCA  = 0.0f;
+float   renderBuf[kMaxBlock];
 
 inline float midiToHz (float note) { return 440.0f * std::pow (2.0f, (note - 69.0f) / 12.0f); }
+inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 
 } // namespace
 
@@ -68,33 +139,82 @@ extern "C" {
 
 void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
+    breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f);
+    exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f);
     for (auto& v : voices) {
         v.osc.prepare (sampleRate);
         v.osc.setWaveform (Oscillator::Waveform::Saw);
         v.filt.prepare (sampleRate);
-        v.active = false; v.stage = 0; v.env = 0.0f;
+        v.pressureSlewer.prepare (sampleRate); v.pressureSlewer.setRates (3.0f, 50.0f);
+        v.slideSlewer.prepare (sampleRate);    v.slideSlewer.setRates (2.0f, 20.0f);
+        v.velSlewer.prepare (sampleRate);      v.velSlewer.setRates (20.0f, 0.0f);
+        v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
+    monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f;
+}
+
+void vane_set_mono (int isMono) { gMono = isMono != 0; if (!gMono) monoVoiceIdx = -1; }
+
+// Generic CC input; only Breath (2) and Expression (11) are wired (Vane's
+// default macro bindings — state.cc in index.html). Other CCs are accepted and
+// ignored for now (no-op), rather than guessing a mapping that doesn't exist yet.
+void vane_set_cc (int cc, float v01) {
+    if (cc == 2)  ccBreathRaw = v01;
+    else if (cc == 11) ccExprRaw = v01;
 }
 
 void vane_note_on (int note, int vel, int channel) {
-    int idx = -1;
-    for (int i = 0; i < kMaxVoices; ++i) if (! voices[i].active) { idx = i; break; }
-    if (idx < 0) {                              // steal the quietest voice
-        float lowest = 2.0f;
-        for (int i = 0; i < kMaxVoices; ++i) if (voices[i].env < lowest) { lowest = voices[i].env; idx = i; }
-        if (idx < 0) idx = 0;
+    int idx;
+    bool legato = false;
+    if (gMono) {
+        idx = (monoVoiceIdx >= 0 && voices[monoVoiceIdx].active) ? monoVoiceIdx : -1;
+        if (idx < 0) for (int i = 0; i < kMaxVoices; ++i) if (! voices[i].active) { idx = i; break; }
+        if (idx < 0) idx = 0;                       // degrade gracefully if somehow all busy
+        legato = monoLastVCA > 0.02f;                // breath was still flowing → glide, don't re-attack
+        monoVoiceIdx = idx;
+    } else {
+        idx = -1;
+        for (int i = 0; i < kMaxVoices; ++i) if (! voices[i].active) { idx = i; break; }
+        if (idx < 0) {                               // steal the quietest voice
+            float lowest = 2.0f;
+            for (int i = 0; i < kMaxVoices; ++i) if (voices[i].vca < lowest) { lowest = voices[i].vca; idx = i; }
+            if (idx < 0) idx = 0;
+        }
     }
+
     Voice& v = voices[idx];
+    const float prevHz = legato ? v.currentHz : 0.0f;
     v.active = true; v.note = note; v.channel = channel; v.vel = vel / 127.0f;
     v.bend = 0.0f; v.slide = 0.0f; v.pressure = 0.0f;
-    v.osc.setFrequency (midiToHz ((float) note));
-    v.stage = 1;                                // attack
+
+    // VCA/tail: legato continues from the current level (no re-attack click);
+    // a fresh attack starts silent and lets the breath-driven VCA open it.
+    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); }
+    v.tailLevel = 1.0f; v.releasing = false;
+
+    // Portamento: glide from the previous pitch when legato, with the real
+    // engine's always-on minimum (one period at the target, so even glideMs=0
+    // crosses a slope-continuity boundary instead of snapping instantaneously).
+    const float targetHz = midiToHz ((float) note);
+    v.targetHz = targetHz;
+    const float minGlideMs = (legato && prevHz > 0.0f) ? (1000.0f / targetHz) : 0.0f;
+    const float effGlideMs = legato ? (pGlideMs > minGlideMs ? pGlideMs : minGlideMs) : 0.0f;
+    if (legato && effGlideMs > 0.0f && prevHz > 0.0f) {
+        v.currentHz = prevHz;
+        const float nSamples = effGlideMs * 0.001f * (float) gSampleRate;
+        // Multiplicative per-sample step so the ratio glide is constant in
+        // semitones (matches juce::ValueSmoothingTypes::Multiplicative).
+        v.glideCoeff = std::pow (targetHz / prevHz, 1.0f / (nSamples > 1.0f ? nSamples : 1.0f));
+    } else {
+        v.currentHz = targetHz; v.glideCoeff = 1.0f;
+    }
+    v.osc.setFrequency (v.currentHz);
 }
 
 void vane_note_off (int note, int channel) {
     for (auto& v : voices)
         if (v.active && v.note == note && (channel < 0 || v.channel == channel))
-            v.stage = 4;                        // release
+            v.releasing = true;                      // start the fixed tail-off ramp
 }
 
 // Per-MPE-channel expression update (applies to the sounding voice on that channel).
@@ -107,12 +227,10 @@ void vane_set_param (int id, float val) {
     switch (id) {
         case 1: pCutoff    = val; break;
         case 2: pReso      = val; break;
-        case 3: pAttack    = val; break;
-        case 4: pDecay     = val; break;
-        case 5: pSustain   = val; break;
-        case 6: pRelease   = val; break;
         case 7: pBendRange = val; break;
         case 8: pOutput    = val; break;
+        case 9: pVelVCA    = val; break;
+        case 10: pGlideMs  = val; break;
         default: break;
     }
 }
@@ -123,27 +241,73 @@ void vane_render (int n) {
     if (n > kMaxBlock) n = kMaxBlock;
     for (int s = 0; s < n; ++s) renderBuf[s] = 0.0f;
 
-    const float aInc = 1.0f / (pAttack  * (float) gSampleRate + 1.0f);
-    const float dInc = 1.0f / (pDecay   * (float) gSampleRate + 1.0f);
-    const float rInc = 1.0f / (pRelease * (float) gSampleRate + 1.0f);
+    // Recalibrate every slewer to THIS call's actual block size (see Slewer::
+    // setStep) before processing — n can vary between calls.
+    breathSlewer.setStep (n);
+    exprSlewer.setStep (n);
+
+    // Global mod sources, slewed once per block (matches the real engine's
+    // once-per-buffer Slewer::process() call rate).
+    const float breathS = breathSlewer.process (ccBreathRaw);
+    const float exprS   = exprSlewer.process (ccExprRaw);
+    const float breathExp = breathS * breathS;   // Exponential curve on a unipolar [0,1] source: x·|x| = x²
+    const float exprExp   = exprS * exprS;
 
     for (auto& v : voices) {
         if (! v.active) continue;
-        // Block-rate param/expression application.
-        v.osc.setFrequency (midiToHz ((float) v.note + v.bend * pBendRange));
-        v.filt.setParameters (pCutoff * (1.0f + v.slide * 4.0f), pReso);   // MPE Y opens the filter
-        const float ampScale = (0.3f + 0.7f * v.pressure) * v.vel * 0.2f;   // MPE Z → loudness
+        v.pressureSlewer.setStep (n);
+        v.slideSlewer.setStep (n);
+        v.velSlewer.setStep (n);
+
+        // ── Per-voice slewed mod sources (factory routes) ──────────────────────
+        const float pressS = v.pressureSlewer.process (v.pressure);
+        const float slideBp = (v.slide - 0.5f) * 2.0f;             // neutral(0.5) -> 0, matches SynthVoice.cpp
+        const float slideS  = v.slideSlewer.process (slideBp);
+        const float velS    = v.velSlewer.process (v.vel);
+
+        // mods[VCALevel] = Breath*1.00 + Expression*1.00 + Pressure*0.50 (all Linear)
+        const float vcaTarget = clamp01 (pVelVCA * std::sqrt (v.vel)
+                                          + breathS * 1.00f + exprS * 1.00f + pressS * 0.50f);
+
+        // mods[FilterCutoff] (octaves, ±5 oct scale) = Slide*0.90(lin)
+        //   + Breath*0.25 + Expr*0.25 + Pressure*0.20 (all Exponential) + Velocity*0.15(lin)
+        const float cutoffOct = slideS * 0.90f + breathExp * 0.25f + exprExp * 0.25f
+                               + (pressS * pressS) * 0.20f + velS * 0.15f;
+        const float targetCutoffHz = pCutoff * std::pow (2.0f, cutoffOct * 5.0f);
+
+        // mods[FilterRes] = Breath*0.15 + Expr*0.15 (Exponential)
+        const float resonance = clamp01 (pReso + breathExp * 0.15f + exprExp * 0.15f);
+
+        v.osc.setFrequency (v.currentHz);
+        v.filt.setParameters (targetCutoffHz, resonance);
 
         for (int s = 0; s < n; ++s) {
-            if      (v.stage == 1) { v.env += aInc; if (v.env >= 1.0f)     { v.env = 1.0f;     v.stage = 2; } }
-            else if (v.stage == 2) { v.env -= dInc * (1.0f - pSustain); if (v.env <= pSustain) { v.env = pSustain; v.stage = 3; } }
-            else if (v.stage == 4) { v.env -= rInc; if (v.env <= 0.0f)     { v.env = 0.0f; v.stage = 0; v.active = false; } }
+            // VCA: 3 ms linear rate-limited approach to the block target (mirrors
+            // smoothedVCA.reset(sr, 0.003) — eliminates block-boundary amplitude
+            // steps without implying any musical attack/release shape).
+            const float maxStep = 1.0f / (0.003f * (float) gSampleRate);
+            if (v.vca < vcaTarget) v.vca = (v.vca + maxStep < vcaTarget) ? v.vca + maxStep : vcaTarget;
+            else                    v.vca = (v.vca - maxStep > vcaTarget) ? v.vca - maxStep : vcaTarget;
+
+            if (v.releasing) {
+                v.tailLevel *= 0.9995f;
+                if (v.tailLevel < 0.0001f) { v.tailLevel = 0.0f; v.active = false; v.releasing = false; }
+            }
+
+            v.currentHz *= v.glideCoeff;
+            const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
+            if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
+            v.osc.setFrequency (v.currentHz);
 
             const float oscOut  = v.osc.next();
             const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
-            renderBuf[s] += filtOut * v.env * ampScale;
+            renderBuf[s] += filtOut * v.vca * v.tailLevel;
 
             if (! v.active) break;
+        }
+
+        if (gMono && monoVoiceIdx >= 0 && &v == &voices[monoVoiceIdx]) {
+            monoLastHz = v.currentHz; monoLastVCA = v.vca * v.tailLevel;
         }
     }
 

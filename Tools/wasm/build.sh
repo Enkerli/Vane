@@ -13,7 +13,7 @@ root="$here/../.."
 emcc "$here/vane-dsp.cpp" "$root/Source/Synth/Oscillator.cpp" \
   -I "$here/juce-stub" -I "$root/Source" \
   -O3 -std=c++17 -s STANDALONE_WASM=1 \
-  -s EXPORTED_FUNCTIONS='["_vane_init","_vane_note_on","_vane_note_off","_vane_set_expr","_vane_set_param","_vane_render","_vane_buffer"]' \
+  -s EXPORTED_FUNCTIONS='["_vane_init","_vane_note_on","_vane_note_off","_vane_set_expr","_vane_set_cc","_vane_set_mono","_vane_set_param","_vane_render","_vane_buffer"]' \
   --no-entry -o "$here/vane-dsp.wasm"
 echo "built $here/vane-dsp.wasm ($(wc -c < "$here/vane-dsp.wasm") bytes)"
 
