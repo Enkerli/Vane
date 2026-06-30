@@ -116,9 +116,13 @@ struct Voice {
     Slewer pressureSlewer;    // atk 3ms / rel 50ms  — case 3
     Slewer slideSlewer;       // atk 2ms / rel 20ms  — case 4 (operates on the bipolar value)
     Slewer velSlewer;         // atk 20ms / rel 0ms  — case 6
+    Slewer bendSlewer;        // atk/rel 3ms — mirrors smoothedPitchMult ("fast enough not to lag live vibrato")
 
     // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
-    // default). currentHz approaches targetHz multiplicatively each sample.
+    // default). currentHz approaches targetHz multiplicatively each sample —
+    // this is the UNBENT note pitch; live MPE pitchbend (bendSlewer, above) is
+    // applied as a separate multiplier on top each block, exactly like the real
+    // engine's smoothedHz × smoothedPitchMult split (SynthVoice.cpp ~line 673).
     float currentHz  = 440.0f;
     float targetHz   = 440.0f;
     float glideCoeff = 1.0f;   // per-sample multiplicative step exponent base; 1 = snap
@@ -139,8 +143,9 @@ extern "C" {
 
 void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
-    breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f);
-    exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f);
+    ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
+    breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
+    exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
     for (auto& v : voices) {
         v.osc.prepare (sampleRate);
         v.osc.setWaveform (Oscillator::Waveform::Saw);
@@ -148,6 +153,7 @@ void vane_init (double sampleRate) {
         v.pressureSlewer.prepare (sampleRate); v.pressureSlewer.setRates (3.0f, 50.0f);
         v.slideSlewer.prepare (sampleRate);    v.slideSlewer.setRates (2.0f, 20.0f);
         v.velSlewer.prepare (sampleRate);      v.velSlewer.setRates (20.0f, 0.0f);
+        v.bendSlewer.prepare (sampleRate);     v.bendSlewer.setRates (3.0f, 3.0f);
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f;
@@ -189,7 +195,7 @@ void vane_note_on (int note, int vel, int channel) {
 
     // VCA/tail: legato continues from the current level (no re-attack click);
     // a fresh attack starts silent and lets the breath-driven VCA open it.
-    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); }
+    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.bendSlewer.reset (1.0f); }
     v.tailLevel = 1.0f; v.releasing = false;
 
     // Portamento: glide from the previous pitch when legato, with the real
@@ -258,12 +264,20 @@ void vane_render (int n) {
         v.pressureSlewer.setStep (n);
         v.slideSlewer.setStep (n);
         v.velSlewer.setStep (n);
+        v.bendSlewer.setStep (n);
 
         // ── Per-voice slewed mod sources (factory routes) ──────────────────────
         const float pressS = v.pressureSlewer.process (v.pressure);
         const float slideBp = (v.slide - 0.5f) * 2.0f;             // neutral(0.5) -> 0, matches SynthVoice.cpp
         const float slideS  = v.slideSlewer.process (slideBp);
         const float velS    = v.velSlewer.process (v.vel);
+
+        // MPE pitchbend (X): a per-channel multiplier on top of the glided base
+        // pitch (currentHz), NOT folded into the portamento target — matches the
+        // real engine's separate smoothedHz x smoothedPitchMult. pBendRange is
+        // the member-channel bend range in semitones (default 48).
+        const float bendMulTarget = std::pow (2.0f, v.bend * pBendRange / 12.0f);
+        const float bendMul = v.bendSlewer.process (bendMulTarget);
 
         // mods[VCALevel] = Breath*1.00 + Expression*1.00 + Pressure*0.50 (all Linear)
         const float vcaTarget = clamp01 (pVelVCA * std::sqrt (v.vel)
@@ -278,7 +292,7 @@ void vane_render (int n) {
         // mods[FilterRes] = Breath*0.15 + Expr*0.15 (Exponential)
         const float resonance = clamp01 (pReso + breathExp * 0.15f + exprExp * 0.15f);
 
-        v.osc.setFrequency (v.currentHz);
+        v.osc.setFrequency (v.currentHz * bendMul);
         v.filt.setParameters (targetCutoffHz, resonance);
 
         for (int s = 0; s < n; ++s) {
@@ -297,7 +311,7 @@ void vane_render (int n) {
             v.currentHz *= v.glideCoeff;
             const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
             if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
-            v.osc.setFrequency (v.currentHz);
+            v.osc.setFrequency (v.currentHz * bendMul);
 
             const float oscOut  = v.osc.next();
             const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
