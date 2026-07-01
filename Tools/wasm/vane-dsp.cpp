@@ -134,8 +134,33 @@ float   monoLastHz   = 0.0f;
 float   monoLastVCA  = 0.0f;
 float   renderBuf[kMaxBlock];
 
+// ── Mono held-note stack (see vane_set_mono / vane_note_on / vane_note_off) ──
+struct HeldNote { int note, channel, vel; };
+HeldNote heldStack[kMaxVoices];
+int      heldCount = 0;
+
 inline float midiToHz (float note) { return 440.0f * std::pow (2.0f, (note - 69.0f) / 12.0f); }
 inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+
+void pushHeld (int note, int channel, int vel) {
+    for (int i = 0; i < heldCount; ++i)
+        if (heldStack[i].note == note && heldStack[i].channel == channel) { heldStack[i].vel = vel; return; }
+    if (heldCount < kMaxVoices) heldStack[heldCount++] = { note, channel, vel };
+}
+// Removes (note, channel) from the stack if present. wasTop reports whether the
+// removed entry was the sounding (top) note. Returns false if not found.
+bool popHeld (int note, int channel, bool& wasTop) {
+    for (int i = 0; i < heldCount; ++i) {
+        if (heldStack[i].note == note && heldStack[i].channel == channel) {
+            wasTop = (i == heldCount - 1);
+            for (int j = i; j < heldCount - 1; ++j) heldStack[j] = heldStack[j + 1];
+            --heldCount;
+            return true;
+        }
+    }
+    wasTop = false;
+    return false;
+}
 
 } // namespace
 
@@ -156,10 +181,26 @@ void vane_init (double sampleRate) {
         v.bendSlewer.prepare (sampleRate);     v.bendSlewer.setRates (3.0f, 3.0f);
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
-    monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f;
+    monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
 }
 
-void vane_set_mono (int isMono) { gMono = isMono != 0; if (!gMono) monoVoiceIdx = -1; }
+// Mono held-note stack (pushHeld/popHeld, namespace-scope above): classic
+// monophonic last-note-priority. While mono, every physical note-on is pushed;
+// the TOP of the stack is what sounds. Releasing a note that is NOT on top has
+// no audible effect (it was already "underneath"). Releasing the TOP note
+// reveals whatever's now on top — re-sounding it via the same legato path as
+// any other mono note-change, so it glides in rather than clicking — the
+// "trill" effect of holding one note and tapping a second. Only when the stack
+// empties does the voice actually release. This isn't literally how the plugin
+// does it under the hood (no such stack exists in PluginProcessor.cpp/
+// SynthVoice.cpp — mono there is a generation-counter voice-kill scheme riding
+// on JUCE's own MPE note tracking, which this standalone voice doesn't have);
+// it reproduces the SPECIFIED behavior directly.
+void vane_set_mono (int isMono) {
+    gMono = isMono != 0;
+    if (! gMono) monoVoiceIdx = -1;
+    heldCount = 0;   // a mode switch starts the held-note stack fresh either way
+}
 
 // Generic CC input; only Breath (2) and Expression (11) are wired (Vane's
 // default macro bindings — state.cc in index.html). Other CCs are accepted and
@@ -169,7 +210,10 @@ void vane_set_cc (int cc, float v01) {
     else if (cc == 11) ccExprRaw = v01;
 }
 
-void vane_note_on (int note, int vel, int channel) {
+// Triggers (or, in mono, retargets) the sounding voice for `note`. Shared by a
+// fresh physical note-on AND a mono stack reattach (releasing the top note
+// reveals the next one down) — both go through the same legato/glide decision.
+void startNote (int note, int vel, int channel) {
     int idx;
     bool legato = false;
     if (gMono) {
@@ -217,7 +261,25 @@ void vane_note_on (int note, int vel, int channel) {
     v.osc.setFrequency (v.currentHz);
 }
 
+void vane_note_on (int note, int vel, int channel) {
+    if (gMono) pushHeld (note, channel, vel);
+    startNote (note, vel, channel);
+}
+
 void vane_note_off (int note, int channel) {
+    if (gMono) {
+        bool wasTop = false;
+        if (popHeld (note, channel, wasTop)) {
+            if (! wasTop) return;                     // released a note that wasn't sounding — silent no-op
+            if (heldCount > 0) {                       // trill: reveal the next-held note, gliding (legato) into it
+                const HeldNote top = heldStack[heldCount - 1];
+                startNote (top.note, top.vel, top.channel);
+                return;
+            }
+            // stack now empty — fall through to the normal release below
+        }
+        // not found in the stack (shouldn't normally happen) — fall through too
+    }
     for (auto& v : voices)
         if (v.active && v.note == note && (channel < 0 || v.channel == channel))
             v.releasing = true;                      // start the fixed tail-off ramp
