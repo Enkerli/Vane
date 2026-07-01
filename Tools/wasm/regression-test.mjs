@@ -109,6 +109,30 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   check("releasing the last held note (A) actually silences the voice", finalPeak < 0.01, `peak=${finalPeak.toFixed(5)}`);
 }
 
+// ── 3c. Velocity->Cutoff brightness is a real factory route but fires from raw
+//       MIDI velocity independent of breath (a wind controller often sends a
+//       fixed high velocity, giving every attack an unwanted brightness kick) —
+//       standalone-gated (id 11), OFF by default to match the other versions. ──
+{
+  async function peakAt(vel, enabled) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 1.0);
+    if (enabled) e.vane_set_param(11, 1);
+    e.vane_note_on(69, vel, 1);
+    e.vane_set_cc(2, 0.05); // small constant breath — isolates velocity's effect
+    for (let i = 0; i < 7; i++) render(e, 128);
+    const b = render(e, 128);
+    let p = 0; for (const x of b) p = Math.max(p, Math.abs(x));
+    return p;
+  }
+  const offLow = await peakAt(1, false), offHigh = await peakAt(127, false);
+  const onLow  = await peakAt(1, true),  onHigh  = await peakAt(127, true);
+  check("default (toggle off): velocity has no effect on brightness/loudness",
+        Math.abs(offHigh / offLow - 1) < 0.05, `ratio=${(offHigh / offLow).toFixed(2)}`);
+  check("toggle on: velocity restores the brightness kick",
+        onHigh / onLow > 1.5, `ratio=${(onHigh / onLow).toFixed(2)}`);
+}
+
 // ── 4. MPE pitchbend actually moves the oscillator frequency (regressed once —
 //      received and stored but never applied to the oscillator). ──
 {

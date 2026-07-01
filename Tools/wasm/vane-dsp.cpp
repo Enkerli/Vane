@@ -94,6 +94,16 @@ float pVelVCA   = 0.0f;     // 0..1 — "Velocity to VCA" amount; 0 = velocity c
 float pBendRange = 48.0f;   // MPE member-channel pitch-bend range, semitones [id 7]
 float pGlideMs  = 0.0f;     // ms — portamento time (Fixed Time mode)        [id 10]
 bool  gMono     = false;
+// Velocity->Cutoff IS a real factory route (0.15 lin — PluginProcessor.cpp
+// kFactory[9]), but it fires from the raw MIDI velocity byte independent of
+// breath, so a wind controller that sends a fixed/high note-on velocity (true
+// dynamics come via breath afterward, not velocity) gets a brightness "kick" on
+// every attack. Measured: velocity 127 vs 1 -> ~1.84x louder/brighter by 21ms in,
+// with breath held constant. The real Sylphyo controller PROFILE likely
+// neutralises velocity for exactly this reason (not confirmed — profile data,
+// if any, wasn't found in the C++ source read for this). Defaults OFF here to
+// match the "other versions" baseline; standalone-only toggle, id 11.
+bool  gVelCutoffEnabled = false;   // [id 11, standalone-only — no real UI knob for this]
 
 // Breath (CC2) / Expression (CC11) are GLOBAL sources (shared route.slewer in
 // the real engine — all voices hear the same breath), unlike per-voice MPE.
@@ -299,6 +309,7 @@ void vane_set_param (int id, float val) {
         case 8: pOutput    = val; break;
         case 9: pVelVCA    = val; break;
         case 10: pGlideMs  = val; break;
+        case 11: gVelCutoffEnabled = (val > 0.5f); break;
         default: break;
     }
 }
@@ -346,9 +357,12 @@ void vane_render (int n) {
                                           + breathS * 1.00f + exprS * 1.00f + pressS * 0.50f);
 
         // mods[FilterCutoff] (octaves, ±5 oct scale) = Slide*0.90(lin)
-        //   + Breath*0.25 + Expr*0.25 + Pressure*0.20 (all Exponential) + Velocity*0.15(lin)
+        //   + Breath*0.25 + Expr*0.25 + Pressure*0.20 (all Exponential)
+        //   + Velocity*0.15(lin) — real factory route, but standalone-gated (see
+        //   gVelCutoffEnabled) since it fires independent of breath.
         const float cutoffOct = slideS * 0.90f + breathExp * 0.25f + exprExp * 0.25f
-                               + (pressS * pressS) * 0.20f + velS * 0.15f;
+                               + (pressS * pressS) * 0.20f
+                               + (gVelCutoffEnabled ? velS * 0.15f : 0.0f);
         const float targetCutoffHz = pCutoff * std::pow (2.0f, cutoffOct * 5.0f);
 
         // mods[FilterRes] = Breath*0.15 + Expr*0.15 (Exponential)
