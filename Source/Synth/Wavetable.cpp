@@ -3,7 +3,14 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+// VANE_WASM: the standalone webapp build (Tools/wasm) compiles this file with a
+// stub juce_dsp (radix-2 FFT — build()'s per-mip peak normalisation washes out
+// any scaling-convention difference) and no juce_audio_formats. The WAV
+// import/export section at the bottom needs the real JUCE readers and is
+// compiled out; build()/makeHarmonicStack()/builtInDefault() run verbatim.
+#ifndef VANE_WASM
 #include <juce_audio_formats/juce_audio_formats.h>
+#endif
 #include <juce_dsp/juce_dsp.h>
 
 namespace {
@@ -150,6 +157,8 @@ const Wavetable& Wavetable::builtInDefault()
     return wt;
 }
 
+#ifndef VANE_WASM   // ── WAV interchange — real JUCE only (see note at the top) ──
+
 // Serum/Vital embed a "clm " chunk like  <!>2048 10000000 wavetable [name]
 // whose leading integer is the authoritative frame size.  juce's reader doesn't
 // surface it, so scan the RIFF ourselves; fall back to `fallback` if absent.
@@ -248,3 +257,5 @@ bool Wavetable::saveToWav (const juce::File& file) const
     }
     return true;   // flushes/closes on writer destruction
 }
+
+#endif // VANE_WASM (WAV interchange)

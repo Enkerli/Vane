@@ -42,11 +42,11 @@
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
 #include <cmath>
 
-// Oscillator::prepare() points its morph table at Wavetable::builtInDefault()
-// (defined in the FFT-heavy Wavetable.cpp). This voice renders via
-// Oscillator::next() (built-in analytic waveforms), which never reads the morph
-// table, so a trivial empty default links it without compiling Wavetable.cpp.
-const Wavetable& Wavetable::builtInDefault() { static const Wavetable kEmpty; return kEmpty; }
+// The real Wavetable.cpp is compiled in (with the stub juce_dsp FFT and the WAV
+// interchange compiled out via VANE_WASM), so Oscillator::prepare() wires the
+// genuine 16-frame Harmonic Stack via Wavetable::builtInDefault() and the voice
+// renders through Oscillator::nextMorphed — the same morph/PD/FM/sync engine as
+// the plugin, not an analytic-waveform approximation.
 
 namespace {
 
@@ -119,6 +119,11 @@ bool  gMono     = false;
 // if any, wasn't found in the C++ source read for this). Defaults OFF here to
 // match the "other versions" baseline; standalone-only toggle, id 11.
 bool  gVelCutoffEnabled = false;   // [id 11, standalone-only — no real UI knob for this]
+// Oscillator (morph wavetable) params — real Patch-tab ids/units (RANGE table):
+float pMorph  = 0.0f;   // 0..1 across the table's frames               [id 12]
+float pPW     = 0.5f;   // 0.5..0.999 phase-distortion pulse width      [id 13]
+float pInharm = 0.0f;   // 0..1 FM-inharmonicity index                  [id 14]
+float pSync   = 1.0f;   // 1..8 wavetable hard-sync / transpose ratio   [id 15]
 
 // Breath (CC2) / Expression (CC11) are GLOBAL sources (shared route.slewer in
 // the real engine — all voices hear the same breath), unlike per-voice MPE.
@@ -197,8 +202,7 @@ void vane_init (double sampleRate) {
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
     exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
     for (auto& v : voices) {
-        v.osc.prepare (sampleRate);
-        v.osc.setWaveform (Oscillator::Waveform::Saw);
+        v.osc.prepare (sampleRate);   // also wires Wavetable::builtInDefault() (Harmonic Stack)
         v.filt.prepare (sampleRate);
         v.pressureSlewer.prepare (sampleRate); v.pressureSlewer.setRates (3.0f, 50.0f);
         v.slideSlewer.prepare (sampleRate);    v.slideSlewer.setRates (2.0f, 20.0f);
@@ -336,6 +340,10 @@ void vane_set_param (int id, float val) {
         case 9: pVelVCA    = val; break;
         case 10: pGlideMs  = val; break;
         case 11: gVelCutoffEnabled = (val > 0.5f); break;
+        case 12: pMorph  = val; break;
+        case 13: pPW     = val; break;
+        case 14: pInharm = val; break;
+        case 15: pSync   = val; break;
         default: break;
     }
 }
@@ -444,7 +452,10 @@ void vane_render (int n) {
             if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
             v.osc.setFrequency (v.currentHz * bendMul);
 
-            const float oscOut  = v.osc.next();
+            // The real morph engine: 16-frame Harmonic Stack (sine → rich saw)
+            // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
+            // Oscillator::nextMorphed — identical DSP to the plugin.
+            const float oscOut  = v.osc.nextMorphed (pMorph, pPW, pInharm, pSync);
             const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
             renderBuf[s] += filtOut * v.vca * v.tailLevel;
 

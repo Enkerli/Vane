@@ -254,5 +254,43 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   }
 }
 
+// ── 7. Morph wavetable (the REAL Wavetable.cpp compiled in — Harmonic Stack:
+//      frame 0 = pure sine … frame 15 = 16 saw harmonics — plus the oscillator's
+//      PD pulse-width and hard-sync, all via Oscillator::nextMorphed). ──
+{
+  // Fraction of signal energy at the fundamental (Goertzel-style correlation):
+  // ~1.0 for a pure sine, clearly lower as harmonics enter.
+  function fundamentalFraction(samples, hz, sr = 48000) {
+    let re = 0, im = 0, total = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const w = 2 * Math.PI * hz * i / sr;
+      re += samples[i] * Math.cos(w); im += samples[i] * Math.sin(w);
+      total += samples[i] * samples[i];
+    }
+    const fund = 2 * (re * re + im * im) / samples.length;
+    return total > 0 ? fund / total : 0;
+  }
+  async function capture(setup) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_param(1, 18000); e.vane_set_cc(2, 0.9);
+    if (setup) setup(e);
+    e.vane_note_on(69, 100, 1);
+    for (let i = 0; i < 20; i++) render(e, 128);       // settle
+    const s = [];
+    for (let i = 0; i < 40; i++) s.push(...render(e, 128));
+    return s;
+  }
+  const sine = fundamentalFraction(await capture((e) => e.vane_set_param(12, 0.0)), 440);
+  const rich = fundamentalFraction(await capture((e) => e.vane_set_param(12, 1.0)), 440);
+  check("morph 0 is the pure-sine frame (fundamental ≥ 95% of energy)", sine > 0.95, `frac=${sine.toFixed(3)}`);
+  check("morph 1 is the rich 16-harmonic frame (fundamental clearly < morph 0)", rich < sine - 0.1, `frac=${rich.toFixed(3)}`);
+
+  const pw = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 0.0); e.vane_set_param(13, 0.95); }), 440);
+  check("pulse-width warps the sine frame (spectrum widens)", pw < sine - 0.05, `frac=${pw.toFixed(3)}`);
+
+  const sync = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 0.0); e.vane_set_param(15, 4.0); }), 440);
+  check("hard-sync at 4x adds a formant (fundamental fraction drops)", sync < sine - 0.05, `frac=${sync.toFixed(3)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
