@@ -6,6 +6,7 @@
 // DSP headers start using more of juce_core.
 #pragma once
 #include <algorithm>
+#include <string>
 
 namespace juce {
 
@@ -28,5 +29,22 @@ struct MathConstants {
 // whose bodies are not compiled into the WASM voice. A forward declaration is
 // enough for the header to parse.
 class File;
+
+// Minimal String — just enough for TuningClient (id storage, == comparisons
+// against literals, construction from a literal in tuningName()). Wraps
+// std::string; no JUCE unicode/refcounting semantics needed for those uses.
+class String {
+public:
+    String() = default;
+    String (const char* s) : value (s ? s : "") {}
+    String (const std::string& s) : value (s) {}
+    bool operator== (const char* other) const { return value == (other ? other : ""); }
+    bool operator!= (const char* other) const { return ! (*this == other); }
+    bool operator== (const String& other) const { return value == other.value; }
+    const char* toRawUTF8() const { return value.c_str(); }
+    bool isEmpty() const { return value.empty(); }
+private:
+    std::string value;
+};
 
 } // namespace juce

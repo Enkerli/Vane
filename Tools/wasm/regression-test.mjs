@@ -27,6 +27,10 @@ async function fresh() {
   const { instance } = await WebAssembly.instantiate(bytes, {
     wasi_snapshot_preview1: new Proxy({}, { get: () => () => 0 }),
   });
+  // WASI-reactor convention: static C++ constructors (e.g. TuningClient's cents
+  // table fill) only run when the embedder calls _initialize. Without it every
+  // note plays at ~8 Hz. The worklet does the same.
+  if (instance.exports._initialize) instance.exports._initialize();
   return instance.exports;
 }
 function render(e, n) { e.vane_render(n); return new Float32Array(e.memory.buffer, e.vane_buffer(), n); }
@@ -38,12 +42,19 @@ function trailingPeak(e, blocks, blockSize = 128) {
   }
   return p;
 }
+// Period-averaged frequency: time between the FIRST and LAST upward
+// zero-crossing (linear-interpolated to sub-sample), divided by the crossing
+// count. Naive crossings-per-window quantizes to the window length (±37 cents
+// at 440 Hz over 106 ms) — useless for cents-level tuning checks.
 function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   const samples = [];
   for (let i = 0; i < blocks; i++) samples.push(...render(e, blockSize));
-  let crossings = 0;
-  for (let i = 1; i < samples.length; i++) if (samples[i - 1] < 0 && samples[i] >= 0) crossings++;
-  return crossings / (samples.length / sr);
+  const t = [];
+  for (let i = 1; i < samples.length; i++)
+    if (samples[i - 1] < 0 && samples[i] >= 0)
+      t.push(i - 1 + (-samples[i - 1]) / (samples[i] - samples[i - 1]));
+  if (t.length < 2) return 0;
+  return (t.length - 1) / ((t[t.length - 1] - t[0]) / sr);
 }
 
 // ── 1. No breath, full velocity -> silent. Velocity must not drive loudness
@@ -187,6 +198,60 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   e.vane_note_on(69, 127, 1);
   const peak = trailingPeak(e, 115);
   check("vane_init resets global CC state (no breath leakage across re-init)", peak < 0.001, `peak=${peak.toFixed(5)}`);
+}
+
+// ── 6. Internal tuning (the REAL TuningClient compiled into the wasm; MTS-ESP
+//      can't work in web code, so standalone uses internal tunings instead).
+//      Indices follow the UI's TUN_ORDER: 0 edo12 · 1 just · 2 pyth · 3 meanqc ·
+//      4 werck3 · 5 diat7 · 6 edo19 · 7 bp. ──
+{
+  async function playHz(note, setup) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_param(1, 18000); e.vane_set_cc(2, 0.9);
+    if (setup) setup(e);
+    e.vane_note_on(note, 100, 1);
+    for (let i = 0; i < 15; i++) render(e, 128);
+    return estimateHz(e, 40);
+  }
+  // edo19: LINEAR key mapping anchored at A4=440 — one key = 1200/19 ≈ 63.16¢.
+  const a4 = await playHz(69, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(6); });
+  const a4up = await playHz(70, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(6); });
+  check("edo19: A4 stays anchored at 440 Hz", Math.abs(a4 - 440) < 5, `${a4.toFixed(1)}Hz`);
+  const stepCents = 1200 * Math.log2(a4up / a4);
+  check("edo19: adjacent key is one 63.2-cent EDO step", Math.abs(stepCents - 63.16) < 8, `${stepCents.toFixed(1)}c`);
+
+  // just: E above C is a pure 5/4 major third (386.3¢), ~13.7¢ flat of ET.
+  const cJust = await playHz(60, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(1); });
+  const eJust = await playHz(64, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(1); });
+  const thirdCents = 1200 * Math.log2(eJust / cJust);
+  check("just intonation: C→E is a pure 5/4 third (~386.3c)", Math.abs(thirdCents - 386.3) < 8, `${thirdCents.toFixed(1)}c`);
+
+  // diat7: C# is a hole — noteToHz snaps to the nearest sounding degree (C),
+  // the wind-controller behavior (portamento can land anywhere).
+  const cDia  = await playHz(60, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(5); });
+  const csDia = await playHz(61, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(5); });
+  check("diat7: the C# hole snaps to C's pitch (never silent)", Math.abs(csDia - cDia) < 5, `C=${cDia.toFixed(1)} C#=${csDia.toFixed(1)}`);
+
+  // bypass: always plain 12-EDO regardless of the internal selection.
+  const a4Byp = await playHz(69, (e) => { e.vane_set_tuning_source(1); e.vane_set_internal_tuning(6); e.vane_set_tuning_source(2); });
+  check("bypass: forces 12-EDO (A4=440) regardless of internal tuning", Math.abs(a4Byp - 440) < 5, `${a4Byp.toFixed(1)}Hz`);
+
+  // Live retune: switch tuning WHILE a note is held — pitch follows without a
+  // new note-on (the "change scale mid-breath" gesture).
+  {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_param(1, 18000); e.vane_set_cc(2, 0.9);
+    e.vane_set_tuning_source(1); e.vane_set_internal_tuning(0);   // edo12
+    e.vane_note_on(64, 100, 1);                                    // E4 = 329.6 ET
+    for (let i = 0; i < 15; i++) render(e, 128);
+    const before = estimateHz(e, 20);
+    e.vane_set_internal_tuning(1);                                 // just — E drops ~13.7c
+    for (let i = 0; i < 15; i++) render(e, 128);                   // let the retune glide settle
+    const after = estimateHz(e, 40);
+    const moved = 1200 * Math.log2(after / before);
+    check("live retune: switching tuning mid-note moves the held pitch (~-13.7c)",
+          Math.abs(moved - (-13.7)) < 8, `${moved.toFixed(1)}c`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -39,6 +39,7 @@
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
 #include "Synth/Wavetable.h"
+#include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
 #include <cmath>
 
 // Oscillator::prepare() points its morph table at Wavetable::builtInDefault()
@@ -48,6 +49,20 @@
 const Wavetable& Wavetable::builtInDefault() { static const Wavetable kEmpty; return kEmpty; }
 
 namespace {
+
+// The REAL TuningClient, compiled without VANE_HAS_MTS: FollowMTS has no master
+// and reads the internal cents table (default edo12 = transparent ET), Internal
+// uses the selected table, Bypass forces 12-EDO. All the subtle behavior —
+// hole-snapping noteToHz for wind controllers, A4-anchored linear EDO mapping,
+// the Bohlen-Pierce tritave period, live-retune epochs — is the engine's own.
+// MTS-ESP itself can't work in web code (it dlopens a system dylib), which is
+// exactly why the standalone defaults to Internal (set from the host at boot).
+TuningClient gTuning;
+
+// Internal tuning ids in the UI's TUN_ORDER (index.html) — the host sends an
+// index across the C ABI instead of a string.
+const char* const kTuningIds[] = { "edo12", "just", "pyth", "meanqc", "werck3", "diat7", "edo19", "bp" };
+constexpr int kNumTuningIds = 8;
 
 // ── Slewer — verbatim port of Source/Modulation/Slewer.h (zero JUCE deps) ────
 // One-pole lag, asymmetric attack/release, block-rate (process() called once
@@ -136,6 +151,7 @@ struct Voice {
     float currentHz  = 440.0f;
     float targetHz   = 440.0f;
     float glideCoeff = 1.0f;   // per-sample multiplicative step exponent base; 1 = snap
+    uint32_t tuningEpoch = 0;  // gTuning.tuningEpoch() at last pitch resolve — live retune
 };
 
 Voice   voices[kMaxVoices];
@@ -149,7 +165,6 @@ struct HeldNote { int note, channel, vel; };
 HeldNote heldStack[kMaxVoices];
 int      heldCount = 0;
 
-inline float midiToHz (float note) { return 440.0f * std::pow (2.0f, (note - 69.0f) / 12.0f); }
 inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 
 void pushHeld (int note, int channel, int vel) {
@@ -261,8 +276,13 @@ void startNote (int note, int vel, int channel) {
     // Portamento: glide from the previous pitch when legato, with the real
     // engine's always-on minimum (one period at the target, so even glideMs=0
     // crosses a slope-continuity boundary instead of snapping instantaneously).
-    const float targetHz = midiToHz ((float) note);
+    // Pitch comes from the REAL tuning engine (internal tunings, hole-snapping);
+    // MTS-filtered/unresolvable notes return 0 — suppress the voice like the
+    // real engine does, so a 0 Hz oscillator never poisons the SVF states.
+    const float targetHz = gTuning.noteToHz (note, channel);
+    if (targetHz <= 0.0f) { v.active = false; v.tailLevel = 0.0f; return; }
     v.targetHz = targetHz;
+    v.tuningEpoch = gTuning.tuningEpoch();
     const float minGlideMs = (legato && prevHz > 0.0f) ? (1000.0f / targetHz) : 0.0f;
     const float effGlideMs = legato ? (pGlideMs > minGlideMs ? pGlideMs : minGlideMs) : 0.0f;
     if (legato && effGlideMs > 0.0f && prevHz > 0.0f) {
@@ -320,6 +340,20 @@ void vane_set_param (int id, float val) {
     }
 }
 
+// Tuning source: 0 = FollowMTS (no master in web → internal-table fallback),
+// 1 = Internal, 2 = Bypass (12-EDO). Matches TuningSource's enum order.
+void vane_set_tuning_source (int s) {
+    gTuning.setTuningSource (s == 1 ? TuningSource::Internal
+                            : s == 2 ? TuningSource::Bypass
+                                     : TuningSource::FollowMTS);
+}
+
+// Internal tuning by index into the UI's TUN_ORDER (see kTuningIds).
+void vane_set_internal_tuning (int idx) {
+    if (idx >= 0 && idx < kNumTuningIds)
+        gTuning.setInternalTuning (kTuningIds[idx]);
+}
+
 float* vane_buffer () { return renderBuf; }
 
 void vane_render (int n) {
@@ -340,6 +374,21 @@ void vane_render (int n) {
 
     for (auto& v : voices) {
         if (! v.active) continue;
+
+        // Live retune: if the tuning changed while this note is held (switching
+        // scale/source mid-breath — the core wind-controller gesture), re-query
+        // the pitch and glide to it over ~15 ms instead of waiting for the next
+        // note-on. Mirrors SynthVoice::renderNextBlock's tuningEpoch check.
+        if (gTuning.tuningEpoch() != v.tuningEpoch) {
+            v.tuningEpoch = gTuning.tuningEpoch();
+            const float newHz = gTuning.noteToHz (v.note, v.channel);
+            if (newHz > 0.0f && newHz != v.targetHz) {
+                v.targetHz = newHz;
+                const float nSamples = 0.015f * (float) gSampleRate;
+                v.glideCoeff = std::pow (newHz / v.currentHz, 1.0f / nSamples);
+            }
+        }
+
         v.pressureSlewer.setStep (n);
         v.slideSlewer.setStep (n);
         v.velSlewer.setStep (n);
