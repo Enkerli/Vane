@@ -245,7 +245,13 @@ void startNote (int note, int vel, int channel) {
     Voice& v = voices[idx];
     const float prevHz = legato ? v.currentHz : 0.0f;
     v.active = true; v.note = note; v.channel = channel; v.vel = vel / 127.0f;
-    v.bend = 0.0f; v.slide = 0.0f; v.pressure = 0.0f;
+    // MPE slide (Y/CC74) is a CENTRED dimension: 0.5 = neutral, not 0. The real
+    // engine reads it from note.timbre whose default is 0.5. Initialising it to
+    // 0 here mapped to bipolar −1 through the Slide→Cutoff route (0.90 × ±5 oct),
+    // dragging the filter down ~4.5 octaves to ~50 Hz for any note that hadn't
+    // received CC74 yet — the "almost inaudible in the high range" bug (~60 dB
+    // of accidental attenuation at C7).
+    v.bend = 0.0f; v.slide = 0.5f; v.pressure = 0.0f;
 
     // VCA/tail: legato continues from the current level (no re-attack click);
     // a fresh attack starts silent and lets the breath-driven VCA open it.

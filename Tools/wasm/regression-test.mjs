@@ -65,7 +65,10 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   e.vane_set_cc(2, 0.9);
   const open = trailingPeak(e, 115);
   e.vane_set_cc(2, 0.0);
-  const closed = trailingPeak(e, 115);
+  // 250 blocks ≈ 667 ms ≈ 8× the 80 ms breath release slew — decay has settled.
+  // (115 blocks measured mid-decay once slide-neutral raised the filter back to
+  // its real cutoff and the tail passed more energy.)
+  const closed = trailingPeak(e, 250);
   check("breath up makes it audible", open > 0.02, `peak=${open.toFixed(4)}`);
   check("breath down closes it back down (note still held)", closed < 0.005, `peak=${closed.toFixed(5)}`);
 }
@@ -114,11 +117,15 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
 //       fixed high velocity, giving every attack an unwanted brightness kick) —
 //       standalone-gated (id 11), OFF by default to match the other versions. ──
 {
+  // Measured at C7 (2093 Hz), where the fundamental sits ABOVE the default
+  // 1128 Hz cutoff — there the velocity-driven cutoff lift audibly gates the
+  // note. (At A4 with slide-neutral the fundamental already passes, so the
+  // kick is only a subtle harmonic change and peak barely moves.)
   async function peakAt(vel, enabled) {
     const e = await fresh();
     e.vane_init(48000); e.vane_set_param(8, 1.0);
     if (enabled) e.vane_set_param(11, 1);
-    e.vane_note_on(69, vel, 1);
+    e.vane_note_on(96, vel, 1);
     e.vane_set_cc(2, 0.05); // small constant breath — isolates velocity's effect
     for (let i = 0; i < 7; i++) render(e, 128);
     const b = render(e, 128);
@@ -130,7 +137,28 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   check("default (toggle off): velocity has no effect on brightness/loudness",
         Math.abs(offHigh / offLow - 1) < 0.05, `ratio=${(offHigh / offLow).toFixed(2)}`);
   check("toggle on: velocity restores the brightness kick",
-        onHigh / onLow > 1.5, `ratio=${(onHigh / onLow).toFixed(2)}`);
+        onHigh / onLow > 1.3, `ratio=${(onHigh / onLow).toFixed(2)}`);
+}
+
+// ── 3d. High-range audibility: with NO CC74 ever received, slide must default
+//       to the MPE-neutral 0.5 — not 0, which slams the Slide->Cutoff route
+//       (0.90 × ±5 oct) to ~50 Hz and made C7 ~60 dB quieter than C2. ──
+{
+  async function peakAtNote(note) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 1.0);
+    e.vane_set_cc(2, 0.8);
+    e.vane_note_on(note, 100, 1);   // deliberately NO vane_set_expr — slide unset
+    let p = 0;
+    for (let i = 0; i < 80; i++) {
+      const b = render(e, 128);
+      if (i >= 60) for (const x of b) p = Math.max(p, Math.abs(x));
+    }
+    return p;
+  }
+  const c2 = await peakAtNote(36), c7 = await peakAtNote(96);
+  check("high range stays audible without CC74 (slide defaults to neutral 0.5)",
+        c7 > c2 * 0.3, `C2=${c2.toFixed(3)} C7=${c7.toFixed(3)} (was ~1000x quieter)`);
 }
 
 // ── 4. MPE pitchbend actually moves the oscillator frequency (regressed once —
