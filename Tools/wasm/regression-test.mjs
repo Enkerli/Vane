@@ -292,5 +292,31 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   check("hard-sync at 4x adds a formant (fundamental fraction drops)", sync < sine - 0.05, `frac=${sync.toFixed(3)}`);
 }
 
+// ── 8. Mod matrix: per-note morph. Configure Slide→Morph, play TWO simultaneous
+//      notes on different MPE channels — neutral slide on one, full slide on the
+//      other. If morph is genuinely per-voice, the full-slide note is harmonically
+//      rich while the neutral one stays a near-pure sine AT THE SAME TIME. ──
+{
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_param(1, 18000); e.vane_set_cc(2, 0.9);
+  e.vane_set_slot(10, 4, 4, 1.0, 0, 1);      // slot 10: Slide → Morph, amount 1.0, linear, on
+  e.vane_note_on(58, 100, 2);                 // Bb3 ≈ 233 Hz, channel 2 — slide stays neutral
+  e.vane_note_on(78, 100, 3);                 // F#5 ≈ 740 Hz, channel 3 — slide pushed to max
+  e.vane_set_expr(3, 0, 1.0, 0);
+  for (let i = 0; i < 30; i++) render(e, 128);   // settle slews
+  const s = [];
+  for (let i = 0; i < 60; i++) s.push(...render(e, 128));
+  const energyAt = (hz) => {                    // Goertzel-style bin energy
+    let re = 0, im = 0;
+    for (let i = 0; i < s.length; i++) { const w = 2 * Math.PI * hz * i / 48000; re += s[i] * Math.cos(w); im += s[i] * Math.sin(w); }
+    return re * re + im * im;
+  };
+  const f1 = 233.08, f2 = 739.99;
+  const rNeutral = energyAt(f1 * 2) / energyAt(f1);   // Bb3 2nd harmonic vs fundamental
+  const rSlid    = energyAt(f2 * 2) / energyAt(f2);   // F#5 2nd harmonic vs fundamental
+  check("per-note morph: full-slide note is harmonically rich while the neutral note stays sine",
+        rSlid > rNeutral * 5 && rNeutral < 0.1, `neutral h2/h1=${rNeutral.toFixed(4)} slid h2/h1=${rSlid.toFixed(4)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

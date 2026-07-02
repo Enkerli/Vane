@@ -109,21 +109,65 @@ float pVelVCA   = 0.0f;     // 0..1 — "Velocity to VCA" amount; 0 = velocity c
 float pBendRange = 48.0f;   // MPE member-channel pitch-bend range, semitones [id 7]
 float pGlideMs  = 0.0f;     // ms — portamento time (Fixed Time mode)        [id 10]
 bool  gMono     = false;
-// Velocity->Cutoff IS a real factory route (0.15 lin — PluginProcessor.cpp
-// kFactory[9]), but it fires from the raw MIDI velocity byte independent of
-// breath, so a wind controller that sends a fixed/high note-on velocity (true
-// dynamics come via breath afterward, not velocity) gets a brightness "kick" on
-// every attack. Measured: velocity 127 vs 1 -> ~1.84x louder/brighter by 21ms in,
-// with breath held constant. The real Sylphyo controller PROFILE likely
-// neutralises velocity for exactly this reason (not confirmed — profile data,
-// if any, wasn't found in the C++ source read for this). Defaults OFF here to
-// match the "other versions" baseline; standalone-only toggle, id 11.
-bool  gVelCutoffEnabled = false;   // [id 11, standalone-only — no real UI knob for this]
 // Oscillator (morph wavetable) params — real Patch-tab ids/units (RANGE table):
 float pMorph  = 0.0f;   // 0..1 across the table's frames               [id 12]
 float pPW     = 0.5f;   // 0.5..0.999 phase-distortion pulse width      [id 13]
 float pInharm = 0.0f;   // 0..1 FM-inharmonicity index                  [id 14]
 float pSync   = 1.0f;   // 1..8 wavetable hard-sync / transpose ratio   [id 15]
+
+// ── Mod matrix (generic slots — mirrors ModMatrix/ModSlots) ─────────────────
+// 24 configurable slots, evaluated PER VOICE each block so per-note MPE sources
+// (Pressure, Slide, Pitchbend, Velocity, Keytrack) modulate each note
+// independently — this is what makes e.g. Slide→Morph genuinely per-note.
+// Source choices (ModSlots::kSourceNames): 0 Off · 1 Breath · 2 Expression ·
+//   3 Pressure · 4 Slide · 5 Pitchbend · 6 Velocity · 7-14 Aux (unsupported
+//   standalone: evaluate to 0) · 15 Keytrack.
+// Dest choices (kDestNames): 0 VCA · 1 Cutoff · 2 Reso · 3 Pitch · 4 Morph ·
+//   5 PW · 6 Fold · 7 Noise · 8 Inharm · 9 Sync · 10 Transient · 11 UniDetune ·
+//   12 Vowel. Dests this voice doesn't implement yet (Fold/Noise/Transient/
+//   UniDetune/Vowel) accumulate but go unused.
+// Slew rates are derived from the SOURCE (ModSlots::slewRates), not per slot —
+// matching the real engine; the UI's per-slot atk/rel are accepted but ignored
+// for now (same as the real header's "future revision" note).
+constexpr int kNumSlots = 24;
+constexpr int kNumDests = 13;
+struct Slot { int src = 0, dst = 0, curve = 0; float amt = 0.0f; bool on = true; };
+Slot gSlots[kNumSlots];
+
+// The factory routing — PluginProcessor.cpp kFactory[], verbatim.
+void resetSlotsToFactory() {
+    static const Slot kFactory[] = {
+        { 1, 0, 0, 1.00f },  // Breath     → VCA     lin
+        { 2, 0, 0, 1.00f },  // Expression → VCA     lin
+        { 3, 0, 0, 0.50f },  // Pressure   → VCA     lin
+        { 4, 1, 0, 0.90f },  // Slide      → Cutoff  lin
+        { 1, 1, 1, 0.25f },  // Breath     → Cutoff  exp
+        { 2, 1, 1, 0.25f },  // Expression → Cutoff  exp
+        { 3, 1, 1, 0.20f },  // Pressure   → Cutoff  exp
+        { 1, 2, 1, 0.15f },  // Breath     → Reso    exp
+        { 2, 2, 1, 0.15f },  // Expression → Reso    exp
+        { 6, 1, 0, 0.15f },  // Velocity   → Cutoff  lin
+    };
+    for (int i = 0; i < kNumSlots; ++i) gSlots[i] = Slot{};
+    for (int i = 0; i < 10; ++i) gSlots[i] = kFactory[i];
+    // Velocity→Cutoff (slot 9) defaults OFF here, unlike the plugin: a wind
+    // controller sending fixed/high note-on velocity gets a brightness kick on
+    // every attack (measured ~1.84×) that the other Vane versions don't exhibit
+    // in practice. The standalone "Vel→brightness" checkbox (param id 11)
+    // toggles exactly this slot's enable.
+    gSlots[9].on = false;
+}
+
+// Per-route curve shaping — ModRoute::CurveShape semantics.
+inline float applyCurve (float x, int curve) {
+    if (curve == 1) return x * std::fabs (x);                       // Exponential
+    if (curve == 2) {                                                // SCurve: smoothstep on |x|, sign kept
+        const float a = std::fabs (x) > 1.0f ? 1.0f : std::fabs (x);
+        const float s = a * a * (3.0f - 2.0f * a);
+        return x < 0.0f ? -s : s;
+    }
+    return x;                                                        // Linear
+}
 
 // Breath (CC2) / Expression (CC11) are GLOBAL sources (shared route.slewer in
 // the real engine — all voices hear the same breath), unlike per-voice MPE.
@@ -147,6 +191,8 @@ struct Voice {
     Slewer slideSlewer;       // atk 2ms / rel 20ms  — case 4 (operates on the bipolar value)
     Slewer velSlewer;         // atk 20ms / rel 0ms  — case 6
     Slewer bendSlewer;        // atk/rel 3ms — mirrors smoothedPitchMult ("fast enough not to lag live vibrato")
+    Slewer pbModSlewer;       // atk 2ms / rel 20ms — Pitchbend as a MOD SOURCE (case 5), separate from the pitch multiplier
+    float  keytrack = 0.0f;   // note pitch bipolar around C4 (±48 st → ±1) — mod source 15, per-note constant
 
     // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
     // default). currentHz approaches targetHz multiplicatively each sample —
@@ -208,9 +254,11 @@ void vane_init (double sampleRate) {
         v.slideSlewer.prepare (sampleRate);    v.slideSlewer.setRates (2.0f, 20.0f);
         v.velSlewer.prepare (sampleRate);      v.velSlewer.setRates (20.0f, 0.0f);
         v.bendSlewer.prepare (sampleRate);     v.bendSlewer.setRates (3.0f, 3.0f);
+        v.pbModSlewer.prepare (sampleRate);    v.pbModSlewer.setRates (2.0f, 20.0f);
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
+    resetSlotsToFactory();
 }
 
 // Mono held-note stack (pushHeld/popHeld, namespace-scope above): classic
@@ -264,6 +312,8 @@ void startNote (int note, int vel, int channel) {
     Voice& v = voices[idx];
     const float prevHz = legato ? v.currentHz : 0.0f;
     v.active = true; v.note = note; v.channel = channel; v.vel = vel / 127.0f;
+    v.keytrack = ((float) note - 60.0f) / 48.0f;              // bipolar around C4, ±4 oct → ±1
+    if (v.keytrack > 1.0f) v.keytrack = 1.0f; else if (v.keytrack < -1.0f) v.keytrack = -1.0f;
     // MPE slide (Y/CC74) is a CENTRED dimension: 0.5 = neutral, not 0. The real
     // engine reads it from note.timbre whose default is 0.5. Initialising it to
     // 0 here mapped to bipolar −1 through the Slide→Cutoff route (0.90 × ±5 oct),
@@ -274,7 +324,7 @@ void startNote (int note, int vel, int channel) {
 
     // VCA/tail: legato continues from the current level (no re-attack click);
     // a fresh attack starts silent and lets the breath-driven VCA open it.
-    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.bendSlewer.reset (1.0f); }
+    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.bendSlewer.reset (1.0f); v.pbModSlewer.reset(); }
     v.tailLevel = 1.0f; v.releasing = false;
 
     // Portamento: glide from the previous pitch when legato, with the real
@@ -339,13 +389,23 @@ void vane_set_param (int id, float val) {
         case 8: pOutput    = val; break;
         case 9: pVelVCA    = val; break;
         case 10: pGlideMs  = val; break;
-        case 11: gVelCutoffEnabled = (val > 0.5f); break;
+        case 11: gSlots[9].on = (val > 0.5f); break;   // Vel→brightness = the factory Velocity→Cutoff slot's enable
         case 12: pMorph  = val; break;
         case 13: pPW     = val; break;
         case 14: pInharm = val; break;
         case 15: pSync   = val; break;
         default: break;
     }
+}
+
+// Configure one mod-matrix slot (the Matrix tab's slotEdit). src/dst/curve are
+// the UI's choice indices (ModSlots order); amt is -1..1; on gates the slot
+// without clearing it. Per-slot atk/rel from the UI are ignored — slew rates
+// derive from the source, matching the real engine.
+void vane_set_slot (int n, int src, int dst, float amt, int curve, int on) {
+    if (n < 0 || n >= kNumSlots) return;
+    gSlots[n].src = src; gSlots[n].dst = dst; gSlots[n].amt = amt;
+    gSlots[n].curve = curve; gSlots[n].on = on != 0;
 }
 
 // Tuning source: 0 = FollowMTS (no master in web → internal-table fallback),
@@ -374,11 +434,10 @@ void vane_render (int n) {
     exprSlewer.setStep (n);
 
     // Global mod sources, slewed once per block (matches the real engine's
-    // once-per-buffer Slewer::process() call rate).
+    // once-per-buffer Slewer::process() call rate). Curves are applied per-slot
+    // in the matrix evaluation, not here.
     const float breathS = breathSlewer.process (ccBreathRaw);
     const float exprS   = exprSlewer.process (ccExprRaw);
-    const float breathExp = breathS * breathS;   // Exponential curve on a unipolar [0,1] source: x·|x| = x²
-    const float exprExp   = exprS * exprS;
 
     for (auto& v : voices) {
         if (! v.active) continue;
@@ -401,35 +460,53 @@ void vane_render (int n) {
         v.slideSlewer.setStep (n);
         v.velSlewer.setStep (n);
         v.bendSlewer.setStep (n);
+        v.pbModSlewer.setStep (n);
 
-        // ── Per-voice slewed mod sources (factory routes) ──────────────────────
-        const float pressS = v.pressureSlewer.process (v.pressure);
+        // ── Per-voice slewed mod sources ────────────────────────────────────────
+        const float pressS  = v.pressureSlewer.process (v.pressure);
         const float slideBp = (v.slide - 0.5f) * 2.0f;             // neutral(0.5) -> 0, matches SynthVoice.cpp
         const float slideS  = v.slideSlewer.process (slideBp);
         const float velS    = v.velSlewer.process (v.vel);
+        const float pbS     = v.pbModSlewer.process (v.bend);      // Pitchbend as a MOD source
+
+        // ── Mod matrix: evaluate every slot for THIS voice (per-note MPE) ──────
+        float mods[kNumDests] = {};
+        for (int i = 0; i < kNumSlots; ++i) {
+            const Slot& sl = gSlots[i];
+            if (! sl.on || sl.src == 0 || sl.dst < 0 || sl.dst >= kNumDests) continue;
+            float srcVal;
+            switch (sl.src) {
+                case 1:  srcVal = breathS;    break;   // Breath (global CC2)
+                case 2:  srcVal = exprS;      break;   // Expression (global CC11)
+                case 3:  srcVal = pressS;     break;   // Pressure (per-voice, MPE Z)
+                case 4:  srcVal = slideS;     break;   // Slide (per-voice bipolar, MPE Y)
+                case 5:  srcVal = pbS;        break;   // Pitchbend (per-voice, MPE X)
+                case 6:  srcVal = velS;       break;   // Velocity (per-voice)
+                case 15: srcVal = v.keytrack; break;   // Keytrack (per-note constant)
+                default: srcVal = 0.0f;       break;   // Aux 1-8 — unsupported standalone
+            }
+            mods[sl.dst] += applyCurve (srcVal, sl.curve) * sl.amt;
+        }
 
         // MPE pitchbend (X): a per-channel multiplier on top of the glided base
         // pitch (currentHz), NOT folded into the portamento target — matches the
-        // real engine's separate smoothedHz x smoothedPitchMult. pBendRange is
-        // the member-channel bend range in semitones (default 48).
-        const float bendMulTarget = std::pow (2.0f, v.bend * pBendRange / 12.0f);
+        // real engine's separate smoothedHz x smoothedPitchMult. mods[3] (Pitch)
+        // adds mod-matrix fine-tune semitones on top, like OscPitchFine.
+        const float bendMulTarget = std::pow (2.0f, (v.bend * pBendRange + mods[3]) / 12.0f);
         const float bendMul = v.bendSlewer.process (bendMulTarget);
 
-        // mods[VCALevel] = Breath*1.00 + Expression*1.00 + Pressure*0.50 (all Linear)
-        const float vcaTarget = clamp01 (pVelVCA * std::sqrt (v.vel)
-                                          + breathS * 1.00f + exprS * 1.00f + pressS * 0.50f);
-
-        // mods[FilterCutoff] (octaves, ±5 oct scale) = Slide*0.90(lin)
-        //   + Breath*0.25 + Expr*0.25 + Pressure*0.20 (all Exponential)
-        //   + Velocity*0.15(lin) — real factory route, but standalone-gated (see
-        //   gVelCutoffEnabled) since it fires independent of breath.
-        const float cutoffOct = slideS * 0.90f + breathExp * 0.25f + exprExp * 0.25f
-                               + (pressS * pressS) * 0.20f
-                               + (gVelCutoffEnabled ? velS * 0.15f : 0.0f);
-        const float targetCutoffHz = pCutoff * std::pow (2.0f, cutoffOct * 5.0f);
-
-        // mods[FilterRes] = Breath*0.15 + Expr*0.15 (Exponential)
-        const float resonance = clamp01 (pReso + breathExp * 0.15f + exprExp * 0.15f);
+        // Dest application — mirrors SynthVoice::renderNextBlock:
+        const float vcaTarget      = clamp01 (pVelVCA * std::sqrt (v.vel) + mods[0]);
+        const float targetCutoffHz = pCutoff * std::pow (2.0f, mods[1] * 5.0f);   // ±5 octaves
+        const float resonance      = clamp01 (pReso + mods[2]);
+        // Per-voice oscillator character — THIS is what makes morph per-note:
+        // each voice's own slide/pressure (via routes like Slide→Morph) offsets
+        // the shared base params independently.
+        const float vMorph  = clamp01 (pMorph + mods[4]);
+        const float vPW     = clamp01 (pPW + mods[5]);
+        const float vInharm = clamp01 (pInharm + mods[8]);
+        float vSync = pSync + mods[9] * 7.0f;                       // kSyncMax-1 = 7
+        if (vSync < 1.0f) vSync = 1.0f; else if (vSync > 8.0f) vSync = 8.0f;
 
         v.osc.setFrequency (v.currentHz * bendMul);
         v.filt.setParameters (targetCutoffHz, resonance);
@@ -454,8 +531,9 @@ void vane_render (int n) {
 
             // The real morph engine: 16-frame Harmonic Stack (sine → rich saw)
             // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
-            // Oscillator::nextMorphed — identical DSP to the plugin.
-            const float oscOut  = v.osc.nextMorphed (pMorph, pPW, pInharm, pSync);
+            // Oscillator::nextMorphed — identical DSP to the plugin, with this
+            // voice's OWN mod-matrix-offset values (per-note morph et al.).
+            const float oscOut  = v.osc.nextMorphed (vMorph, vPW, vInharm, vSync);
             const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
             renderBuf[s] += filtOut * v.vca * v.tailLevel;
 
