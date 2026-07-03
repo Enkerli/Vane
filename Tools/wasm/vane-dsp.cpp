@@ -190,8 +190,18 @@ struct Voice {
     Slewer pressureSlewer;    // atk 3ms / rel 50ms  — case 3
     Slewer slideSlewer;       // atk 2ms / rel 20ms  — case 4 (operates on the bipolar value)
     Slewer velSlewer;         // atk 20ms / rel 0ms  — case 6
-    Slewer bendSlewer;        // atk/rel 3ms — mirrors smoothedPitchMult ("fast enough not to lag live vibrato")
     Slewer pbModSlewer;       // atk 2ms / rel 20ms — Pitchbend as a MOD SOURCE (case 5), separate from the pitch multiplier
+    // cutoffSmoothed/pitchMulSmoothed: per-SAMPLE 3ms linear ramps toward the
+    // block's raw (unslewed) target — mirrors the real engine's smoothedCutoff/
+    // smoothedPitchMult (JUCE SmoothedValue, reset(sr,0.003), getNextValue()
+    // every sample). The mod-matrix sources feeding the target are already
+    // block-rate slewed (matches ModMatrix's own per-buffer evaluation); what
+    // was missing was smoothing the DESTINATION across the block itself — the
+    // real engine's own comment calls this out: holding cutoff/pitch constant
+    // for a whole render quantum makes SVF coefficient jumps at block
+    // boundaries audible as "crunchiness" during breath sweeps or vibrato.
+    float cutoffSmoothed    = 4000.0f;
+    float pitchMulSmoothed  = 1.0f;
     float  keytrack = 0.0f;   // note pitch bipolar around C4 (±48 st → ±1) — mod source 15, per-note constant
 
     // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
@@ -217,6 +227,7 @@ HeldNote heldStack[kMaxVoices];
 int      heldCount = 0;
 
 inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+inline float clampf (float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
 void pushHeld (int note, int channel, int vel) {
     for (int i = 0; i < heldCount; ++i)
@@ -253,7 +264,6 @@ void vane_init (double sampleRate) {
         v.pressureSlewer.prepare (sampleRate); v.pressureSlewer.setRates (3.0f, 50.0f);
         v.slideSlewer.prepare (sampleRate);    v.slideSlewer.setRates (2.0f, 20.0f);
         v.velSlewer.prepare (sampleRate);      v.velSlewer.setRates (20.0f, 0.0f);
-        v.bendSlewer.prepare (sampleRate);     v.bendSlewer.setRates (3.0f, 3.0f);
         v.pbModSlewer.prepare (sampleRate);    v.pbModSlewer.setRates (2.0f, 20.0f);
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
@@ -324,7 +334,11 @@ void startNote (int note, int vel, int channel) {
 
     // VCA/tail: legato continues from the current level (no re-attack click);
     // a fresh attack starts silent and lets the breath-driven VCA open it.
-    if (! legato) { v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.bendSlewer.reset (1.0f); v.pbModSlewer.reset(); }
+    if (! legato) {
+        v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.pbModSlewer.reset();
+        v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
+        v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
+    }
     v.tailLevel = 1.0f; v.releasing = false;
 
     // Portamento: glide from the previous pitch when legato, with the real
@@ -459,7 +473,6 @@ void vane_render (int n) {
         v.pressureSlewer.setStep (n);
         v.slideSlewer.setStep (n);
         v.velSlewer.setStep (n);
-        v.bendSlewer.setStep (n);
         v.pbModSlewer.setStep (n);
 
         // ── Per-voice slewed mod sources ────────────────────────────────────────
@@ -491,9 +504,10 @@ void vane_render (int n) {
         // MPE pitchbend (X): a per-channel multiplier on top of the glided base
         // pitch (currentHz), NOT folded into the portamento target — matches the
         // real engine's separate smoothedHz x smoothedPitchMult. mods[3] (Pitch)
-        // adds mod-matrix fine-tune semitones on top, like OscPitchFine.
+        // adds mod-matrix fine-tune semitones on top, like OscPitchFine. This is
+        // the RAW per-block target; v.pitchMulSmoothed ramps to it per-sample
+        // below (mirrors smoothedPitchMult exactly — see the Voice struct note).
         const float bendMulTarget = std::pow (2.0f, (v.bend * pBendRange + mods[3]) / 12.0f);
-        const float bendMul = v.bendSlewer.process (bendMulTarget);
 
         // Dest application — mirrors SynthVoice::renderNextBlock:
         const float vcaTarget      = clamp01 (pVelVCA * std::sqrt (v.vel) + mods[0]);
@@ -508,8 +522,9 @@ void vane_render (int n) {
         float vSync = pSync + mods[9] * 7.0f;                       // kSyncMax-1 = 7
         if (vSync < 1.0f) vSync = 1.0f; else if (vSync > 8.0f) vSync = 8.0f;
 
-        v.osc.setFrequency (v.currentHz * bendMul);
-        v.filt.setParameters (targetCutoffHz, resonance);
+        // Resonance (k) is block-rate, matching the real engine — only cutoff
+        // (g/a1-a3) needs per-sample updates to stay coefficient-continuous.
+        v.filt.setResonance (resonance);
 
         for (int s = 0; s < n; ++s) {
             // VCA: 3 ms linear rate-limited approach to the block target (mirrors
@@ -519,6 +534,22 @@ void vane_render (int n) {
             if (v.vca < vcaTarget) v.vca = (v.vca + maxStep < vcaTarget) ? v.vca + maxStep : vcaTarget;
             else                    v.vca = (v.vca - maxStep > vcaTarget) ? v.vca - maxStep : vcaTarget;
 
+            // Cutoff/pitch-mult: same 3 ms linear approach as VCA, applied
+            // directly in Hz / multiplier space — mirrors the real engine's
+            // smoothedCutoff / smoothedPitchMult (JUCE SmoothedValue, 3 ms ramp,
+            // getNextValue() every sample). Without this, the SVF coefficients
+            // and pitch multiplier were flat for the whole render quantum and
+            // stepped at block boundaries — audible as "crunchiness" during
+            // breath sweeps or vibrato, exactly the real engine's own comment
+            // on why it smooths cutoff per-sample in the first place.
+            const float cTarget = clampf (targetCutoffHz, 20.0f, 20000.0f);
+            if (v.cutoffSmoothed < cTarget) v.cutoffSmoothed = (v.cutoffSmoothed + maxStep * 20000.0f < cTarget) ? v.cutoffSmoothed + maxStep * 20000.0f : cTarget;
+            else                             v.cutoffSmoothed = (v.cutoffSmoothed - maxStep * 20000.0f > cTarget) ? v.cutoffSmoothed - maxStep * 20000.0f : cTarget;
+            v.filt.setCutoff (v.cutoffSmoothed);
+
+            if (v.pitchMulSmoothed < bendMulTarget) v.pitchMulSmoothed = (v.pitchMulSmoothed + maxStep < bendMulTarget) ? v.pitchMulSmoothed + maxStep : bendMulTarget;
+            else                                     v.pitchMulSmoothed = (v.pitchMulSmoothed - maxStep > bendMulTarget) ? v.pitchMulSmoothed - maxStep : bendMulTarget;
+
             if (v.releasing) {
                 v.tailLevel *= 0.9995f;
                 if (v.tailLevel < 0.0001f) { v.tailLevel = 0.0f; v.active = false; v.releasing = false; }
@@ -527,7 +558,7 @@ void vane_render (int n) {
             v.currentHz *= v.glideCoeff;
             const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
             if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
-            v.osc.setFrequency (v.currentHz * bendMul);
+            v.osc.setFrequency (v.currentHz * v.pitchMulSmoothed);
 
             // The real morph engine: 16-frame Harmonic Stack (sine → rich saw)
             // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
