@@ -115,6 +115,11 @@ float pPW     = 0.5f;   // 0.5..0.999 phase-distortion pulse width      [id 13]
 float pInharm = 0.0f;   // 0..1 FM-inharmonicity index                  [id 14]
 float pSync   = 1.0f;   // 1..8 wavetable hard-sync / transpose ratio   [id 15]
 
+// One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
+// character smoothers (morph/PW/inharm/sync). Set from the sample rate in
+// vane_init; matches the real engine's smoothedX.reset(sr, 0.003).
+float gParamSmooth = 0.00693f;
+
 // ── Mod matrix (generic slots — mirrors ModMatrix/ModSlots) ─────────────────
 // 24 configurable slots, evaluated PER VOICE each block so per-note MPE sources
 // (Pressure, Slide, Pitchbend, Velocity, Keytrack) modulate each note
@@ -202,6 +207,19 @@ struct Voice {
     // boundaries audible as "crunchiness" during breath sweeps or vibrato.
     float cutoffSmoothed    = 4000.0f;
     float pitchMulSmoothed  = 1.0f;
+    // Oscillator-character params, per-sample smoothed toward their per-block
+    // target — same reason as cutoff/pitch. Holding morph/PW/inharm/sync constant
+    // for a whole 128-sample render quantum means they STEP at every block
+    // boundary when modulated (e.g. Pressure→Morph); each step is a small
+    // waveform discontinuity that repeats at the block rate (SR/128 ≈ 375 Hz),
+    // producing sidebands at harmonic±375 Hz — audible as a rough, "gritty"
+    // buzz that reads as intermodulation, especially with two notes. The real
+    // engine per-sample-smooths PW/Inharm/Sync (smoothedPW/Inharm/Sync); morph
+    // it block-steps, but smoothing it too only helps and costs nothing here.
+    float morphSmoothed  = 0.0f;
+    float pwSmoothed     = 0.5f;
+    float inharmSmoothed = 0.0f;
+    float syncSmoothed   = 1.0f;
     float  keytrack = 0.0f;   // note pitch bipolar around C4 (±48 st → ±1) — mod source 15, per-note constant
 
     // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
@@ -312,6 +330,7 @@ void vane_init (double sampleRate) {
     limRelEnv  = std::exp (-1.0f / (0.050f * sr));
     limGainAtk = 1.0f - std::exp (-1.0f / (0.001f * sr));
     limGainRel = 1.0f - std::exp (-1.0f / (0.150f * sr));
+    gParamSmooth = 1.0f - std::exp (-1.0f / (0.003f * sr));   // 3 ms one-pole (morph/PW/inharm/sync)
     resetSlotsToFactory();
 }
 
@@ -387,6 +406,7 @@ void startNote (int note, int vel, int channel) {
         v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.pbModSlewer.reset();
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
+        v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
     }
     v.tailLevel = 1.0f; v.releasing = false;
 
@@ -599,6 +619,15 @@ void vane_render (int n) {
             if (v.pitchMulSmoothed < bendMulTarget) v.pitchMulSmoothed = (v.pitchMulSmoothed + maxStep < bendMulTarget) ? v.pitchMulSmoothed + maxStep : bendMulTarget;
             else                                     v.pitchMulSmoothed = (v.pitchMulSmoothed - maxStep > bendMulTarget) ? v.pitchMulSmoothed - maxStep : bendMulTarget;
 
+            // Oscillator character: one-pole 3 ms smoothing toward the per-block
+            // target so morph/PW/inharm/sync never STEP at a block boundary (which
+            // otherwise buzzes at SR/128 when they're modulated — see the Voice
+            // struct note). Mirrors the real engine's smoothedPW/Inharm/Sync.
+            v.morphSmoothed  += (vMorph  - v.morphSmoothed)  * gParamSmooth;
+            v.pwSmoothed     += (vPW     - v.pwSmoothed)     * gParamSmooth;
+            v.inharmSmoothed += (vInharm - v.inharmSmoothed) * gParamSmooth;
+            v.syncSmoothed   += (vSync   - v.syncSmoothed)   * gParamSmooth;
+
             if (v.releasing) {
                 v.tailLevel *= 0.9995f;
                 if (v.tailLevel < 0.0001f) { v.tailLevel = 0.0f; v.active = false; v.releasing = false; }
@@ -613,7 +642,7 @@ void vane_render (int n) {
             // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
             // Oscillator::nextMorphed — identical DSP to the plugin, with this
             // voice's OWN mod-matrix-offset values (per-note morph et al.).
-            const float oscOut  = v.osc.nextMorphed (vMorph, vPW, vInharm, vSync);
+            const float oscOut  = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
             const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
             renderBuf[s] += filtOut * v.vca * v.tailLevel;
 
