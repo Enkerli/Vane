@@ -191,6 +191,19 @@ struct Voice {
     float pressure  = 0.0f;   // 0..1   (MPE Z)
     float tailLevel = 0.0f;   // 1 while held; ×0.9995/sample after note-off (fixed safety ramp, not a user knob)
     bool  releasing = false;
+    // Mono legato-hold: on the LAST note-off in mono, instead of releasing at
+    // once we FREEZE the amplitude for a short window and wait for a possible
+    // next note. If one arrives (a slur/detached-but-connected phrase) the voice
+    // reconnects with no dip; if the window expires, the normal tail-off runs.
+    // This is what makes mono smooth "with anything driving the volume" — with
+    // per-note pressure, key-release drops that note's pressure, which would
+    // otherwise notch the level between notes; freezing bridges the gap. (An
+    // addition beyond the JUCE engine's immediate tail-off, at the user's
+    // explicit request — the JUCE version stays seamless via continuous breath /
+    // overlapping notes, which a keyboard's detached playing doesn't provide.)
+    bool  holding    = false;
+    int   holdSamples = 0;
+    float holdVca    = 0.0f;
     float vca       = 0.0f;   // smoothedVCA equivalent — linearly rate-limited toward the block target
     Slewer pressureSlewer;    // atk 3ms / rel 50ms  — case 3
     Slewer slideSlewer;       // atk 2ms / rel 20ms  — case 4 (operates on the bipolar value)
@@ -409,6 +422,7 @@ void startNote (int note, int vel, int channel) {
         v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
     }
     v.tailLevel = 1.0f; v.releasing = false;
+    v.holding = false; v.holdSamples = 0;    // a new note cancels any pending legato-hold (seamless reconnect)
 
     // Portamento: glide from the previous pitch when legato, with the real
     // engine's always-on minimum (one period at the target, so even glideMs=0
@@ -454,8 +468,14 @@ void vane_note_off (int note, int channel) {
         // not found in the stack (shouldn't normally happen) — fall through too
     }
     for (auto& v : voices)
-        if (v.active && v.note == note && (channel < 0 || v.channel == channel))
-            v.releasing = true;                      // start the fixed tail-off ramp
+        if (v.active && v.note == note && (channel < 0 || v.channel == channel)) {
+            if (gMono) {                             // legato-hold: freeze, wait for a next note, then release
+                v.holding = true; v.holdVca = v.vca;
+                v.holdSamples = (int) (0.100f * (float) gSampleRate);   // 100 ms bridge window
+            } else {
+                v.releasing = true;                  // poly: each note releases at once (matches per-note behaviour)
+            }
+        }
 }
 
 // Per-MPE-channel expression update (applies to the sounding voice on that channel).
@@ -545,11 +565,16 @@ void vane_render (int n) {
         v.pbModSlewer.setStep (n);
 
         // ── Per-voice slewed mod sources ────────────────────────────────────────
-        const float pressS  = v.pressureSlewer.process (v.pressure);
+        // During a legato-hold, FREEZE the per-voice slewers (read their held
+        // value, don't advance them toward the released note's fading expression)
+        // so the whole per-note modulation state is bridged across the gap, not
+        // just the VCA — otherwise pressure/slide would decay during the hold and
+        // notch the reconnect. Global breath/expression are shared and keep moving.
         const float slideBp = (v.slide - 0.5f) * 2.0f;             // neutral(0.5) -> 0, matches SynthVoice.cpp
-        const float slideS  = v.slideSlewer.process (slideBp);
-        const float velS    = v.velSlewer.process (v.vel);
-        const float pbS     = v.pbModSlewer.process (v.bend);      // Pitchbend as a MOD source
+        const float pressS  = v.holding ? v.pressureSlewer.value() : v.pressureSlewer.process (v.pressure);
+        const float slideS  = v.holding ? v.slideSlewer.value()    : v.slideSlewer.process (slideBp);
+        const float velS    = v.holding ? v.velSlewer.value()      : v.velSlewer.process (v.vel);
+        const float pbS     = v.holding ? v.pbModSlewer.value()    : v.pbModSlewer.process (v.bend);   // Pitchbend as a MOD source
 
         // ── Mod matrix: evaluate every slot for THIS voice (per-note MPE) ──────
         float mods[kNumDests] = {};
@@ -578,8 +603,17 @@ void vane_render (int n) {
         // below (mirrors smoothedPitchMult exactly — see the Voice struct note).
         const float bendMulTarget = std::pow (2.0f, (v.bend * pBendRange + mods[3]) / 12.0f);
 
+        // Legato-hold countdown: while holding, the VCA is FROZEN at the level it
+        // had at note-off (bridging the gap to a possible next note); when the
+        // window expires with no new note, fall through to the normal tail-off.
+        if (v.holding) {
+            v.holdSamples -= n;
+            if (v.holdSamples <= 0) { v.holding = false; v.releasing = true; }
+        }
+
         // Dest application — mirrors SynthVoice::renderNextBlock:
-        const float vcaTarget      = clamp01 (pVelVCA * std::sqrt (v.vel) + mods[0]);
+        const float vcaTarget      = v.holding ? v.holdVca
+                                               : clamp01 (pVelVCA * std::sqrt (v.vel) + mods[0]);
         const float targetCutoffHz = pCutoff * std::pow (2.0f, mods[1] * 5.0f);   // ±5 octaves
         const float resonance      = clamp01 (pReso + mods[2]);
         // Per-voice oscillator character — THIS is what makes morph per-note:

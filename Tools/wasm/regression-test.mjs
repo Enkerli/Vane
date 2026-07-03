@@ -391,5 +391,30 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         Math.abs(test - hi) < Math.abs(test - lo), `test=${test.toFixed(3)} bright=${hi.toFixed(3)} neutral=${lo.toFixed(3)}`);
 }
 
+// ── 12. Mono legato-hold: a DETACHED note change (note-off, gap, note-on) must
+//      NOT notch the amplitude while the gap is within the hold window — the
+//      voice freezes and bridges to the next note. Without the hold the level
+//      collapsed during the gap (~28% at a 50 ms gap). Tested with pressure as
+//      the sole volume source, dropping to 0 on key-release (the worst case). ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_param(10, 120); e.vane_set_mono(1); e.vane_set_cc(2, 0.0);
+  for (let s = 0; s < 24; s++) e.vane_set_slot(s, 0, 0, 0, 0, 0);
+  e.vane_set_slot(0, 3, 0, 1.0, 0, 1);   // Pressure→VCA (volume entirely from pressure)
+  e.vane_note_on(60, 100, 1); e.vane_set_expr(1, 0, 0.5, 0.9);
+  for (let i = 0; i < 160; i++) render(e, 128);
+  const steady = rmsOf(e, 16);
+  const gapBlocks = Math.round(0.05 * 48000 / 128);   // 50 ms detached gap
+  const env = [];
+  e.vane_note_off(60, 1); e.vane_set_expr(1, 0, 0.5, 0.0);   // key released → pressure drops to 0
+  for (let i = 0; i < gapBlocks; i++) env.push(rmsOf(e, 1));
+  e.vane_note_on(64, 100, 1); e.vane_set_expr(1, 0, 0.5, 0.9);
+  for (let i = 0; i < 40; i++) env.push(rmsOf(e, 1));
+  const dip = Math.min(...env) / steady;
+  check("mono legato-hold bridges a detached note change (no amplitude notch)",
+        dip > 0.7, `dip=${(dip*100).toFixed(0)}% of steady (was ~28% without the hold)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
