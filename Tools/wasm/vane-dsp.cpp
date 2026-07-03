@@ -229,6 +229,27 @@ int      heldCount = 0;
 inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 inline float clampf (float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
+// Standalone-only output safety net (NOT in the real engine — see the note in
+// vane_render below on why it's still faithful to "stick close to the real
+// synth"). PluginProcessor.cpp's own masterGain comment says the 0.8 default
+// gives "~2 dB headroom before clipping into downstream effects" — an
+// assumption that only holds inside a DAW host, whose bus is float and has no
+// hard 0 dBFS ceiling until a later stage. The standalone webapp writes
+// straight to the browser's hardware output, which DOES hard-clip at ±1.0.
+// Two MPE notes near the same pitch constructively interfere at points in
+// their beat cycle — exactly the "quick beating that sounds like distortion"
+// a user would notice with polyphony — and easily exceed that 2 dB headroom
+// even though each voice alone never does. Transparent (identity) below the
+// knee, so normal single-voice listening is bit-identical to before; only
+// engages on the rare interference peaks.
+inline float softLimit (float x) {
+    constexpr float knee = 0.9f;
+    const float sign = x < 0.0f ? -1.0f : 1.0f;
+    const float ax = std::fabs (x);
+    if (ax <= knee) return x;
+    return sign * (knee + (1.0f - knee) * std::tanh ((ax - knee) / (1.0f - knee)));
+}
+
 void pushHeld (int note, int channel, int vel) {
     for (int i = 0; i < heldCount; ++i)
         if (heldStack[i].note == note && heldStack[i].channel == channel) { heldStack[i].vel = vel; return; }
@@ -576,7 +597,7 @@ void vane_render (int n) {
         }
     }
 
-    for (int s = 0; s < n; ++s) renderBuf[s] *= pOutput;
+    for (int s = 0; s < n; ++s) renderBuf[s] = softLimit (renderBuf[s] * pOutput);
 }
 
 } // extern "C"

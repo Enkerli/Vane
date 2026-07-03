@@ -318,5 +318,22 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         rSlid > rNeutral * 5 && rNeutral < 0.1, `neutral h2/h1=${rNeutral.toFixed(4)} slid h2/h1=${rSlid.toFixed(4)}`);
 }
 
+// ── 9. Output safety net: two near-unison MPE notes at full VCA constructively
+//      interfere at points in their beat cycle — the standalone webapp writes
+//      straight to the browser's hardware output, which hard-clips at ±1.0
+//      (heard as "quick beating that sounds like distortion", reported by ear).
+//      softLimit() must keep the summed peak at/under the ceiling. ──
+{
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_cc(2, 1.0);
+  e.vane_note_on(69, 127, 2);   // A4, channel 2
+  e.vane_note_on(70, 127, 3);   // Bb4, channel 3 — a semitone away, strong beating
+  for (let i = 0; i < 30; i++) render(e, 128);   // settle VCA/cutoff slews
+  let peak = 0;
+  for (let i = 0; i < 120; i++) { const buf = render(e, 128); for (const v of buf) peak = Math.max(peak, Math.abs(v)); }
+  check("polyphonic beat peaks never exceed the hardware ceiling (soft limiter engages)",
+        peak <= 1.001, `peak=${peak.toFixed(4)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
