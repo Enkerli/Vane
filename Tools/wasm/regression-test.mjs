@@ -318,21 +318,77 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         rSlid > rNeutral * 5 && rNeutral < 0.1, `neutral h2/h1=${rNeutral.toFixed(4)} slid h2/h1=${rSlid.toFixed(4)}`);
 }
 
-// ── 9. Output safety net: two near-unison MPE notes at full VCA constructively
-//      interfere at points in their beat cycle — the standalone webapp writes
-//      straight to the browser's hardware output, which hard-clips at ±1.0
-//      (heard as "quick beating that sounds like distortion", reported by ear).
-//      softLimit() must keep the summed peak at/under the ceiling. ──
+// ── 9. Output safety net: two MPE notes at full VCA sum to ~1.6 — the standalone
+//      webapp writes straight to the browser's hardware output, which hard-clips
+//      at ±1.0. The master limiter must keep the peak at/under the ceiling. ──
 {
   const e = await fresh();
   e.vane_init(48000); e.vane_set_param(8, 1.0); e.vane_set_cc(2, 1.0);
   e.vane_note_on(69, 127, 2);   // A4, channel 2
   e.vane_note_on(70, 127, 3);   // Bb4, channel 3 — a semitone away, strong beating
-  for (let i = 0; i < 30; i++) render(e, 128);   // settle VCA/cutoff slews
+  for (let i = 0; i < 30; i++) render(e, 128);   // settle VCA/cutoff slews + limiter
   let peak = 0;
   for (let i = 0; i < 120; i++) { const buf = render(e, 128); for (const v of buf) peak = Math.max(peak, Math.abs(v)); }
-  check("polyphonic beat peaks never exceed the hardware ceiling (soft limiter engages)",
+  check("polyphonic peaks never exceed the hardware ceiling (master limiter engages)",
         peak <= 1.001, `peak=${peak.toFixed(4)}`);
+}
+
+// ── 10. Distortion: the limiter must be a smooth GAIN, not a per-sample
+//      waveshaper. A linear gain scales the mix without adding frequencies; a
+//      waveshaper (the old softLimit) adds intermodulation — the "roughness/
+//      distortion" reported by ear with two notes. Measure the non-harmonic
+//      (distortion) energy fraction of C4+E4 at a LOUD level (limiter active,
+//      2 notes → ~1.6 pre-gain) vs a QUIET level (never limits → pure linear);
+//      a clean gain limiter leaves the two nearly EQUAL, a waveshaper inflates
+//      the loud one. (The absolute value is a DFT-leakage floor, hence the diff.) ──
+{
+  const distFrac = (s) => {                     // non-harmonic energy fraction of C4+E4
+    const N = s.length, f1 = 261.63, f2 = 329.63;
+    const mag = (hz) => { let re = 0, im = 0; for (let i = 0; i < N; i++) { const w = 2*Math.PI*hz*i/48000; re += s[i]*Math.cos(w); im += s[i]*Math.sin(w); } return re*re + im*im; };
+    const isH = (hz) => { for (const f of [f1, f2]) { const k = Math.round(hz/f); if (k >= 1 && Math.abs(hz - k*f) < 4) return true; } return false; };
+    let h = 0, r = 0; for (let hz = 30; hz < 18000; hz += 11) { const en = mag(hz); if (isH(hz)) h += en; else r += en; }
+    return r / (h + r);
+  };
+  const run = async (out) => {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, out); e.vane_set_cc(2, 1.0);
+    e.vane_note_on(60, 100, 2); e.vane_note_on(64, 100, 3);
+    e.vane_set_expr(2, 0, 0.5, 1.0); e.vane_set_expr(3, 0, 0.5, 1.0);
+    for (let i = 0; i < 80; i++) render(e, 128);
+    const s = []; for (let i = 0; i < 80; i++) s.push(...render(e, 128));
+    return distFrac(s);
+  };
+  const loud = await run(0.80), quiet = await run(0.30);
+  check("limiter adds no distortion vs pure-linear (gain-based, not a waveshaper)",
+        (loud - quiet) < 0.008, `loud=${(loud*100).toFixed(2)}% quiet(linear)=${(quiet*100).toFixed(2)}% Δ=${((loud-quiet)*100).toFixed(2)}%`);
+}
+
+// ── 11. Legato preserves expression continuity. A wind-controller slur keeps
+//      breath/slide/pressure flowing across the note change; re-zeroing them at
+//      each note-on blipped the timbre (via the factory Slide→Cutoff route) so
+//      legato never felt smooth however long the pitch glide. With a low base
+//      cutoff, RMS tracks slide position — after a legato change with expression
+//      NOT resent it must match the bright (slide-held) case, not neutral. ──
+{
+  const setup = (e) => {
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_param(10, 10); e.vane_set_param(1, 70);
+    e.vane_set_mono(1);
+    for (let s = 0; s < 24; s++) e.vane_set_slot(s, 0, 0, 0, 0, 0);
+    e.vane_set_slot(0, 1, 0, 1.0, 0, 1);   // Breath→VCA
+    e.vane_set_slot(1, 4, 1, 0.9, 0, 1);   // Slide→Cutoff
+    e.vane_set_cc(2, 1.0);
+  };
+  const rms = (e) => { const b = []; for (let i = 0; i < 24; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  const eHi = await fresh(); setup(eHi); eHi.vane_note_on(55, 100, 1); eHi.vane_set_expr(1, 0, 0.9, 0.0);
+  for (let i = 0; i < 200; i++) render(eHi, 128); const hi = rms(eHi);
+  const eLo = await fresh(); setup(eLo); eLo.vane_note_on(55, 100, 1); eLo.vane_set_expr(1, 0, 0.5, 0.0);
+  for (let i = 0; i < 200; i++) render(eLo, 128); const lo = rms(eLo);
+  const eT = await fresh(); setup(eT); eT.vane_note_on(48, 100, 1); eT.vane_set_expr(1, 0, 0.9, 0.0);
+  for (let i = 0; i < 200; i++) render(eT, 128);
+  eT.vane_note_on(55, 100, 1);           // legato, expression NOT resent
+  for (let i = 0; i < 40; i++) render(eT, 128); const test = rms(eT);
+  check("legato preserves expression (no per-note timbre blip)",
+        Math.abs(test - hi) < Math.abs(test - lo), `test=${test.toFixed(3)} bright=${hi.toFixed(3)} neutral=${lo.toFixed(3)}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

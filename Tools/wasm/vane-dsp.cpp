@@ -229,25 +229,40 @@ int      heldCount = 0;
 inline float clamp01 (float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 inline float clampf (float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
-// Standalone-only output safety net (NOT in the real engine — see the note in
-// vane_render below on why it's still faithful to "stick close to the real
-// synth"). PluginProcessor.cpp's own masterGain comment says the 0.8 default
-// gives "~2 dB headroom before clipping into downstream effects" — an
-// assumption that only holds inside a DAW host, whose bus is float and has no
-// hard 0 dBFS ceiling until a later stage. The standalone webapp writes
-// straight to the browser's hardware output, which DOES hard-clip at ±1.0.
-// Two MPE notes near the same pitch constructively interfere at points in
-// their beat cycle — exactly the "quick beating that sounds like distortion"
-// a user would notice with polyphony — and easily exceed that 2 dB headroom
-// even though each voice alone never does. Transparent (identity) below the
-// knee, so normal single-voice listening is bit-identical to before; only
-// engages on the rare interference peaks.
-inline float softLimit (float x) {
-    constexpr float knee = 0.9f;
-    const float sign = x < 0.0f ? -1.0f : 1.0f;
+// ── Standalone-only master limiter ───────────────────────────────────────────
+// NOT in the real engine (PluginProcessor.cpp's masterGain comment admits the
+// 0.8 default only leaves "~2 dB headroom before clipping into downstream
+// effects" — fine inside a DAW's float bus, which has no hard ceiling until a
+// later stage; NOT fine writing straight to the browser's hardware output,
+// which hard-clips at ±1.0). Two full-VCA voices sum to ~1.6 and MUST be tamed.
+//
+// The earlier attempt was a per-SAMPLE tanh waveshaper — which was the wrong
+// tool and the actual cause of the "roughness/distortion" reported with two
+// notes: waveshaping the SUM of two tones generates intermodulation products
+// (difference tones + sidebands) = new frequencies = audible distortion, not a
+// clean beat. A proper limiter instead computes a smooth GAIN and scales the
+// whole signal linearly (no new frequencies): a peak envelope with instant
+// attack + slow release drives a gain that is reduced quickly but recovered
+// slowly. Because the release (150 ms) is far slower than any musical beat
+// period, the gain does NOT pump at the beat rate — the natural acoustic
+// beating of two summed tones is preserved, only the overall level rides down
+// when the mix would clip. Single notes (< threshold) pass at unity untouched.
+float limEnv = 0.0f;      // peak envelope (instant attack, slow release)
+float limGain = 1.0f;     // applied gain (fast down, slow up)
+float limRelEnv = 0.0f;   // env release coeff  (set from SR in vane_init)
+float limGainAtk = 0.0f;  // gain attack coeff  (fast — reduce)
+float limGainRel = 0.0f;  // gain release coeff (slow — recover)
+inline float masterLimit (float x) {
     const float ax = std::fabs (x);
-    if (ax <= knee) return x;
-    return sign * (knee + (1.0f - knee) * std::tanh ((ax - knee) / (1.0f - knee)));
+    if (ax > limEnv) limEnv = ax;                          // instant peak catch
+    else             limEnv = ax + (limEnv - ax) * limRelEnv;   // slow release
+    constexpr float thr = 0.95f;
+    const float tgt = limEnv > thr ? thr / limEnv : 1.0f;
+    if (tgt < limGain) limGain += (tgt - limGain) * limGainAtk;   // reduce fast
+    else               limGain += (tgt - limGain) * limGainRel;   // recover slow
+    float y = x * limGain;
+    if (y > 1.0f) y = 1.0f; else if (y < -1.0f) y = -1.0f;        // hard safety
+    return y;
 }
 
 void pushHeld (int note, int channel, int vel) {
@@ -289,6 +304,14 @@ void vane_init (double sampleRate) {
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
     }
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
+    // Master limiter coefficients (see masterLimit): 50 ms env release, 1 ms
+    // gain attack, 150 ms gain recovery — the slow recovery is what keeps it
+    // from pumping at a musical beat rate.
+    const float sr = (float) sampleRate;
+    limEnv = 0.0f; limGain = 1.0f;
+    limRelEnv  = std::exp (-1.0f / (0.050f * sr));
+    limGainAtk = 1.0f - std::exp (-1.0f / (0.001f * sr));
+    limGainRel = 1.0f - std::exp (-1.0f / (0.150f * sr));
     resetSlotsToFactory();
 }
 
@@ -345,17 +368,22 @@ void startNote (int note, int vel, int channel) {
     v.active = true; v.note = note; v.channel = channel; v.vel = vel / 127.0f;
     v.keytrack = ((float) note - 60.0f) / 48.0f;              // bipolar around C4, ±4 oct → ±1
     if (v.keytrack > 1.0f) v.keytrack = 1.0f; else if (v.keytrack < -1.0f) v.keytrack = -1.0f;
-    // MPE slide (Y/CC74) is a CENTRED dimension: 0.5 = neutral, not 0. The real
-    // engine reads it from note.timbre whose default is 0.5. Initialising it to
-    // 0 here mapped to bipolar −1 through the Slide→Cutoff route (0.90 × ±5 oct),
-    // dragging the filter down ~4.5 octaves to ~50 Hz for any note that hadn't
-    // received CC74 yet — the "almost inaudible in the high range" bug (~60 dB
-    // of accidental attenuation at C7).
-    v.bend = 0.0f; v.slide = 0.5f; v.pressure = 0.0f;
-
-    // VCA/tail: legato continues from the current level (no re-attack click);
-    // a fresh attack starts silent and lets the breath-driven VCA open it.
+    // VCA/tail and expression: legato CONTINUES the current state so a phrase
+    // sounds like one gesture, not a string of re-triggers. A fresh attack
+    // resets everything and lets the breath-driven VCA open the voice.
+    //   - VCA/slewers/smoothers reset only on a fresh note (no re-attack click).
+    //   - Expression (bend/slide/pressure) is preserved through legato: on a
+    //     wind controller the breath/slide/pressure are CONTINUOUS across a
+    //     slur, so re-zeroing them at every note-on made the timbre BLIP at each
+    //     note — e.g. the factory Slide→Cutoff route (0.90) snapped the filter
+    //     back toward base cutoff until the controller's next CC74 arrived,
+    //     which reads as "legato isn't smooth" no matter how long the pitch
+    //     glide is. A truly fresh note has no prior channel state, so it starts
+    //     at the MPE-neutral defaults (slide 0.5 CENTRED — reading note.timbre's
+    //     default, NOT 0, which through Slide→Cutoff would drag the filter ~4.5
+    //     octaves down and make the high range near-inaudible).
     if (! legato) {
+        v.bend = 0.0f; v.slide = 0.5f; v.pressure = 0.0f;
         v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.pbModSlewer.reset();
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
@@ -597,7 +625,7 @@ void vane_render (int n) {
         }
     }
 
-    for (int s = 0; s < n; ++s) renderBuf[s] = softLimit (renderBuf[s] * pOutput);
+    for (int s = 0; s < n; ++s) renderBuf[s] = masterLimit (renderBuf[s] * pOutput);
 }
 
 } // extern "C"
