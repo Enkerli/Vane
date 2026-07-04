@@ -342,6 +342,26 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         peak <= 1.001, `peak=${peak.toFixed(4)}`);
 }
 
+// ── 9b. Poly headroom: 1-2 notes are left at full level (parity), 3+ notes get a
+//      gentle taper (sqrt(2/N)) so the limiter engages less on chords. Verify a
+//      single note is NOT attenuated and a dense chord is — measured below the
+//      limiter (moderate output) so the taper, not the limiter, is what shows. ──
+{
+  const rmsAt = async (notes, out) => {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, out); e.vane_set_cc(2, 1.0);
+    for (let i = 0; i < notes; i++) e.vane_note_on(60 + i*4, 100, 2 + i);   // spread notes, own channels
+    for (let i = 0; i < 60; i++) render(e, 128);
+    const s = []; for (let i = 0; i < 40; i++) s.push(...render(e, 128));
+    let sum = 0; for (const v of s) sum += v*v; return Math.sqrt(sum / s.length);
+  };
+  const one = await rmsAt(1, 0.6);            // 1 note, moderate — no limiting, no taper
+  const four = await rmsAt(4, 0.15);          // 4 notes, low output — no limiting; taper (×0.707) applies
+  const fourNoTaperEstimate = four / Math.sqrt(2/4);
+  check("poly headroom tapers dense chords but leaves single notes at full level",
+        one > 0.15 && four < fourNoTaperEstimate * 0.95, `1-note rms=${one.toFixed(3)}, 4-note tapered=${four.toFixed(3)}`);
+}
+
 // ── 10. Distortion: the limiter must be a smooth GAIN, not a per-sample
 //      waveshaper. A linear gain scales the mix without adding frequencies; a
 //      waveshaper (the old softLimit) adds intermodulation — the "roughness/

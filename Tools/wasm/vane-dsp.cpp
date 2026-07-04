@@ -298,6 +298,14 @@ float limGain = 1.0f;     // applied gain (fast down, slow up)
 float limRelEnv = 0.0f;   // env release coeff  (set from SR in vane_init)
 float limGainAtk = 0.0f;  // gain attack coeff  (fast — reduce)
 float limGainRel = 0.0f;  // gain release coeff (slow — recover)
+// Poly headroom: gently pull the level down as voices stack so the limiter
+// engages LESS on chords (the excess intermodulation only appears once the
+// limiter pins the peak at the ceiling — below that it's inaudible). 1-2 notes
+// are left at full level (min(1, 2/N)); 3+ get progressively more headroom. This
+// is standalone-only compensation for having no DAW headroom; it slightly lowers
+// chord level vs the plugin but removes the limiter-induced roughness.
+float gPolyGain  = 1.0f;
+float gPolyCoeff = 0.0f;  // ~15 ms one-pole (set from SR), smooths voice-count steps
 inline float masterLimit (float x) {
     const float ax = std::fabs (x);
     if (ax > limEnv) limEnv = ax;                          // instant peak catch
@@ -359,6 +367,8 @@ void vane_init (double sampleRate) {
     limRelEnv  = std::exp (-1.0f / (0.050f * sr));
     limGainAtk = 1.0f - std::exp (-1.0f / (0.001f * sr));
     limGainRel = 1.0f - std::exp (-1.0f / (0.150f * sr));
+    gPolyGain  = 1.0f;
+    gPolyCoeff = 1.0f - std::exp (-1.0f / (0.015f * sr));     // 15 ms one-pole (poly-headroom step smoothing)
     gParamSmooth = 1.0f - std::exp (-1.0f / (0.003f * sr));   // 3 ms one-pole (morph/PW/inharm/sync)
     resetSlotsToFactory();
 }
@@ -725,7 +735,18 @@ void vane_render (int n) {
         }
     }
 
-    for (int s = 0; s < n; ++s) renderBuf[s] = masterLimit (renderBuf[s] * pOutput);
+    // Poly headroom: min(1, 2/N) over the sounding voices — 1-2 notes full, 3+
+    // progressively quieter so the master limiter engages less (and its
+    // chord-intermod doesn't appear). Smoothed per-sample (15 ms) so the level
+    // doesn't step when a note is added/released. Mono counts as 1 (one sounding
+    // voice), so it's never touched.
+    int nActive = 0;
+    for (auto& v : voices) if (v.active) ++nActive;
+    const float polyTarget = nActive <= 2 ? 1.0f : std::sqrt (2.0f / (float) nActive);
+    for (int s = 0; s < n; ++s) {
+        gPolyGain += (polyTarget - gPolyGain) * gPolyCoeff;
+        renderBuf[s] = masterLimit (renderBuf[s] * pOutput * gPolyGain);
+    }
 }
 
 } // extern "C"
