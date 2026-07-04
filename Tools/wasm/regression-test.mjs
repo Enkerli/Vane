@@ -290,6 +290,15 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
 
   const sync = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 0.0); e.vane_set_param(15, 4.0); }), 440);
   check("hard-sync at 4x adds a formant (fundamental fraction drops)", sync < sine - 0.05, `frac=${sync.toFixed(3)}`);
+
+  // Wavefold (id 17): folding a near-sine adds harmonics → fundamental fraction drops.
+  const folded = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 0.0); e.vane_set_param(17, 1.0); }), 440);
+  check("wavefold adds harmonics to the sine frame (fundamental fraction drops)", folded < sine - 0.05, `frac=${folded.toFixed(3)}`);
+
+  // Filter mode (id 16): HP (2) on a rich tone attenuates the fundamental vs LP (0).
+  const richLP = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 1.0); e.vane_set_param(1, 2000); e.vane_set_param(16, 0); }), 440);
+  const richHP = fundamentalFraction(await capture((e) => { e.vane_set_param(12, 1.0); e.vane_set_param(1, 2000); e.vane_set_param(16, 2); }), 440);
+  check("filter HP mode attenuates the fundamental vs LP", richHP < richLP - 0.05, `LP=${richLP.toFixed(3)} HP=${richHP.toFixed(3)}`);
 }
 
 // ── 8. Mod matrix: per-note morph. Configure Slide→Morph, play TWO simultaneous

@@ -126,6 +126,8 @@ float pMorph  = 0.0f;   // 0..1 across the table's frames               [id 12]
 float pPW     = 0.5f;   // 0.5..0.999 phase-distortion pulse width      [id 13]
 float pInharm = 0.0f;   // 0..1 FM-inharmonicity index                  [id 14]
 float pSync   = 1.0f;   // 1..8 wavetable hard-sync / transpose ratio   [id 15]
+int   pFilterMode = 0;  // 0 LP / 1 BP / 2 HP — SVFilter::Mode          [id 16]
+float pFold   = 0.0f;   // 0..1 wavefold amount (pre-filter drive)      [id 17]
 
 // One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
 // character smoothers (morph/PW/inharm/sync). Set from the sample rate in
@@ -245,6 +247,7 @@ struct Voice {
     float pwSmoothed     = 0.5f;
     float inharmSmoothed = 0.0f;
     float syncSmoothed   = 1.0f;
+    float foldDriveSmoothed = 1.0f;   // wavefold drive (1 = transparent); per-sample smoothed like the real smoothedFoldDrive
     float  keytrack = 0.0f;   // note pitch bipolar around C4 (±48 st → ±1) — mod source 15, per-note constant
 
     // Portamento (Linear-semitone / Fixed-Time curve only — the real engine's
@@ -433,6 +436,7 @@ void startNote (int note, int vel, int channel) {
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
         v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
+        v.foldDriveSmoothed = Oscillator::foldDrive (clamp01 (pFold));
     }
     v.tailLevel = 1.0f; v.releasing = false;
     v.holding = false; v.holdSamples = 0;    // a new note cancels any pending legato-hold (seamless reconnect)
@@ -511,6 +515,8 @@ void vane_set_param (int id, float val) {
         case 13: pPW     = val; break;
         case 14: pInharm = val; break;
         case 15: pSync   = val; break;
+        case 16: pFilterMode = (int) (val + 0.5f); if (pFilterMode < 0) pFilterMode = 0; else if (pFilterMode > 2) pFilterMode = 2; break;
+        case 17: pFold   = val; break;
         default: break;
     }
 }
@@ -648,6 +654,11 @@ void vane_render (int n) {
         const float vInharm = clamp01 (pInharm + mods[8]);
         float vSync = pSync + mods[9] * 7.0f;                       // kSyncMax-1 = 7
         if (vSync < 1.0f) vSync = 1.0f; else if (vSync > 8.0f) vSync = 8.0f;
+        // Wavefold: amount + OscFold mod (dest 6) → exponential drive once per
+        // block (std::pow too costly per sample), ramped per-sample below. Applied
+        // to the oscillator output BEFORE the filter, exactly like the real engine.
+        const float foldDriveTarget = Oscillator::foldDrive (clamp01 (pFold + mods[6]));
+        const SVFilter::Mode filtMode = (SVFilter::Mode) pFilterMode;   // 0 LP / 1 BP / 2 HP
 
         // Resonance (k) is block-rate, matching the real engine — only cutoff
         // (g/a1-a3) needs per-sample updates to stay coefficient-continuous.
@@ -685,6 +696,7 @@ void vane_render (int n) {
             v.pwSmoothed     += (vPW     - v.pwSmoothed)     * gParamSmooth;
             v.inharmSmoothed += (vInharm - v.inharmSmoothed) * gParamSmooth;
             v.syncSmoothed   += (vSync   - v.syncSmoothed)   * gParamSmooth;
+            v.foldDriveSmoothed += (foldDriveTarget - v.foldDriveSmoothed) * gParamSmooth;
 
             if (v.releasing) {
                 v.tailLevel *= 0.9995f;
@@ -700,8 +712,9 @@ void vane_render (int n) {
             // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
             // Oscillator::nextMorphed — identical DSP to the plugin, with this
             // voice's OWN mod-matrix-offset values (per-note morph et al.).
-            const float oscOut  = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
-            const float filtOut = v.filt.process (oscOut, SVFilter::Mode::LP);
+            float oscOut  = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
+            oscOut = Oscillator::wavefold (oscOut, v.foldDriveSmoothed);   // pre-filter, like SynthVoice
+            const float filtOut = v.filt.process (oscOut, filtMode);       // LP / BP / HP per the Mode param
             renderBuf[s] += filtOut * v.vca * v.tailLevel;
 
             if (! v.active) break;
