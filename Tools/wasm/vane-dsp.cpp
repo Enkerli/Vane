@@ -39,6 +39,7 @@
 #include "Synth/Oscillator.h"
 #include "Synth/SVFilter.h"
 #include "Synth/Wavetable.h"
+#include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
 #include <cmath>
 
@@ -128,6 +129,19 @@ float pInharm = 0.0f;   // 0..1 FM-inharmonicity index                  [id 14]
 float pSync   = 1.0f;   // 1..8 wavetable hard-sync / transpose ratio   [id 15]
 int   pFilterMode = 0;  // 0 LP / 1 BP / 2 HP — SVFilter::Mode          [id 16]
 float pFold   = 0.0f;   // 0..1 wavefold amount (pre-filter drive)      [id 17]
+// Global vowel/formant stage (post-mix, one instance — matches the plugin's
+// global topology so mono legato stays seamless). Enable OFF by default → the
+// filter is a pass-through (amount forced 0). Real Patch-tab ids/units.
+FormantFilter gFormant;
+bool  gVowelEn   = false;  // [id 18]  Off/On
+int   gVowelMode = 0;      // [id 19]  0 Vowel / 1 Wah
+float pVowelPos  = 0.0f;   // [id 20]  open (close→open, F1) / Wah sweep
+float pVowFront  = 0.0f;   // [id 21]  back→front (F2)
+float pVowRound  = 0.0f;   // [id 22]  lip rounding (lowers F2/F3)
+float pVowAmt    = 1.0f;   // [id 23]  dry→formant mix
+float pVowBite   = 0.5f;   // [id 24]  reso / Q (talkbox bite)
+float pVowMove   = 0.0f;   // [id 25]  slow drift depth
+float gVowelPosMod = 0.0f; // VowelPos mod-dest (12), captured from the sounding voice
 
 // One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
 // character smoothers (morph/PW/inharm/sync). Set from the sample rate in
@@ -347,6 +361,7 @@ void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
     ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
     for (int c = 0; c < 17; ++c) gChPress[c] = 0.0f;
+    gFormant.prepare (sampleRate); gFormant.reset(); gVowelPosMod = 0.0f;
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
     exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
     for (auto& v : voices) {
@@ -527,6 +542,14 @@ void vane_set_param (int id, float val) {
         case 15: pSync   = val; break;
         case 16: pFilterMode = (int) (val + 0.5f); if (pFilterMode < 0) pFilterMode = 0; else if (pFilterMode > 2) pFilterMode = 2; break;
         case 17: pFold   = val; break;
+        case 18: gVowelEn   = (val > 0.5f); break;
+        case 19: gVowelMode = (val > 0.5f) ? 1 : 0; break;
+        case 20: pVowelPos  = val; break;
+        case 21: pVowFront  = val; break;
+        case 22: pVowRound  = val; break;
+        case 23: pVowAmt    = val; break;
+        case 24: pVowBite   = val; break;
+        case 25: pVowMove   = val; break;
         default: break;
     }
 }
@@ -634,6 +657,9 @@ void vane_render (int n) {
             }
             mods[sl.dst] += applyCurve (srcVal, sl.curve) * sl.amt;
         }
+        // The global formant stage's Vowel-open is modulated by dest 12 from the
+        // SOUNDING voice (last active wins, like the plugin's modOut[VowelPos]).
+        gVowelPosMod = mods[12];
 
         // MPE pitchbend (X): a per-channel multiplier on top of the glided base
         // pitch (currentHz), NOT folded into the portamento target — matches the
@@ -743,9 +769,21 @@ void vane_render (int n) {
     int nActive = 0;
     for (auto& v : voices) if (v.active) ++nActive;
     const float polyTarget = nActive <= 2 ? 1.0f : std::sqrt (2.0f / (float) nActive);
+
+    // Global vowel/formant stage (post-mix, after master gain, before the
+    // standalone limiter) — mirrors PluginProcessor's post-mix formant. Params
+    // once per block; process() per sample (pass-through when disabled → amount 0).
+    // vOpen = base + the sounding voice's VowelPos mod (dest 12), so Breath→Vowel
+    // gives the talkbox sweep.
+    gFormant.setMode (gVowelMode ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel);
+    const float vOpen = clamp01 (pVowelPos + gVowelPosMod);
+    gFormant.setParams (vOpen, pVowFront, pVowRound, gVowelEn ? pVowAmt : 0.0f, pVowBite, pVowMove);
+
     for (int s = 0; s < n; ++s) {
         gPolyGain += (polyTarget - gPolyGain) * gPolyCoeff;
-        renderBuf[s] = masterLimit (renderBuf[s] * pOutput * gPolyGain);
+        float x = renderBuf[s] * pOutput * gPolyGain;
+        x = gFormant.process (x);
+        renderBuf[s] = masterLimit (x);
     }
 }
 

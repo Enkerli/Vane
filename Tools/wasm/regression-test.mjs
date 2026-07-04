@@ -301,6 +301,33 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
   check("filter HP mode attenuates the fundamental vs LP", richHP < richLP - 0.05, `LP=${richLP.toFixed(3)} HP=${richHP.toFixed(3)}`);
 }
 
+// ── 7b. Vowel/formant filter (ids 18-25): a global post-mix formant resonator.
+//      Play a rich low note (many harmonics land in the formant range) and
+//      confirm (a) disabled = pass-through, (b) different vowels move the F1
+//      peak: /a/ "ah" (open=1) concentrates energy near 850 Hz, /i/ "ee"
+//      (open≈0) near ~290 Hz, so 850 Hz is far stronger for "ah" than "ee". ──
+{
+  const energyAt = (s, hz) => { let re = 0, im = 0; for (let i = 0; i < s.length; i++) { const w = 2*Math.PI*hz*i/48000; re += s[i]*Math.cos(w); im += s[i]*Math.sin(w); } return Math.sqrt(re*re + im*im); };
+  const cap = async (setup) => {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_param(1, 18000); e.vane_set_param(12, 1.0); e.vane_set_cc(2, 0.9);
+    setup(e);
+    e.vane_note_on(45, 100, 1);   // A2 ~110 Hz, rich saw
+    for (let i = 0; i < 40; i++) render(e, 128);
+    const s = []; for (let i = 0; i < 40; i++) s.push(...render(e, 128)); return s;
+  };
+  const dry = await cap(() => {});
+  const ah  = await cap((e) => { e.vane_set_param(18, 1); e.vane_set_param(20, 1.0);  e.vane_set_param(21, 0.5); e.vane_set_param(23, 1); });
+  const ee  = await cap((e) => { e.vane_set_param(18, 1); e.vane_set_param(20, 0.05); e.vane_set_param(21, 1.0); e.vane_set_param(23, 1); });
+  const ah850 = energyAt(ah, 850), ee850 = energyAt(ee, 850);
+  // enabling the vowel reshapes the spectrum: /i/ "ee" (low F1) strongly
+  // attenuates the 850 Hz region that the dry saw has, so ee@850 << dry@850.
+  check("vowel filter enabled reshapes the spectrum (not a pass-through)",
+        ee850 < energyAt(dry, 850) * 0.5, `ee@850=${ee850.toFixed(2)} dry@850=${energyAt(dry, 850).toFixed(2)}`);
+  check("vowel /a/ concentrates F1 near 850 Hz far more than /i/ (formants track the open axis)",
+        ah850 > ee850 * 3 && ah850 > 0.5, `ah@850=${ah850.toFixed(2)} ee@850=${ee850.toFixed(2)}`);
+}
+
 // ── 8. Mod matrix: per-note morph. Configure Slide→Morph, play TWO simultaneous
 //      notes on different MPE channels — neutral slide on one, full slide on the
 //      other. If morph is genuinely per-voice, the full-slide note is harmonically

@@ -16,6 +16,9 @@ inline T jlimit (T lowerLimit, T upperLimit, T valueToConstrain) noexcept {
          : (valueToConstrain > upperLimit ? upperLimit : valueToConstrain);
 }
 
+template <typename T> inline T jmax (T a, T b) noexcept { return a < b ? b : a; }
+template <typename T> inline T jmin (T a, T b) noexcept { return a < b ? a : b; }
+
 template <typename T>
 struct MathConstants {
     static constexpr T pi      = static_cast<T> (3.141592653589793238L);
