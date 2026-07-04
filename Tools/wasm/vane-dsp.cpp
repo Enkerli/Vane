@@ -101,6 +101,18 @@ constexpr int kMaxVoices = 16;
 constexpr int kMaxBlock  = 2048;
 double gSampleRate = 48000.0;
 
+// Per-MPE-channel pressure (1..16), updated by vane_set_expr. In MONO the VCA is
+// driven by the MAX pressure across the currently-HELD notes (not just the
+// sounding voice's own channel). On an MPE keyboard (Exquis) each note has its
+// own channel pressure; a legato phrase presses the next note (pressure ramping
+// up from ~0) while releasing the previous (pressure falling), so a mono voice
+// that followed only the newest channel would DIP to that note's momentarily-low
+// pressure at every transition. Taking the max keeps the volume continuous
+// across the crossfade — the "works with anything driving volume" intent, the
+// per-note equivalent of a wind controller's single continuous breath. Single
+// notes are unaffected (max of one = itself).
+float gChPress[17] = {};
+
 // Global (patch) params, real Vane ids (index.html RANGE table) where noted.
 float pCutoff   = 1128.0f;  // Hz                              [id 1]
 float pReso     = 0.1f;     // 0..1                            [id 2]
@@ -323,6 +335,7 @@ extern "C" {
 void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
     ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
+    for (int c = 0; c < 17; ++c) gChPress[c] = 0.0f;
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
     exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
     for (auto& v : voices) {
@@ -480,6 +493,7 @@ void vane_note_off (int note, int channel) {
 
 // Per-MPE-channel expression update (applies to the sounding voice on that channel).
 void vane_set_expr (int channel, float bend, float slide, float pressure) {
+    if (channel >= 1 && channel <= 16) gChPress[channel] = pressure;   // for the mono max-pressure driver
     for (auto& v : voices)
         if (v.active && v.channel == channel) { v.bend = bend; v.slide = slide; v.pressure = pressure; }
 }
@@ -571,7 +585,17 @@ void vane_render (int n) {
         // just the VCA — otherwise pressure/slide would decay during the hold and
         // notch the reconnect. Global breath/expression are shared and keep moving.
         const float slideBp = (v.slide - 0.5f) * 2.0f;             // neutral(0.5) -> 0, matches SynthVoice.cpp
-        const float pressS  = v.holding ? v.pressureSlewer.value() : v.pressureSlewer.process (v.pressure);
+        // MONO VCA driver = max pressure across the held notes (continuous across
+        // a legato channel-switch); poly / single note uses the voice's own.
+        float pressInput = v.pressure;
+        if (gMono && heldCount > 0) {
+            pressInput = 0.0f;
+            for (int i = 0; i < heldCount; ++i) {
+                const int ch = heldStack[i].channel;
+                if (ch >= 1 && ch <= 16 && gChPress[ch] > pressInput) pressInput = gChPress[ch];
+            }
+        }
+        const float pressS  = v.holding ? v.pressureSlewer.value() : v.pressureSlewer.process (pressInput);
         const float slideS  = v.holding ? v.slideSlewer.value()    : v.slideSlewer.process (slideBp);
         const float velS    = v.holding ? v.velSlewer.value()      : v.velSlewer.process (v.vel);
         const float pbS     = v.holding ? v.pbModSlewer.value()    : v.pbModSlewer.process (v.bend);   // Pitchbend as a MOD source

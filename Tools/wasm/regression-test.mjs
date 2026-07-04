@@ -416,5 +416,31 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         dip > 0.7, `dip=${(dip*100).toFixed(0)}% of steady (was ~28% without the hold)`);
 }
 
+// ── 13. Mono + MPE per-note pressure: an OVERLAPPING legato transition (press
+//      the next note on a new channel while releasing the previous) must stay
+//      continuous. Each MPE note carries its own channel pressure; a mono voice
+//      following only the newest channel dips to that note's momentarily-low
+//      pressure at every transition (~54%). Driving the mono VCA from the MAX
+//      pressure across held notes keeps it continuous. ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_param(10, 80); e.vane_set_mono(1); e.vane_set_cc(2, 0.0);
+  for (let s = 0; s < 24; s++) e.vane_set_slot(s, 0, 0, 0, 0, 0);
+  e.vane_set_slot(0, 3, 0, 1.0, 0, 1);   // Pressure→VCA (volume from per-note pressure)
+  e.vane_note_on(60, 100, 2);
+  for (let i = 0; i < 60; i++) { e.vane_set_expr(2, 0, 0.5, Math.min(0.9, i/30*0.9)); render(e, 128); }
+  const steady = rmsOf(e, 12);
+  const env = [], ramp = Math.round(0.04 * 48000 / 128);
+  e.vane_note_on(64, 100, 3);                                   // press B (ch3) while A (ch2) held
+  for (let i = 0; i < ramp; i++) { e.vane_set_expr(3, 0, 0.5, 0.9*i/ramp); e.vane_set_expr(2, 0, 0.5, 0.9); env.push(rmsOf(e, 1)); }
+  e.vane_note_off(60, 2);                                        // release A
+  for (let i = 0; i < ramp; i++) { e.vane_set_expr(2, 0, 0.5, 0.9*(1-i/ramp)); e.vane_set_expr(3, 0, 0.5, 0.9); env.push(rmsOf(e, 1)); }
+  for (let i = 0; i < 30; i++) { e.vane_set_expr(3, 0, 0.5, 0.9); env.push(rmsOf(e, 1)); }
+  const dip = Math.min(...env) / steady;
+  check("mono MPE legato stays continuous across a channel-switch (max-pressure)",
+        dip > 0.8, `dip=${(dip*100).toFixed(0)}% of steady (was ~54% without max-pressure)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
