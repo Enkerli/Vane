@@ -142,6 +142,31 @@ else()
     )
 endif()
 
+# ── CLAP (macOS / Linux / Windows) via clap-juce-extensions ──────────────────
+# Adds a Vane_CLAP target that shares the plugin's sources/definitions (incl. the
+# Linux WebView/WebKitGTK linkage below). CLAP is not an iOS format, so skip it
+# there. CLAP_ID reuses the bundle id (stable — hosts key off it). Same integration
+# the suite's enkerli-juce helper uses; Vane predates that helper so it's inline.
+# On a Linux desktop DAW you want the GUI, so configure with -DVANE_LINUX_WEBVIEW=ON.
+if(NOT IS_IOS)
+    if(NOT TARGET clap_juce_extensions)
+        set(CLAP_JUCE_PATH "${CMAKE_SOURCE_DIR}/clap-juce-extensions" CACHE PATH "Path to clap-juce-extensions")
+        if(EXISTS "${CLAP_JUCE_PATH}/CMakeLists.txt")
+            add_subdirectory("${CLAP_JUCE_PATH}" "${CMAKE_BINARY_DIR}/clap-juce-extensions")
+        else()
+            message(STATUS "clap-juce-extensions not found locally — fetching free-audio/clap-juce-extensions")
+            include(FetchContent)
+            FetchContent_Declare(clap-juce-extensions
+                GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+                GIT_TAG main)   # not GIT_SHALLOW: it carries the CLAP SDK as submodules
+            FetchContent_MakeAvailable(clap-juce-extensions)
+        endif()
+    endif()
+    clap_juce_extensions_plugin(TARGET Vane
+        CLAP_ID       "com.enkerli.Vane"
+        CLAP_FEATURES instrument synthesizer)
+endif()
+
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-finput-charset=UTF-8>)
 
 # ── Build timestamp ───────────────────────────────────────────────────────────
