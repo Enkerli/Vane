@@ -135,11 +135,28 @@ elseif(IS_LINUX)
         COPY_PLUGIN_AFTER_BUILD     TRUE
     )
 else()
+    # Windows (and any other desktop): VST3 is the plugin format there, and the
+    # WebView needs the modern backend (NEEDS_WEB_BROWSER → WebView2 below).
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
-        FORMATS                     Standalone
+        FORMATS                     VST3 Standalone
+        NEEDS_WEB_BROWSER           TRUE
+        NEEDS_CURL                  FALSE
         COPY_PLUGIN_AFTER_BUILD     FALSE
     )
+endif()
+
+# Windows: the WebView UI needs the Edge/WebView2 backend and its SDK headers,
+# which JUCE doesn't vendor. Enable the backend and fetch the NuGet (a zip) so
+# every target built after this (incl. Vane_CLAP) sees <WebView2.h>.
+if(WIN32)
+    target_compile_definitions(Vane PUBLIC JUCE_USE_WIN_WEBVIEW2=1)
+    include(FetchContent)
+    FetchContent_Declare(webview2
+        URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2792.45
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(webview2)
+    include_directories("${webview2_SOURCE_DIR}/build/native/include")
 endif()
 
 # ── CLAP (macOS / Linux / Windows) via clap-juce-extensions ──────────────────
