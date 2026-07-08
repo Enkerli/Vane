@@ -55,6 +55,9 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/Libs/MTS-ESP/libMTSClient.h")
     set(VANE_HAS_MTS TRUE)
     add_library(VaneMTS STATIC Libs/MTS-ESP/libMTSClient.cpp)
     target_include_directories(VaneMTS PUBLIC Libs/MTS-ESP)
+    # Linked into shared modules (CLAP/LV2 .so on Linux), so it must be PIC —
+    # else ld: "relocation R_X86_64_PC32 ... can not be used making a shared object".
+    set_target_properties(VaneMTS PROPERTIES POSITION_INDEPENDENT_CODE ON)
     message(STATUS "MTS-ESP found — microtuning enabled")
 else()
     set(VANE_HAS_MTS FALSE)
