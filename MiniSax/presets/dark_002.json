@@ -1,0 +1,28 @@
+{
+  "id": "dark_002",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / coding agent",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "breathy_001 with a much darker bell. Single-parameter variant used to verify descriptor traceability (spectral centroid should drop).",
+  "reason": "Definition-of-done check: one parameter change must be traceable through preset diff, render diff, and descriptor diff.",
+  "parameters": {
+    "breath": 0.55,
+    "embouchure": 0.50,
+    "reedStiffness": 0.58,
+    "reedAperture": 0.42,
+    "boreDamping": 0.28,
+    "bellBrightness": 0.15,
+    "noiseAmount": 0.08,
+    "growlAmount": 0.00,
+    "vibratoAirAmount": 0.00,
+    "vibratoPitchAmount": 0.00,
+    "outputGain": 0.80
+  },
+  "observations": [
+    "Derived from breathy_001 by lowering bellBrightness 0.62 to 0.15."
+  ],
+  "tags": ["dark", "derived", "traceability-check"]
+}

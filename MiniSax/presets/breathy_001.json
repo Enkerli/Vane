@@ -1,0 +1,28 @@
+{
+  "id": "breathy_001",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-06",
+  "author": "Alex Enkerli / coding agent",
+  "derivedFrom": null,
+  "gitCommit": null,
+  "description": "Starter breathy sax-ish preset for early pipeline testing.",
+  "reason": "Establish a traceable baseline preset before detailed DSP tuning.",
+  "parameters": {
+    "breath": 0.55,
+    "embouchure": 0.50,
+    "reedStiffness": 0.58,
+    "reedAperture": 0.42,
+    "boreDamping": 0.28,
+    "bellBrightness": 0.62,
+    "noiseAmount": 0.08,
+    "growlAmount": 0.00,
+    "vibratoAirAmount": 0.00,
+    "vibratoPitchAmount": 0.00,
+    "outputGain": 0.80
+  },
+  "observations": [
+    "Baseline only. No musical judgment yet."
+  ],
+  "tags": ["breathy", "baseline", "sax-ish"]
+}

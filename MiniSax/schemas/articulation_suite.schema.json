@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MiniSax Articulation Test Suite",
+  "type": "object",
+  "required": ["id", "sampleRate", "tests"],
+  "properties": {
+    "id": {"type": "string"},
+    "description": {"type": "string"},
+    "sampleRate": {"type": "integer"},
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "durationSeconds", "events"],
+        "properties": {
+          "id": {"type": "string"},
+          "description": {"type": "string"},
+          "durationSeconds": {"type": "number"},
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["time", "type"],
+              "properties": {
+                "time": {"type": "number"},
+                "type": {"type": "string"},
+                "note": {"type": "number"},
+                "pitchHz": {"type": "number"},
+                "value": {"type": "number"},
+                "target": {"type": "string"},
+                "curve": {"type": "string"}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

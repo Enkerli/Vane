@@ -1,0 +1,8 @@
+build/
+renders/*
+!renders/.gitkeep
+analysis/*
+!analysis/.gitkeep
+references/*
+!references/.gitkeep
+__pycache__/

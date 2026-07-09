@@ -1,0 +1,79 @@
+{
+  "id": "articulation_suite_001",
+  "description": "Starter MiniSax gesture suite for offline rendering and descriptor extraction.",
+  "sampleRate": 48000,
+  "tests": [
+    {
+      "id": "longtone_C4_crescendo",
+      "description": "C4 long tone with breath crescendo and decrescendo.",
+      "durationSeconds": 4.0,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 60},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.10},
+        {"time": 0.5, "type": "control", "target": "breath", "value": 0.25, "curve": "linear"},
+        {"time": 2.0, "type": "control", "target": "breath", "value": 0.85, "curve": "linear"},
+        {"time": 3.5, "type": "control", "target": "breath", "value": 0.20, "curve": "linear"},
+        {"time": 3.9, "type": "noteOff", "note": 60}
+      ]
+    },
+    {
+      "id": "soft_onset_D4",
+      "description": "Slow breath ramp to test speaking threshold and breathy onset.",
+      "durationSeconds": 3.0,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 62},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.00},
+        {"time": 1.2, "type": "control", "target": "breath", "value": 0.28, "curve": "linear"},
+        {"time": 2.8, "type": "noteOff", "note": 62}
+      ]
+    },
+    {
+      "id": "slur_F4_G4_F4",
+      "description": "Continuous breath slur up and down a whole step.",
+      "durationSeconds": 3.0,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 65},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.55},
+        {"time": 1.0, "type": "pitch", "note": 67, "curve": "linear"},
+        {"time": 2.0, "type": "pitch", "note": 65, "curve": "linear"},
+        {"time": 2.8, "type": "noteOff", "note": 65}
+      ]
+    },
+    {
+      "id": "octave_leap_C4_C5_C4",
+      "description": "Continuous-breath octave leap test.",
+      "durationSeconds": 3.5,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 60},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.65},
+        {"time": 1.0, "type": "pitch", "note": 72},
+        {"time": 2.2, "type": "pitch", "note": 60},
+        {"time": 3.3, "type": "noteOff", "note": 60}
+      ]
+    },
+    {
+      "id": "growl_Bb3",
+      "description": "Held note with growl modulation ramp.",
+      "durationSeconds": 3.5,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 58},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.65},
+        {"time": 1.0, "type": "control", "target": "growlAmount", "value": 0.70, "curve": "linear"},
+        {"time": 2.5, "type": "control", "target": "growlAmount", "value": 0.00, "curve": "linear"},
+        {"time": 3.3, "type": "noteOff", "note": 58}
+      ]
+    },
+    {
+      "id": "vibrato_A4",
+      "description": "Held note with delayed vibrato air and pitch modulation.",
+      "durationSeconds": 3.5,
+      "events": [
+        {"time": 0.0, "type": "noteOn", "note": 69},
+        {"time": 0.0, "type": "control", "target": "breath", "value": 0.60},
+        {"time": 1.0, "type": "control", "target": "vibratoAirAmount", "value": 0.40},
+        {"time": 1.0, "type": "control", "target": "vibratoPitchAmount", "value": 0.35},
+        {"time": 3.3, "type": "noteOff", "note": 69}
+      ]
+    }
+  ]
+}
