@@ -7,9 +7,17 @@ breath-playable instrument lab with rigorous experiment traceability.
 See `docs/` for the full design brief (architecture, implementation plan,
 articulation testing, traceability model).
 
-This is a **standalone subproject** — it builds without JUCE and without
-anything from the Vane plugin. Phase 6 (plugin integration) comes only after
-the offline pipeline has proven itself.
+This is a **standalone subproject** — the lab builds without JUCE and without
+anything from the Vane plugin.
+
+**Phase 6 status**: the engine is now also compiled into Vane as its
+**Waveguide synthesis mode** (`waveguideOn` + eight tone parameters; see
+`Source/Synth/SynthVoice.cpp`).  Vane's breath signal blows the reed and
+Vane's glide/pitchbend machinery drives the pitch per sample; the engine
+stays JSON-free in the plugin path — presets there are Vane presets.  The
+offline lab remains the place where the model itself evolves: changes land
+here first, get rendered and descriptor-checked, then flow into the plugin
+via the shared `Source/MiniSaxVoice.*`.
 
 ## Build
 

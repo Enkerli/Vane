@@ -74,6 +74,12 @@ void SynthVoice::prepare(double sr, int blockSize)
     transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
     transientReso.prepare(sr);     // pitch resonator delay line
 
+    // Waveguide engine: deterministic per-voice noise seed, decorrelated across
+    // the 15 voices via the object address (stable for the processor lifetime).
+    waveguideSeed = minisax::NoiseGenerator::defaultSeed
+                  ^ static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) >> 4);
+    waveguide.prepare(sr, waveguideSeed);
+
     // Build per-voice slewers matching each route's attack/release config.
     // Routes are finalized in the VaneProcessor constructor before prepare() is
     // ever called, so this snapshot is stable for the lifetime of the session.
@@ -216,6 +222,12 @@ void SynthVoice::noteStarted()
     // players (keyboards with sustain pedal) where VCA doesn't track air pressure.
     bool  isLegato = (initVCA > 0.02f);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
+
+    // Waveguide: clear the bore only on non-legato attacks.  On legato the
+    // still-ringing bore is simply read at the new delay length next block,
+    // which re-entrains it at the new pitch without a re-attack transient.
+    if (!isLegato)
+        waveguide.reset(waveguideSeed);
 
     // Per-voice slewer reset for non-legato attacks.
     // Each voice slot retains slewer state from the previous note it played.
@@ -716,6 +728,28 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     int noiseTypeNow = paramNoiseType
                        ? static_cast<int>(std::round(paramNoiseType->load())) : 0;
 
+    // ── Waveguide (MiniSax) mode: block-rate parameter snapshot ─────────────────
+    // The engine smooths its own breath/gate internally (20 ms / 11 ms), so
+    // block-rate reads of the tone parameters are sufficient here.
+    const bool wgOn = paramWgOn && paramWgOn->load() > 0.5f;
+    minisax::VoiceInputs wgIn;
+    if (wgOn) {
+        auto ld = [](std::atomic<float>* p, float fb) { return p ? p->load() : fb; };
+        wgIn.params.embouchure     = ld(paramWgEmbouchure, 0.5f);
+        wgIn.params.reedStiffness  = ld(paramWgReedStiff, 0.5f);
+        wgIn.params.reedAperture   = ld(paramWgAperture, 0.5f);
+        wgIn.params.boreDamping    = ld(paramWgDamping, 0.2f);
+        wgIn.params.bellBrightness = ld(paramWgBell, 0.7f);
+        wgIn.params.conicalAmount  = ld(paramWgConical, 0.62f);
+        wgIn.params.noiseAmount    = ld(paramWgNoise, 0.05f);
+        wgIn.params.growlAmount    = ld(paramWgGrowl, 0.0f);
+        // Vibrato comes from Vane's own modulation (pitchbend / mod matrix),
+        // not the engine's internal LFO.  Gain staging is Vane's job too.
+        wgIn.params.vibratoAirAmount   = 0.0f;
+        wgIn.params.vibratoPitchAmount = 0.0f;
+        wgIn.params.outputGain         = 1.0f;
+    }
+
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
     // Map the 0..1 amount to an exponential drive ONCE per block (std::pow is too
     // costly per sample), then ramp the drive per sample to avoid zipper.
@@ -870,6 +904,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         const float cutoffNow = smoothedCutoff.getNextValue();
         filter.setCutoff(cutoffNow);
         float subGain = 1.0f;
+        float reqHzNow = baseHz;   // resolved pitch this sample (glide × pitchbend)
         {
             float hzBase;
             if (useExpGlide) {
@@ -907,6 +942,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 hzBase = smoothedHz.getNextValue();
             }
             const float reqHz = hzBase * smoothedPitchMult.getNextValue();
+            reqHzNow = reqHz;
             osc.setFrequency(reqHz * uDetMul[0]);
             for (int j = 1; j < uN; ++j) unisonOscs[j - 1].setFrequency(reqHz * uDetMul[j]);
 
@@ -927,7 +963,21 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         const float ihNow = smoothedInharm.getNextValue();
         const float syNow = smoothedSync.getNextValue();
         float waveL, waveR;
-        if (!unisonOn) {
+        if (wgOn) {
+            // Waveguide mode: the MiniSax reed/bore engine IS the sound source.
+            // Breath = the smoothed VCA signal through a floor mapping, so soft
+            // playing stays above the reed's speaking threshold (~0.22) while
+            // the actual dynamics still come from the VCA multiply downstream.
+            // Unison is bypassed (one bore per voice); noise blend, fold, SVF,
+            // vowel and transients all still apply after this point.
+            constexpr float kWaveguideBreathFloor = 0.18f;
+            constexpr float kWaveguideMakeupGain  = 2.5f;  // engine peaks ~0.4 at full breath
+            wgIn.pitchHz = reqHzNow;
+            wgIn.gate    = isTailingOff ? 0.0f : 1.0f;
+            wgIn.params.breath = kWaveguideBreathFloor
+                               + (1.0f - kWaveguideBreathFloor) * juce::jlimit(0.0f, 1.0f, gain);
+            waveL = waveR = waveguide.processSample(wgIn) * kWaveguideMakeupGain;
+        } else if (!unisonOn) {
             float w = osc.nextMorphed(activeMorphPos, pwNow, ihNow, syNow);
             waveL = waveR = w;
         } else {

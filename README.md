@@ -43,6 +43,13 @@ which reflows to one pane at a time on a narrow iPad/AUv3 window.
   attack), a tuned **pitch resonator** (Karplus-Strong — the noise acquires the
   note's pitch), and a **noise→tone morph**.
 - **Cytomic TPT state-variable filter** — LP / BP / HP, per-sample-smoothed cutoff.
+- **Waveguide mode (MiniSax)** — a reed/bore physical model (developed in the
+  `MiniSax/` instrument lab, tuned against a Silverwood Tenor Sax reference)
+  that replaces the wavetable oscillator: breath blows the reed, so body and
+  brightness track air physically. Embouchure, reed stiffness/aperture, bore
+  damping, bell brightness, conical (even-harmonic) amount, breath noise, and
+  growl are all plugin parameters; noise blend, wavefold, the SVF, vowel stage,
+  and transients still apply downstream.
 
 ## Expression & control
 

@@ -114,6 +114,7 @@ float MiniSaxVoice::processSample(const VoiceInputs& in)
     // this is pure 2*f0; for a square it is a 2*f0 rectangular wave (duty
     // set by the tap ratio) carrying H2/H4/H6.  `conicalAmount` scales the
     // blend.  Deliberately a synthesis device — playability over realism.
+    //
     const float conical = std::clamp(p.conicalAmount, 0.0f, 1.0f) * conicalShapeMax;
     const float octaveWave = bore.readTap(conicalTapRatio * delaySamples);
     const float shaped = boreOut + conical * boreOut * octaveWave;

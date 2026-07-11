@@ -218,7 +218,7 @@ target_sources(Vane PRIVATE
     Source/PatchPanel.cpp
     Source/Synth/Oscillator.cpp
     Source/Synth/Wavetable.cpp
-    Source/Synth/SynthVoice.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp
     Source/Synth/SamplePlayer.cpp
     Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp
@@ -234,7 +234,7 @@ target_sources(Vane PRIVATE
     Source/Tests/ChordTests.cpp
 )
 
-target_include_directories(Vane PRIVATE Source)
+target_include_directories(Vane PRIVATE Source MiniSax/Source)
 
 # ── WebUI bundle ──────────────────────────────────────────────────────────────
 # The UI source (index.html) lives in the music-suite monorepo (apps/vane) —
@@ -368,7 +368,7 @@ target_sources(VaneRenderProbe PRIVATE
     Source/PluginProcessor.cpp
     Source/Synth/Oscillator.cpp
     Source/Synth/Wavetable.cpp
-    Source/Synth/SynthVoice.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp
     Source/Synth/SamplePlayer.cpp
     Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp
@@ -383,11 +383,18 @@ target_sources(VaneRenderProbe PRIVATE
     Source/Tests/WavetableTests.cpp
     Source/Tests/ChordTests.cpp
 )
-target_include_directories(VaneRenderProbe PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VaneRenderProbe PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneRenderProbe PUBLIC
-    JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1
     JucePlugin_Name="Vane")
+# Headless on Linux, mirroring the main plugin and VanePresetExport: the raw
+# JUCE_WEB_BROWSER=1 define misses JUCE's WebKitGTK pkg-config plumbing there.
+if(IS_LINUX)
+    target_compile_definitions(VaneRenderProbe PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VaneRenderProbe PUBLIC JUCE_WEB_BROWSER=1)
+endif()
 add_dependencies(VaneRenderProbe Vane_GenBuildStamp)
 if(VANE_HAS_MTS)
     target_compile_definitions(VaneRenderProbe PUBLIC VANE_HAS_MTS=1)
@@ -407,15 +414,20 @@ set_target_properties(VanePresetGen PROPERTIES EXCLUDE_FROM_ALL TRUE)
 target_sources(VanePresetGen PRIVATE
     Tools/PresetGen/main.cpp
     Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
-    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
-target_include_directories(VanePresetGen PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VanePresetGen PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePresetGen PUBLIC
-    JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
+if(IS_LINUX)   # headless on Linux (see VaneRenderProbe note)
+    target_compile_definitions(VanePresetGen PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VanePresetGen PUBLIC JUCE_WEB_BROWSER=1)
+endif()
 add_dependencies(VanePresetGen Vane_GenBuildStamp)
 if(VANE_HAS_MTS)
     target_compile_definitions(VanePresetGen PUBLIC VANE_HAS_MTS=1)
@@ -438,10 +450,10 @@ set_target_properties(VanePresetExport PROPERTIES EXCLUDE_FROM_ALL TRUE)
 target_sources(VanePresetExport PRIVATE
     Tools/PresetExport/main.cpp
     Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
-    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp)
-target_include_directories(VanePresetExport PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VanePresetExport PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePresetExport PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
@@ -475,15 +487,20 @@ set_target_properties(VaneSelfTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 target_sources(VaneSelfTest PRIVATE
     Tools/SelfTest/main.cpp
     Source/PluginProcessor.cpp Source/Synth/Oscillator.cpp Source/Synth/Wavetable.cpp
-    Source/Synth/SynthVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
-target_include_directories(VaneSelfTest PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VaneSelfTest PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneSelfTest PUBLIC
-    JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
+if(IS_LINUX)   # headless on Linux (see VaneRenderProbe note)
+    target_compile_definitions(VaneSelfTest PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VaneSelfTest PUBLIC JUCE_WEB_BROWSER=1)
+endif()
 add_dependencies(VaneSelfTest Vane_GenBuildStamp)
 if(VANE_HAS_MTS)
     target_compile_definitions(VaneSelfTest PUBLIC VANE_HAS_MTS=1)

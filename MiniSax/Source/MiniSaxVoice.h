@@ -93,7 +93,11 @@ public:
     // Embouchure trims effective bore length by up to ±1%.
     static constexpr float embouchurePitchDepth = 0.01f;
     // Delay-length compensation for loop filter group delay (samples).
-    static constexpr float loopDelayCompensation = 1.5f;
+    // Measured empirically: with 1.5 the voice ran a near-constant 0.9
+    // samples short (progressively sharp with pitch, +12c at 180 Hz up to
+    // +33c at 500 Hz); 0.6 brings the sounded pitch within a few cents
+    // across the tenor range.
+    static constexpr float loopDelayCompensation = 0.6f;
     // Bell high shelf: corner and gain range mapped from bellBrightness.
     static constexpr float bellShelfHz = 1800.0f;
     static constexpr float bellGainMinDb = -15.0f;
