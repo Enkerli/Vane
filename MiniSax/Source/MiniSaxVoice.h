@@ -51,8 +51,9 @@ struct VoiceInputs
 //     -> mouthpiece junction
 //     -> fractional-delay bore (half period)  <-- feedback
 //     -> loss one-pole
-//     -> conical shaper (x + a * x * boreTap(T/8))
-//     -> radiation lowpass -> DC blocker -> bell high-shelf -> output gain
+//     -> conical shaper (x + a * x * boreTap)
+//     -> radiation lowpass -> DC blocker -> body formant peak
+//     -> bell high-shelf -> output gain
 //
 // Deterministic: same seed + same input sequence => identical output.
 class MiniSaxVoice
@@ -97,10 +98,12 @@ public:
     static constexpr float bellShelfHz = 1800.0f;
     static constexpr float bellGainMinDb = -15.0f;
     static constexpr float bellGainMaxDb = 6.0f;
-    // Control smoothing time constants.
-    static constexpr float breathSmoothingHz = 20.0f;  // ~8 ms
-    static constexpr float gateAttackHz = 60.0f;       // ~2.6 ms
-    static constexpr float gateReleaseHz = 8.0f;       // ~20 ms
+    // Control smoothing time constants.  Slower than v0.2: step breath
+    // events and note gates were audibly thumpy; the suite's breath
+    // envelopes still shape hard-vs-soft attacks on top of these floors.
+    static constexpr float breathSmoothingHz = 8.0f;   // ~20 ms
+    static constexpr float gateAttackHz = 15.0f;       // ~11 ms
+    static constexpr float gateReleaseHz = 5.0f;       // ~32 ms
     // Safety clamp on the waveguide state; generous, only guards blowups.
     static constexpr float loopSafetyLimit = 3.0f;
     static constexpr float minPitchHz = 50.0f; // half-period delay: 50 Hz needs sr/100 samples
@@ -110,21 +113,31 @@ public:
     // and test builds get compile-time constants.
 #ifdef MINISAX_TUNING
     static inline float conicalShapeMax = 2.0f;
-    static inline float conicalTapRatio = 0.25f;
+    static inline float conicalTapRatio = 0.30f;
     static inline float radiationLowpassHz = 4000.0f;
+    static inline float bodyFormantHz = 1400.0f;
+    static inline float bodyFormantDb = 10.0f;
+    static inline float bodyFormantQ = 1.1f;
 #else
     // Ring-mod blend coefficient at conicalAmount = 1.
     static constexpr float conicalShapeMax = 2.0f;
-    // Shaper tap position as a fraction of the (half-period) bore delay:
-    // 0.25 = T/8, which for a square-ish loop wave gives a 25%-duty 2*f0
-    // rectangular product carrying H2, H4 and H6.
-    static constexpr float conicalTapRatio = 0.25f;
+    // Shaper tap position as a fraction of the (half-period) bore delay.
+    // The product wave is a 2*f0 rectangle whose duty = 2*tap; its harmonic
+    // m carries sin(pi*m*duty)/m, so the tap sets the even-harmonic mix.
+    // 0.30 (vs the naive 0.25) trades a little H4 for a better plateau fit.
+    static constexpr float conicalTapRatio = 0.30f;
     static constexpr float radiationLowpassHz = 4000.0f;
+    // Fixed body formant lifting the upper-mid plateau (1-2.4 kHz) that the
+    // loop's 1/k rolloff otherwise leaves several dB below the Silverwood
+    // reference.  Jointly grid-searched with the tap ratio (v0.3).
+    static constexpr float bodyFormantHz = 1400.0f;
+    static constexpr float bodyFormantDb = 10.0f;
+    static constexpr float bodyFormantQ = 1.1f;
 #endif
     // Output makeup keeping outputGain = 1.0 just under full scale
-    // (worst measured peak 1.35 at outputScale 0.30, across breath,
-    // conicalAmount, and pitch extremes => 0.22 leaves ~1 dB headroom).
-    static constexpr float outputScale = 0.22f;
+    // (worst measured peak 1.76 at outputScale 0.22 with the v0.3 body
+    // formant, across breath, conicalAmount, and pitch extremes).
+    static constexpr float outputScale = 0.12f;
 
 private:
     void updateBellFilter(float brightness);
@@ -137,6 +150,7 @@ private:
     OnePole gateSmoother;
     DCBlocker dcBlocker;
     Biquad bellFilter;
+    Biquad bodyFormant;
     ReedNonlinearity reed;
     NoiseGenerator noise;
 

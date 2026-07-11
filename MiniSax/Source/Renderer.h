@@ -35,8 +35,8 @@ class Renderer
 public:
     // Default slur glide when a pitch event says curve:"linear" but gives no
     // glideSeconds.  Short enough to read as a slur, long enough to avoid a
-    // hard retuning click.
-    static constexpr double defaultPitchGlideSeconds = 0.06;
+    // hard retuning click.  (Raised from 60 ms in v0.3's smoothing pass.)
+    static constexpr double defaultPitchGlideSeconds = 0.08;
 
     // Peak below this is reported as silent; matches the analyzer threshold.
     static constexpr float silenceFloor = 1.0e-4f;

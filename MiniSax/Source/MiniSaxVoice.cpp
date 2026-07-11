@@ -12,6 +12,7 @@ void MiniSaxVoice::prepare(double sampleRate, uint32_t noiseSeed)
     const int maxDelay = static_cast<int>(sr / static_cast<double>(minPitchHz)) + 8;
     bore.prepare(maxDelay);
     breathSmoother.setCutoff(breathSmoothingHz, static_cast<float>(sr));
+    bodyFormant.setPeaking(static_cast<float>(sr), bodyFormantHz, bodyFormantDb, bodyFormantQ);
     reset(noiseSeed);
 }
 
@@ -24,6 +25,7 @@ void MiniSaxVoice::reset(uint32_t noiseSeed)
     gateSmoother.reset();
     dcBlocker.reset();
     bellFilter.reset();
+    bodyFormant.reset();
     noise.seed(noiseSeed);
     vibratoPhase = 0.0f;
     growlPhase = 0.0f;
@@ -119,7 +121,8 @@ float MiniSaxVoice::processSample(const VoiceInputs& in)
     // ── Output shaping ─────────────────────────────────────────────────────
     radiationFilter.setCutoff(radiationLowpassHz, srf);
     updateBellFilter(std::clamp(p.bellBrightness, 0.0f, 1.0f));
-    float out = bellFilter.process(dcBlocker.process(radiationFilter.process(shaped)))
+    float out = bellFilter.process(bodyFormant.process(
+                    dcBlocker.process(radiationFilter.process(shaped))))
               * p.outputGain * outputScale;
 
     if (!std::isfinite(out))

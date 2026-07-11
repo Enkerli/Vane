@@ -1,4 +1,4 @@
-# MiniSax — waveguide reed instrument lab (v0.2)
+# MiniSax — waveguide reed instrument lab (v0.3)
 
 A minimal, deterministic, offline-renderable physical-modelling reed instrument
 inspired by STK `Saxofony` and the Silverwood Tenor Sax Reaktor ensemble.
@@ -63,9 +63,17 @@ breath -> compressive pressure map (+ noise, growl, vibrato-air)
        -> mouthpiece junction
        -> fractional-delay bore (half-period; quarter-wave resonator)  <- feedback
        -> one-pole loss filter
-       -> conical shaper: x + a * x * boreTap(T/8)   [a from conicalAmount]
-       -> radiation lowpass -> DC blocker -> bell high-shelf -> output gain
+       -> conical shaper: x + a * x * boreTap   [a from conicalAmount]
+       -> radiation lowpass -> DC blocker -> body formant (1.4 kHz peak)
+       -> bell high-shelf -> output gain
 ```
+
+v0.3 adds the fixed **body formant** (lifts the 1–2.4 kHz plateau the
+loop's 1/k rolloff leaves shy of the reference), re-tunes the conical tap
+ratio jointly with it, and smooths articulation floors: breath smoothing
+20 ms, gate attack 11 ms, gate release 32 ms, default pitch glide 80 ms.
+Suite breath envelopes shape attacks on top of these floors, so hard and
+soft tonguing stay distinct.
 
 ### The conical shaper (v0.2 "oomph")
 

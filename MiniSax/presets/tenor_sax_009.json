@@ -1,7 +1,7 @@
 {
   "id": "tenor_sax_009",
   "modelName": "MiniSax",
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "createdAt": "2026-07-11",
   "author": "Alex Enkerli / coding agent",
   "derivedFrom": "breathy_001",
@@ -14,17 +14,18 @@
     "reedStiffness": 0.5,
     "reedAperture": 0.5,
     "boreDamping": 0.2,
-    "bellBrightness": 0.9,
+    "bellBrightness": 0.7,
     "noiseAmount": 0.05,
     "growlAmount": 0.0,
-    "vibratoAirAmount": 0.0,
-    "vibratoPitchAmount": 0.0,
-    "conicalAmount": 0.8,
+    "vibratoAirAmount": 0.2,
+    "vibratoPitchAmount": 0.15,
+    "conicalAmount": 0.62,
     "outputGain": 0.9
   },
   "observations": [
     "Even/odd balance tracked via the analyzer's evenOddRatioDb descriptor.",
-    "conicalAmount 0 reverts to the odd-harmonic clarinet-like voice."
+    "conicalAmount 0 reverts to the odd-harmonic clarinet-like voice.",
+    "Gentle baked-in vibrato approximates the reference's sustain animation (sustainAmplitudeVariation ~0.15)."
   ],
   "tags": [
     "sax-ish",
