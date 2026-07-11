@@ -32,6 +32,11 @@ const ParamPair kParamMap[] = {
     { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
     { "TrDyn",   "transientDynamics" },
     { "TrReso",  "transientResonate" }, { "TrDamp","transientDamping" }, { "TrMorph","transientMorph" },
+    { "WgOn",    "waveguideOn" }, { "WgEmb",  "waveguideEmbouchure" },
+    { "WgStiff", "waveguideReedStiffness" }, { "WgAperture", "waveguideReedAperture" },
+    { "WgDamp",  "waveguideBoreDamping" }, { "WgBell", "waveguideBellBrightness" },
+    { "WgConical","waveguideConical" }, { "WgNoise","waveguideBreathNoise" },
+    { "WgGrowl", "waveguideGrowl" },
 };
 juce::String uiToApvts (const juce::String& ui) {
     for (auto& p : kParamMap) if (ui == p.ui) return p.apvts;
