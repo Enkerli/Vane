@@ -64,6 +64,22 @@ private:
 class Biquad
 {
 public:
+    // RBJ audio-EQ-cookbook peaking EQ.
+    void setPeaking(float sampleRate, float centerHz, float gainDb, float q)
+    {
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = 2.0f * OnePole::pi * centerHz / sampleRate;
+        const float cw = std::cos(w0);
+        const float alpha = std::sin(w0) / (2.0f * q);
+
+        const float a0 = 1.0f + alpha / A;
+        b0 = (1.0f + alpha * A) / a0;
+        b1 = (-2.0f * cw) / a0;
+        b2 = (1.0f - alpha * A) / a0;
+        a1 = (-2.0f * cw) / a0;
+        a2 = (1.0f - alpha / A) / a0;
+    }
+
     // RBJ audio-EQ-cookbook high shelf.
     void setHighShelf(float sampleRate, float cutoffHz, float gainDb, float slope = 1.0f)
     {

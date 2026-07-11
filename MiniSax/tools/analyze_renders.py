@@ -19,6 +19,7 @@ is merged into each per-file report (see docs/TRACEABILITY.md).
 import argparse
 import csv
 import json
+import math
 import struct
 import wave
 from pathlib import Path
@@ -143,14 +144,25 @@ def pitch_track(x, sr: int, frame: int = 2048, hop: int = 1024):
         ac = np.correlate(chunk, chunk, mode="full")[frame - 1:]
         if ac[0] <= 0:
             continue
-        segment = ac[lag_min:lag_max]
-        lag = int(np.argmax(segment)) + lag_min
+        # Unbiased normalization (finite-frame taper otherwise favors small
+        # lags), then take the SMALLEST lag within 10% of the max: with sax
+        # spectra H2 can rival H1 and a bare argmax octave-errs to T/2.
+        norm = ac[:lag_max].astype(np.float64) / (len(chunk) - np.arange(lag_max))
+        segment = norm[lag_min:lag_max]
+        best = float(np.max(segment))
         # Voicing gate: periodic frames have a strong normalized peak.
-        if ac[lag] / ac[0] < 0.3:
+        if best / (norm[0] + 1e-18) < 0.3:
             continue
+        candidates = np.flatnonzero(segment >= 0.9 * best)
+        lag = int(candidates[0]) + lag_min
+        # keep the local maximum of the chosen peak
+        while lag + 1 < lag_max and norm[lag + 1] > norm[lag]:
+            lag += 1
+        while lag - 1 > lag_min and norm[lag - 1] > norm[lag]:
+            lag -= 1
         # Parabolic interpolation around the peak for sub-sample lag.
-        if 1 <= lag < len(ac) - 1:
-            a, b, c = ac[lag - 1], ac[lag], ac[lag + 1]
+        if 1 <= lag < len(norm) - 1:
+            a, b, c = norm[lag - 1], norm[lag], norm[lag + 1]
             denom = a - 2 * b + c
             if abs(denom) > 1e-12:
                 offset = 0.5 * (a - c) / denom
@@ -166,6 +178,43 @@ def pitch_track(x, sr: int, frame: int = 2048, hop: int = 1024):
     median = float(np.median(pitches))
     cents = 1200.0 * np.log2(np.asarray(pitches) / median)
     return median, float(np.std(cents))
+
+
+def harmonic_profile(x, sr: int, pitch_hz):
+    """Harmonic levels H2..H8 in dB relative to H1, measured on the loudest
+    0.5 s window.  Returns (profile list, h2RelH1Db, evenOddRatioDb).
+    The even/odd energy ratio is the sax-vs-clarinet "oomph" metric: a
+    quarter-wave bore sits far negative, a conical instrument near 0 dB."""
+    if not HAVE_NUMPY or not pitch_hz:
+        return None, None, None
+    win = int(0.5 * sr)
+    if len(x) < win:
+        return None, None, None
+    hop = 1024
+    rms_best, i_best = -1.0, 0
+    for i in range(0, len(x) - win, hop):
+        r = float(np.sqrt(np.mean(x[i:i + win] ** 2)))
+        if r > rms_best:
+            rms_best, i_best = r, i
+    seg = x[i_best:i_best + win]
+    # Local pitch of THIS window (may be a different note than the file-wide
+    # median): reuse the voiced-frame tracker, fall back to the global value.
+    f0, _ = pitch_track(seg, sr)
+    if not f0:
+        f0 = pitch_hz
+    mag = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+    freqs = np.fft.rfftfreq(len(seg), 1.0 / sr)
+    def level(h):
+        idx = int(np.argmin(np.abs(freqs - f0 * h)))
+        return float(mag[max(0, idx - 3):idx + 4].max())
+    h1 = level(1)
+    if h1 <= 0:
+        return None, None, None
+    profile = [round(20.0 * math.log10(level(k) / h1 + 1e-12), 1) for k in range(2, 9)]
+    even = sum(level(k) ** 2 for k in (2, 4, 6, 8))
+    odd = sum(level(k) ** 2 for k in (3, 5, 7))
+    even_odd = round(10.0 * math.log10((even + 1e-18) / (odd + 1e-18)), 1)
+    return profile, profile[0], even_odd
 
 
 def analyze_file(path: Path) -> dict:
@@ -190,6 +239,7 @@ def analyze_file(path: Path) -> dict:
         sustain_var = 0.0
 
     pitch_hz, pitch_stability_cents = pitch_track(x, sr)
+    profile, h2_rel_h1, even_odd = harmonic_profile(x, sr, pitch_hz)
 
     warnings = [w for w, active in {
         "silent_or_nearly_silent": peak < SILENCE_PEAK,
@@ -209,6 +259,9 @@ def analyze_file(path: Path) -> dict:
         "zeroCrossingRate": zero_crossing_rate(x),
         "pitchHz": pitch_hz,
         "pitchStabilityCents": pitch_stability_cents,
+        "harmonicProfileDb": profile,
+        "h2RelH1Db": h2_rel_h1,
+        "evenOddRatioDb": even_odd,
         "sustainAmplitudeVariation": sustain_var,
         "isSilent": bool(peak < SILENCE_PEAK),
         "isClipped": bool(peak >= CLIP_PEAK),
@@ -248,6 +301,7 @@ CSV_COLUMNS = [
     "file", "presetId", "suiteId", "testId", "parametersHash", "engineGitCommit",
     "sampleRate", "durationSeconds", "peak", "rms", "attackMs",
     "spectralCentroidHz", "zeroCrossingRate", "pitchHz", "pitchStabilityCents",
+    "h2RelH1Db", "evenOddRatioDb",
     "sustainAmplitudeVariation", "isSilent", "isClipped", "warnings",
 ]
 

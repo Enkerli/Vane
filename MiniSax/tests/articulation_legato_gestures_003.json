@@ -1,0 +1,291 @@
+{
+  "id": "articulation_legato_gestures_003",
+  "description": "Pitch gestures, legato intervals, breath shaping, falls, scoops, bends, and modulation interactions.",
+  "sampleRate": 48000,
+  "tests": [
+    {
+      "id": "scoop_D4",
+      "description": "Start one semitone below and glide into D4.",
+      "durationSeconds": 2.5,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 61
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.58
+        },
+        {
+          "time": 0.18,
+          "type": "pitch",
+          "note": 62,
+          "curve": "linear",
+          "glideSeconds": 0.18
+        },
+        {
+          "time": 2.3,
+          "type": "noteOff",
+          "note": 62
+        }
+      ]
+    },
+    {
+      "id": "fall_E4_to_B3",
+      "description": "Held E4 followed by a broad downward fall.",
+      "durationSeconds": 3.0,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 64
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.66
+        },
+        {
+          "time": 2.0,
+          "type": "pitch",
+          "note": 59,
+          "curve": "linear",
+          "glideSeconds": 0.55
+        },
+        {
+          "time": 2.25,
+          "type": "control",
+          "target": "breath",
+          "value": 0.25,
+          "curve": "linear"
+        },
+        {
+          "time": 2.8,
+          "type": "noteOff",
+          "note": 59
+        }
+      ]
+    },
+    {
+      "id": "doit_G4_to_D5",
+      "description": "Upward terminal gesture with increasing breath.",
+      "durationSeconds": 3.0,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 67
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.56
+        },
+        {
+          "time": 2.0,
+          "type": "pitch",
+          "note": 74,
+          "curve": "linear",
+          "glideSeconds": 0.48
+        },
+        {
+          "time": 2.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.86,
+          "curve": "linear"
+        },
+        {
+          "time": 2.8,
+          "type": "noteOff",
+          "note": 74
+        }
+      ]
+    },
+    {
+      "id": "wide_slur_Bb3_F4_Bb4",
+      "description": "Continuous-breath fifth then octave slur with local glides.",
+      "durationSeconds": 4.0,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 58
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.64
+        },
+        {
+          "time": 1.2,
+          "type": "pitch",
+          "note": 65,
+          "curve": "linear",
+          "glideSeconds": 0.07
+        },
+        {
+          "time": 2.4,
+          "type": "pitch",
+          "note": 70,
+          "curve": "linear",
+          "glideSeconds": 0.09
+        },
+        {
+          "time": 3.7,
+          "type": "noteOff",
+          "note": 70
+        }
+      ]
+    },
+    {
+      "id": "dynamic_vibrato_C5",
+      "description": "Delayed vibrato that intensifies, then relaxes with a decrescendo.",
+      "durationSeconds": 4.2,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 72
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.52
+        },
+        {
+          "time": 1.0,
+          "type": "control",
+          "target": "vibratoAirAmount",
+          "value": 0.12,
+          "curve": "linear"
+        },
+        {
+          "time": 1.0,
+          "type": "control",
+          "target": "vibratoPitchAmount",
+          "value": 0.1,
+          "curve": "linear"
+        },
+        {
+          "time": 2.3,
+          "type": "control",
+          "target": "vibratoAirAmount",
+          "value": 0.48,
+          "curve": "linear"
+        },
+        {
+          "time": 2.3,
+          "type": "control",
+          "target": "vibratoPitchAmount",
+          "value": 0.4,
+          "curve": "linear"
+        },
+        {
+          "time": 3.5,
+          "type": "control",
+          "target": "breath",
+          "value": 0.25,
+          "curve": "linear"
+        },
+        {
+          "time": 3.5,
+          "type": "control",
+          "target": "vibratoPitchAmount",
+          "value": 0.14,
+          "curve": "linear"
+        },
+        {
+          "time": 4.0,
+          "type": "noteOff",
+          "note": 72
+        }
+      ]
+    },
+    {
+      "id": "growl_accent_F3",
+      "description": "Growl emerges during a crescendo and disappears before release.",
+      "durationSeconds": 4.0,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 53
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.38
+        },
+        {
+          "time": 1.6,
+          "type": "control",
+          "target": "breath",
+          "value": 0.78,
+          "curve": "linear"
+        },
+        {
+          "time": 0.9,
+          "type": "control",
+          "target": "growlAmount",
+          "value": 0.05
+        },
+        {
+          "time": 2.0,
+          "type": "control",
+          "target": "growlAmount",
+          "value": 0.72,
+          "curve": "linear"
+        },
+        {
+          "time": 3.1,
+          "type": "control",
+          "target": "growlAmount",
+          "value": 0.0,
+          "curve": "linear"
+        },
+        {
+          "time": 3.8,
+          "type": "noteOff",
+          "note": 53
+        }
+      ]
+    },
+    {
+      "id": "instant_retune_artifact_C4_E4",
+      "description": "Deliberately abrupt retune retained as a regression probe for delay-line artifacts.",
+      "durationSeconds": 2.8,
+      "events": [
+        {
+          "time": 0.0,
+          "type": "noteOn",
+          "note": 60
+        },
+        {
+          "time": 0.0,
+          "type": "control",
+          "target": "breath",
+          "value": 0.6
+        },
+        {
+          "time": 1.3,
+          "type": "pitch",
+          "note": 64
+        },
+        {
+          "time": 2.6,
+          "type": "noteOff",
+          "note": 64
+        }
+      ]
+    }
+  ]
+}

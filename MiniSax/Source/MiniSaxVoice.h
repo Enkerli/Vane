@@ -9,7 +9,7 @@
 namespace minisax
 {
 
-// The 11 normalized instrument parameters from the preset schema.
+// The normalized instrument parameters from the preset schema.
 // All are 0..1 except outputGain (linear gain).
 struct Parameters
 {
@@ -24,6 +24,11 @@ struct Parameters
     float vibratoAirAmount = 0.0f;
     float vibratoPitchAmount = 0.0f;
     float outputGain = 0.8f;
+    // v0.2: conical-bore character.  0 = pure quarter-wave loop (odd
+    // harmonics only, clarinet-ish); 1 = full even-harmonic series via the
+    // post-loop asymmetric waveshaper.  Optional in presets; the default was
+    // grid-searched against the Silverwood reference harmonic profile.
+    float conicalAmount = 0.55f;
 };
 
 // Per-sample control input to the voice.  The renderer resolves preset
@@ -36,14 +41,18 @@ struct VoiceInputs
     float gate = 0.0f;      // 0..1, note on/off with renderer-side semantics
 };
 
-// Minimal reed/waveguide voice (STK Clarinet/Saxofony-inspired):
+// Minimal reed/waveguide voice.  v0.2 = the stable v0.1 quarter-wave loop
+// plus a post-loop "conical" shaper (self ring-mod against a quarter-period
+// bore tap) that supplies the even harmonics of a sax-like conical bore,
+// and a radiation lowpass — tuned against the Silverwood reference profile.
 //
 //   breath pressure (+ noise, growl, vibrato air)
 //     -> reed reflection table
 //     -> mouthpiece junction
-//     -> fractional-delay bore  <-- feedback
+//     -> fractional-delay bore (half period)  <-- feedback
 //     -> loss one-pole
-//     -> DC blocker -> bell high-shelf -> output gain
+//     -> conical shaper (x + a * x * boreTap(T/8))
+//     -> radiation lowpass -> DC blocker -> bell high-shelf -> output gain
 //
 // Deterministic: same seed + same input sequence => identical output.
 class MiniSaxVoice
@@ -57,7 +66,7 @@ public:
     // Diagnostics for the render report.
     bool hadNonFinite() const { return nonFiniteFlag; }
 
-    // ── Named model constants (v0.1) ──────────────────────────────────────
+    // ── Named model constants ─────────────────────────────────────────────
     // Loop reflection: near STK Clarinet's -0.95; damping reduces it further.
     static constexpr float reflectionBase = 0.97f;
     static constexpr float reflectionDampingDepth = 0.10f;
@@ -95,6 +104,27 @@ public:
     // Safety clamp on the waveguide state; generous, only guards blowups.
     static constexpr float loopSafetyLimit = 3.0f;
     static constexpr float minPitchHz = 50.0f; // half-period delay: 50 Hz needs sr/100 samples
+    // Conical waveshaper + output voicing (tuned against the Silverwood
+    // reference profile; see the v0.2 experiment log).  MINISAX_TUNING
+    // builds make these mutable so offline probes can sweep them; release
+    // and test builds get compile-time constants.
+#ifdef MINISAX_TUNING
+    static inline float conicalShapeMax = 2.0f;
+    static inline float conicalTapRatio = 0.25f;
+    static inline float radiationLowpassHz = 4000.0f;
+#else
+    // Ring-mod blend coefficient at conicalAmount = 1.
+    static constexpr float conicalShapeMax = 2.0f;
+    // Shaper tap position as a fraction of the (half-period) bore delay:
+    // 0.25 = T/8, which for a square-ish loop wave gives a 25%-duty 2*f0
+    // rectangular product carrying H2, H4 and H6.
+    static constexpr float conicalTapRatio = 0.25f;
+    static constexpr float radiationLowpassHz = 4000.0f;
+#endif
+    // Output makeup keeping outputGain = 1.0 just under full scale
+    // (worst measured peak 1.35 at outputScale 0.30, across breath,
+    // conicalAmount, and pitch extremes => 0.22 leaves ~1 dB headroom).
+    static constexpr float outputScale = 0.22f;
 
 private:
     void updateBellFilter(float brightness);
@@ -102,6 +132,7 @@ private:
     double sr = 48000.0;
     FractionalDelay bore;
     OnePole lossFilter;
+    OnePole radiationFilter;
     OnePole breathSmoother;
     OnePole gateSmoother;
     DCBlocker dcBlocker;

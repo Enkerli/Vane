@@ -2,37 +2,133 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MiniSax Preset",
   "type": "object",
-  "required": ["id", "modelName", "modelVersion", "createdAt", "parameters"],
+  "required": [
+    "id",
+    "modelName",
+    "modelVersion",
+    "createdAt",
+    "parameters"
+  ],
   "properties": {
-    "id": {"type": "string"},
-    "modelName": {"type": "string"},
-    "modelVersion": {"type": "string"},
-    "createdAt": {"type": "string"},
-    "author": {"type": "string"},
-    "derivedFrom": {"type": ["string", "null"]},
-    "gitCommit": {"type": ["string", "null"]},
-    "description": {"type": "string"},
-    "reason": {"type": "string"},
+    "id": {
+      "type": "string"
+    },
+    "modelName": {
+      "type": "string"
+    },
+    "modelVersion": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "derivedFrom": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "gitCommit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
     "parameters": {
       "type": "object",
-      "required": ["breath", "embouchure", "reedStiffness", "reedAperture", "boreDamping", "bellBrightness", "noiseAmount", "outputGain"],
+      "required": [
+        "breath",
+        "embouchure",
+        "reedStiffness",
+        "reedAperture",
+        "boreDamping",
+        "bellBrightness",
+        "noiseAmount",
+        "outputGain"
+      ],
       "properties": {
-        "breath": {"type": "number", "minimum": 0, "maximum": 1},
-        "embouchure": {"type": "number", "minimum": 0, "maximum": 1},
-        "reedStiffness": {"type": "number", "minimum": 0, "maximum": 1},
-        "reedAperture": {"type": "number", "minimum": 0, "maximum": 1},
-        "boreDamping": {"type": "number", "minimum": 0, "maximum": 1},
-        "bellBrightness": {"type": "number", "minimum": 0, "maximum": 1},
-        "noiseAmount": {"type": "number", "minimum": 0, "maximum": 1},
-        "growlAmount": {"type": "number", "minimum": 0, "maximum": 1},
-        "vibratoAirAmount": {"type": "number", "minimum": 0, "maximum": 1},
-        "vibratoPitchAmount": {"type": "number", "minimum": 0, "maximum": 1},
-        "outputGain": {"type": "number"}
+        "breath": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "embouchure": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reedStiffness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reedAperture": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "boreDamping": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bellBrightness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "noiseAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "growlAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vibratoAirAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vibratoPitchAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "conicalAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "outputGain": {
+          "type": "number"
+        }
       },
       "additionalProperties": true
     },
-    "observations": {"type": "array", "items": {"type": "string"}},
-    "tags": {"type": "array", "items": {"type": "string"}}
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
   },
   "additionalProperties": true
 }

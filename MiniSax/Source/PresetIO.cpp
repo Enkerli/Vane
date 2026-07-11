@@ -86,6 +86,7 @@ Preset loadPreset(const std::string& path)
     p.growlAmount = optionalNormalized(params, "growlAmount", 0.0f);
     p.vibratoAirAmount = optionalNormalized(params, "vibratoAirAmount", 0.0f);
     p.vibratoPitchAmount = optionalNormalized(params, "vibratoPitchAmount", 0.0f);
+    p.conicalAmount = optionalNormalized(params, "conicalAmount", Parameters{}.conicalAmount);
 
     if (!params.contains("outputGain") || !params["outputGain"].is_number())
         throw std::runtime_error("preset " + path + ": parameters missing required number \"outputGain\"");
@@ -98,9 +99,10 @@ Preset loadPreset(const std::string& path)
 uint64_t parametersHash(const Parameters& p)
 {
     // Canonical serialization: fixed field order, fixed %.6f formatting.
-    const std::array<std::pair<const char*, float>, 11> fields = {{
+    const std::array<std::pair<const char*, float>, 12> fields = {{
         {"bellBrightness", p.bellBrightness},
         {"boreDamping", p.boreDamping},
+        {"conicalAmount", p.conicalAmount},
         {"breath", p.breath},
         {"embouchure", p.embouchure},
         {"growlAmount", p.growlAmount},

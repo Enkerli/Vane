@@ -39,10 +39,15 @@ public:
 
     float getDelay() const { return delay; }
 
-    float read() const
+    float read() const { return readTap(delay); }
+
+    // Read at an arbitrary delay (clamped like setDelay), independent of the
+    // main delay.  Used for the conical shaper's quarter-period tap.
+    float readTap(float delaySamples) const
     {
         const auto size = static_cast<int>(buffer.size());
-        float readPos = static_cast<float>(writeIndex) - delay;
+        const float d = std::clamp(delaySamples, minDelay, static_cast<float>(size) - 2.0f);
+        float readPos = static_cast<float>(writeIndex) - d;
         while (readPos < 0.0f)
             readPos += static_cast<float>(size);
         const int i0 = static_cast<int>(readPos);

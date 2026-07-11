@@ -1,0 +1,34 @@
+{
+  "id": "growl_body_007",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / ChatGPT",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Dark-bodied preset with moderate built-in growl and restrained pitch vibrato.",
+  "reason": "Test modulation interaction in a musically usable range rather than only ramping growl from zero.",
+  "parameters": {
+    "breath": 0.64,
+    "embouchure": 0.52,
+    "reedStiffness": 0.6,
+    "reedAperture": 0.43,
+    "boreDamping": 0.31,
+    "bellBrightness": 0.38,
+    "noiseAmount": 0.07,
+    "growlAmount": 0.34,
+    "vibratoAirAmount": 0.1,
+    "vibratoPitchAmount": 0.08,
+    "outputGain": 0.78
+  },
+  "observations": [
+    "Candidate preset only; render and descriptor review required before musical acceptance.",
+    "Parameters remain within the existing v0.1 schema and engine controls."
+  ],
+  "tags": [
+    "growl",
+    "dark",
+    "body",
+    "modulated"
+  ]
+}

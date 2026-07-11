@@ -38,6 +38,7 @@ namespace
         if (name == "vibratoAirAmount") return &p.vibratoAirAmount;
         if (name == "vibratoPitchAmount") return &p.vibratoPitchAmount;
         if (name == "outputGain") return &p.outputGain;
+        if (name == "conicalAmount") return &p.conicalAmount;
         return nullptr;
     }
 } // namespace

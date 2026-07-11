@@ -1,4 +1,4 @@
-# MiniSax — waveguide reed instrument lab (v0.1)
+# MiniSax — waveguide reed instrument lab (v0.2)
 
 A minimal, deterministic, offline-renderable physical-modelling reed instrument
 inspired by STK `Saxofony` and the Silverwood Tenor Sax Reaktor ensemble.
@@ -63,8 +63,33 @@ breath -> compressive pressure map (+ noise, growl, vibrato-air)
        -> mouthpiece junction
        -> fractional-delay bore (half-period; quarter-wave resonator)  <- feedback
        -> one-pole loss filter
-       -> DC blocker -> bell high-shelf biquad -> output gain
+       -> conical shaper: x + a * x * boreTap(T/8)   [a from conicalAmount]
+       -> radiation lowpass -> DC blocker -> bell high-shelf -> output gain
 ```
+
+### The conical shaper (v0.2 "oomph")
+
+The quarter-wave loop is odd-harmonic only (clarinet-like); a conical (sax)
+bore radiates the full series with H2 nearly as strong as H1 — that even
+content is the "oomph" the Silverwood reference has.  Two physical routes
+were tried first and are written up in the experiment log: a static
+waveshaper (useless: the loop wave is near-square, and x² of a square is
+DC) and an STK Saxofony-style two-segment bore (matched the reference
+spectrum but flips to the second register over most of the breath/damping
+range).  v0.2 instead self-ring-modulates the loop signal against a
+quarter-period tap of its own bore: for a square-ish wave the product is a
+25%-duty 2·f0 rectangle (strong H2/H4/H6), for a sine it is pure H2, and
+the loop itself stays the stable v0.1 resonator — no register risk.  The
+new `conicalAmount` parameter (0 = clarinet-ish odd-only, 1 = full even
+series) scales the blend and is modulatable per-test like any parameter.
+
+Reference anchoring: `references/profiles/SilvSnip.json` holds the
+descriptor profile extracted from the Silverwood snippet (gitignored WAV in
+`references/silverwood/`).  With `tenor_sax_009`, the C4 long-tone renders
+at H2 −0.1 dB vs the reference's −0.2 dB; H3/H4 within ~2 dB; H5+ runs
+several dB shy (the loop's 1/k rolloff vs the reference's flat plateau) —
+brightness/noise in preset space narrows that further.  The analyzer's
+`h2RelH1Db` and `evenOddRatioDb` descriptors track this per render.
 
 Everything is deterministic: the per-test noise seed is derived from the base
 seed and the test id (so reordering tests in a suite never changes audio) and
@@ -113,5 +138,6 @@ docs/          design brief: architecture, plan, testing, traceability
 experiments/   experiment logs (EXPERIMENT_TEMPLATE.md)
 renders/       WAV output (gitignored)
 analysis/      descriptor output (gitignored)
-references/    reference samples (gitignored; see docs/ARTICULATION_TESTING.md)
+references/    reference samples (gitignored) + committed descriptor profiles
+               in references/profiles/ (see docs/ARTICULATION_TESTING.md)
 ```

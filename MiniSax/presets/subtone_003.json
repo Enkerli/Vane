@@ -1,0 +1,34 @@
+{
+  "id": "subtone_003",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / ChatGPT",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Low-pressure, noisy, dark preset intended to explore subtone-like speaking thresholds.",
+  "reason": "Probe whether the current reed model can sustain a soft, air-rich regime without collapsing into silence.",
+  "parameters": {
+    "breath": 0.34,
+    "embouchure": 0.38,
+    "reedStiffness": 0.46,
+    "reedAperture": 0.58,
+    "boreDamping": 0.36,
+    "bellBrightness": 0.22,
+    "noiseAmount": 0.18,
+    "growlAmount": 0.0,
+    "vibratoAirAmount": 0.0,
+    "vibratoPitchAmount": 0.0,
+    "outputGain": 0.92
+  },
+  "observations": [
+    "Candidate preset only; render and descriptor review required before musical acceptance.",
+    "Parameters remain within the existing v0.1 schema and engine controls."
+  ],
+  "tags": [
+    "subtone",
+    "soft",
+    "dark",
+    "threshold"
+  ]
+}

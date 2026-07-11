@@ -26,7 +26,7 @@ using nlohmann::json;
 namespace
 {
 
-constexpr const char* engineVersion = "0.1.0";
+constexpr const char* engineVersion = "0.2.0";
 constexpr uint32_t defaultRenderSeed = 20260709u; // arbitrary fixed default, recorded in the report
 
 void printUsage()

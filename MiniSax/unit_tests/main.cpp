@@ -173,6 +173,63 @@ void testVoiceExtremeParametersStayFinite()
     CHECK(true);
 }
 
+float goertzelLevel(const std::vector<float>& x, float freq, float sr)
+{
+    const double w = 2.0 * 3.14159265358979 * freq / sr;
+    const double c = 2.0 * std::cos(w);
+    double s0 = 0.0, s1 = 0.0, s2 = 0.0;
+    for (const float v : x)
+    {
+        s0 = v + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    return static_cast<float>(std::sqrt(s1 * s1 + s2 * s2 - c * s1 * s2))
+         / static_cast<float>(x.size());
+}
+
+std::vector<float> renderAtConicalAmount(float conicalAmount)
+{
+    minisax::MiniSaxVoice voice;
+    voice.prepare(48000.0, 42u);
+    minisax::VoiceInputs in;
+    in.params = minisax::Parameters{};
+    in.params.breath = 0.62f;
+    in.params.noiseAmount = 0.0f;
+    in.params.conicalAmount = conicalAmount;
+    // 187.5 Hz = 48000/256: an exact bin so goertzel harmonics line up.
+    in.pitchHz = 187.5f;
+    in.gate = 1.0f;
+    std::vector<float> out;
+    for (int n = 0; n < 96000; ++n)
+    {
+        const float s = voice.processSample(in);
+        if (n >= 48000)
+            out.push_back(s);
+    }
+    return out;
+}
+
+// v0.2 regression: the conical waveshaper must produce strong even harmonics
+// (the sax-like body); at zero it stays odd-harmonic (clarinet-like).
+// Both settings must sound at the SAME fundamental (no register change).
+void testConicalEvenHarmonics()
+{
+    const float sr = 48000.0f, f0 = 187.5f;
+
+    const auto sax = renderAtConicalAmount(minisax::Parameters{}.conicalAmount);
+    const float saxH1 = goertzelLevel(sax, f0, sr);
+    const float saxH2 = goertzelLevel(sax, 2.0f * f0, sr);
+    CHECK(saxH1 > 1.0e-4f); // it speaks, at the fundamental
+    CHECK(20.0f * std::log10(saxH2 / (saxH1 + 1e-12f)) > -10.0f); // strong H2
+
+    const auto clar = renderAtConicalAmount(0.0f);
+    const float clarH1 = goertzelLevel(clar, f0, sr);
+    const float clarH2 = goertzelLevel(clar, 2.0f * f0, sr);
+    CHECK(clarH1 > 1.0e-4f);
+    CHECK(20.0f * std::log10(clarH2 / (clarH1 + 1e-12f)) < -25.0f); // even harmonics gone
+}
+
 void testEnvelopeSemantics()
 {
     minisax::Envelope env(0.1f);
@@ -208,6 +265,7 @@ int main()
     testVoiceDeterminism();
     testVoiceSpeaksAndStaysFinite();
     testVoiceExtremeParametersStayFinite();
+    testConicalEvenHarmonics();
     testEnvelopeSemantics();
     testParametersHash();
 

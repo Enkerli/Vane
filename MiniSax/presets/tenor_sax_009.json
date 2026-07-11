@@ -1,0 +1,35 @@
+{
+  "id": "tenor_sax_009",
+  "modelName": "MiniSax",
+  "modelVersion": "0.2.0",
+  "createdAt": "2026-07-11",
+  "author": "Alex Enkerli / coding agent",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Sax-body preset tuned against the Silverwood snippet's harmonic profile (strong H2, decaying harmonic plateau). Uses the v0.2 conical waveshaper.",
+  "reason": "Anchor preset for the v0.2 conical-oomph work: parameters grid-searched so the G3 long-tone profile approaches references/profiles/silverwood_snippet descriptors.",
+  "parameters": {
+    "breath": 0.62,
+    "embouchure": 0.5,
+    "reedStiffness": 0.5,
+    "reedAperture": 0.5,
+    "boreDamping": 0.2,
+    "bellBrightness": 0.9,
+    "noiseAmount": 0.05,
+    "growlAmount": 0.0,
+    "vibratoAirAmount": 0.0,
+    "vibratoPitchAmount": 0.0,
+    "conicalAmount": 0.8,
+    "outputGain": 0.9
+  },
+  "observations": [
+    "Even/odd balance tracked via the analyzer's evenOddRatioDb descriptor.",
+    "conicalAmount 0 reverts to the odd-harmonic clarinet-like voice."
+  ],
+  "tags": [
+    "sax-ish",
+    "tenor",
+    "reference-tuned",
+    "oomph"
+  ]
+}

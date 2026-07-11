@@ -1,0 +1,34 @@
+{
+  "id": "singing_vibrato_008",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / ChatGPT",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Lyrical preset with moderate air and pitch vibrato suitable for delayed-vibrato gestures.",
+  "reason": "Create a preset where vibrato is part of the voice identity while remaining controllable by suite events.",
+  "parameters": {
+    "breath": 0.57,
+    "embouchure": 0.49,
+    "reedStiffness": 0.55,
+    "reedAperture": 0.47,
+    "boreDamping": 0.29,
+    "bellBrightness": 0.45,
+    "noiseAmount": 0.065,
+    "growlAmount": 0.0,
+    "vibratoAirAmount": 0.2,
+    "vibratoPitchAmount": 0.18,
+    "outputGain": 0.82
+  },
+  "observations": [
+    "Candidate preset only; render and descriptor review required before musical acceptance.",
+    "Parameters remain within the existing v0.1 schema and engine controls."
+  ],
+  "tags": [
+    "vibrato",
+    "lyrical",
+    "singing",
+    "expressive"
+  ]
+}
