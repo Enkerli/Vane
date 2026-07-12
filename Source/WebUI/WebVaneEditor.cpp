@@ -32,6 +32,13 @@ const ParamPair kParamMap[] = {
     { "TrVar",   "transientVariation" }, { "TrFilt","transientFilter" },
     { "TrDyn",   "transientDynamics" },
     { "TrReso",  "transientResonate" }, { "TrDamp","transientDamping" }, { "TrMorph","transientMorph" },
+    // Waveguide (MiniSax reed/bore) mode — Phase 6. WaveguideOn replaces the
+    // wavetable oscillator with the reed engine; the rest stay tone controls.
+    { "WaveguideOn", "waveguideOn" },
+    { "WgEmbouchure", "waveguideEmbouchure" }, { "WgReedStiff", "waveguideReedStiffness" },
+    { "WgReedAperture", "waveguideReedAperture" }, { "WgBoreDamping", "waveguideBoreDamping" },
+    { "WgBellBright", "waveguideBellBrightness" }, { "WgConical", "waveguideConical" },
+    { "WgBreathNoise", "waveguideBreathNoise" }, { "WgGrowl", "waveguideGrowl" },
 };
 juce::String uiToApvts (const juce::String& ui) {
     for (auto& p : kParamMap) if (ui == p.ui) return p.apvts;
