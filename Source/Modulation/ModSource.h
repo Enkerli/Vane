@@ -87,7 +87,22 @@ struct ModDestID {
     //   Breath → VowelPos gives wind-driven talkbox vowel sweeps.
     static constexpr int VowelPos      = 13;  // formant/vowel position
 
-    static constexpr int NumDests = 14;
+    // ── Waveguide (MiniSax) tone destinations ────────────────────────────────────
+    // All additive, clamped 0..1 against the APVTS base value in SynthVoice —
+    // same pattern as the Osc* destinations above. Lets breath/pressure/etc.
+    // drive the reed physically (e.g. Breath → Bell Brightness for a wind
+    // instrument's natural loud-brighter coupling), matching how a physical
+    // model is normally played rather than leaving the tone static.
+    static constexpr int WgEmbouchure   = 14;
+    static constexpr int WgReedStiff    = 15;
+    static constexpr int WgReedAperture = 16;
+    static constexpr int WgBoreDamping  = 17;
+    static constexpr int WgBellBright   = 18;
+    static constexpr int WgConical      = 19;
+    static constexpr int WgBreathNoise  = 20;
+    static constexpr int WgGrowl        = 21;
+
+    static constexpr int NumDests = 22;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -127,9 +142,11 @@ namespace ModSlots {
     // would shift existing presets' destination assignments.
     inline const char* const kDestNames[] = {
         "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync",
-        "Transient", "Uni Detune", "Vowel"
+        "Transient", "Uni Detune", "Vowel",
+        "Wg Embouchure", "Wg Reed Stiff", "Wg Aperture", "Wg Damping", "Wg Bell",
+        "Wg Conical", "Wg Breath Noise", "Wg Growl"
     };
-    static constexpr int NumDestChoices = 13;
+    static constexpr int NumDestChoices = 21;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -165,6 +182,14 @@ namespace ModSlots {
             case 10: return ModDestID::TransientLevel;
             case 11: return ModDestID::UnisonDetune;
             case 12: return ModDestID::VowelPos;
+            case 13: return ModDestID::WgEmbouchure;
+            case 14: return ModDestID::WgReedStiff;
+            case 15: return ModDestID::WgReedAperture;
+            case 16: return ModDestID::WgBoreDamping;
+            case 17: return ModDestID::WgBellBright;
+            case 18: return ModDestID::WgConical;
+            case 19: return ModDestID::WgBreathNoise;
+            case 20: return ModDestID::WgGrowl;
             default: return -1;
         }
     }

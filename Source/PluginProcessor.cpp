@@ -1288,6 +1288,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
             { 1, 2, 1, 0.15f },  // 7  Breath     → Reso    exp
             { 2, 2, 1, 0.15f },  // 8  Expression → Reso    exp
             { 6, 1, 0, 0.15f },  // 9  Velocity   → Cutoff  lin
+            // Waveguide (MiniSax) default: real reed/bore instruments get
+            // brighter as breath pressure rises, so give a fresh patch that
+            // coupling out of the box — inert while Waveguide mode is off,
+            // and freely reassignable/removable like any other slot.
+            { 1, 17, 1, 0.30f }, // 10 Breath     → Wg Bell exp
         };
         constexpr int kNumFactory = (int) (sizeof (kFactory) / sizeof (kFactory[0]));
 

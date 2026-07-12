@@ -415,8 +415,12 @@ private:
     // reed's speaking threshold; pitch comes from the voice's glide/pitchbend
     // machinery per sample.  The engine is reset on non-legato attacks only —
     // a legato note re-entrains the still-ringing bore at the new delay length.
-    minisax::MiniSaxVoice waveguide;
-    uint32_t              waveguideSeed = 0;   // per-voice, derived in prepare()
+    // One bore per stereo-unison voice (mirrors `osc`/`unisonOscs`): index 0 is
+    // the centre/melody voice, 1..kMaxUnison-1 the detuned or chord-interval
+    // voices, each with its own delay length and noise seed so they don't sound
+    // like unison-of-clones.
+    std::array<minisax::MiniSaxVoice, kMaxUnison> waveguideVoices;
+    std::array<uint32_t, kMaxUnison>              waveguideSeeds {};   // per-voice, derived in prepare()
     std::atomic<float>* paramWgOn         = nullptr;  // > 0.5 = waveguide replaces the oscillator
     std::atomic<float>* paramWgEmbouchure = nullptr;  // 0..1
     std::atomic<float>* paramWgReedStiff  = nullptr;  // 0..1

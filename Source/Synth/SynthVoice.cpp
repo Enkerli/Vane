@@ -74,11 +74,16 @@ void SynthVoice::prepare(double sr, int blockSize)
     transientFilter.prepare(sr);   // shares the voice filter's coeffs when routed
     transientReso.prepare(sr);     // pitch resonator delay line
 
-    // Waveguide engine: deterministic per-voice noise seed, decorrelated across
-    // the 15 voices via the object address (stable for the processor lifetime).
-    waveguideSeed = minisax::NoiseGenerator::defaultSeed
-                  ^ static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) >> 4);
-    waveguide.prepare(sr, waveguideSeed);
+    // Waveguide engines: deterministic per-(synth-voice, unison-slot) noise seed,
+    // decorrelated across the 15 polyphony voices via the object address (stable
+    // for the processor lifetime) and across the up-to-6 unison slots so a
+    // detuned/chord stack doesn't sound like phase-locked clones.
+    for (int j = 0; j < kMaxUnison; ++j) {
+        waveguideSeeds[(size_t) j] = minisax::NoiseGenerator::defaultSeed
+                      ^ static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) >> 4)
+                      ^ (static_cast<uint32_t>(j) * 0x9E3779B1u);
+        waveguideVoices[(size_t) j].prepare(sr, waveguideSeeds[(size_t) j]);
+    }
 
     // Build per-voice slewers matching each route's attack/release config.
     // Routes are finalized in the VaneProcessor constructor before prepare() is
@@ -223,11 +228,13 @@ void SynthVoice::noteStarted()
     bool  isLegato = (initVCA > 0.02f);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
-    // Waveguide: clear the bore only on non-legato attacks.  On legato the
-    // still-ringing bore is simply read at the new delay length next block,
-    // which re-entrains it at the new pitch without a re-attack transient.
+    // Waveguide: clear every unison slot's bore only on non-legato attacks.
+    // On legato the still-ringing bores are simply read at the new delay
+    // length next block, which re-entrains them at the new pitch without a
+    // re-attack transient.
     if (!isLegato)
-        waveguide.reset(waveguideSeed);
+        for (int j = 0; j < kMaxUnison; ++j)
+            waveguideVoices[(size_t) j].reset(waveguideSeeds[(size_t) j]);
 
     // Per-voice slewer reset for non-legato attacks.
     // Each voice slot retains slewer state from the previous note it played.
@@ -735,14 +742,15 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     minisax::VoiceInputs wgIn;
     if (wgOn) {
         auto ld = [](std::atomic<float>* p, float fb) { return p ? p->load() : fb; };
-        wgIn.params.embouchure     = ld(paramWgEmbouchure, 0.5f);
-        wgIn.params.reedStiffness  = ld(paramWgReedStiff, 0.5f);
-        wgIn.params.reedAperture   = ld(paramWgAperture, 0.5f);
-        wgIn.params.boreDamping    = ld(paramWgDamping, 0.2f);
-        wgIn.params.bellBrightness = ld(paramWgBell, 0.7f);
-        wgIn.params.conicalAmount  = ld(paramWgConical, 0.62f);
-        wgIn.params.noiseAmount    = ld(paramWgNoise, 0.05f);
-        wgIn.params.growlAmount    = ld(paramWgGrowl, 0.0f);
+        auto clamp01 = [](float v) { return std::clamp(v, 0.0f, 1.0f); };
+        wgIn.params.embouchure     = clamp01(ld(paramWgEmbouchure, 0.5f)  + mods[ModDestID::WgEmbouchure]);
+        wgIn.params.reedStiffness  = clamp01(ld(paramWgReedStiff, 0.5f)   + mods[ModDestID::WgReedStiff]);
+        wgIn.params.reedAperture   = clamp01(ld(paramWgAperture, 0.5f)    + mods[ModDestID::WgReedAperture]);
+        wgIn.params.boreDamping    = clamp01(ld(paramWgDamping, 0.2f)     + mods[ModDestID::WgBoreDamping]);
+        wgIn.params.bellBrightness = clamp01(ld(paramWgBell, 0.7f)        + mods[ModDestID::WgBellBright]);
+        wgIn.params.conicalAmount  = clamp01(ld(paramWgConical, 0.62f)    + mods[ModDestID::WgConical]);
+        wgIn.params.noiseAmount    = clamp01(ld(paramWgNoise, 0.05f)      + mods[ModDestID::WgBreathNoise]);
+        wgIn.params.growlAmount    = clamp01(ld(paramWgGrowl, 0.0f)       + mods[ModDestID::WgGrowl]);
         // Vibrato comes from Vane's own modulation (pitchbend / mod matrix),
         // not the engine's internal LFO.  Gain staging is Vane's job too.
         wgIn.params.vibratoAirAmount   = 0.0f;
@@ -968,15 +976,27 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             // Breath = the smoothed VCA signal through a floor mapping, so soft
             // playing stays above the reed's speaking threshold (~0.22) while
             // the actual dynamics still come from the VCA multiply downstream.
-            // Unison is bypassed (one bore per voice); noise blend, fold, SVF,
-            // vowel and transients all still apply after this point.
+            // One bore per unison/chord voice (waveguideVoices), pitched and
+            // panned exactly like the wavetable path below — Unison/Chord mode
+            // now applies to Waveguide the same as it does to the oscillator.
+            // Tone params (embouchure/reed/bore/etc.) are shared across voices —
+            // one instrument's physical settings, not a per-voice detune target.
             constexpr float kWaveguideBreathFloor = 0.18f;
             constexpr float kWaveguideMakeupGain  = 2.5f;  // engine peaks ~0.4 at full breath
-            wgIn.pitchHz = reqHzNow;
-            wgIn.gate    = isTailingOff ? 0.0f : 1.0f;
+            wgIn.gate = isTailingOff ? 0.0f : 1.0f;
             wgIn.params.breath = kWaveguideBreathFloor
                                + (1.0f - kWaveguideBreathFloor) * juce::jlimit(0.0f, 1.0f, gain);
-            waveL = waveR = waveguide.processSample(wgIn) * kWaveguideMakeupGain;
+            if (!unisonOn) {
+                wgIn.pitchHz = reqHzNow;
+                waveL = waveR = waveguideVoices[0].processSample(wgIn) * kWaveguideMakeupGain;
+            } else {
+                waveL = waveR = 0.0f;
+                for (int j = 0; j < uN; ++j) {
+                    wgIn.pitchHz = reqHzNow * uDetMul[j];
+                    float w = waveguideVoices[(size_t) j].processSample(wgIn) * kWaveguideMakeupGain;
+                    waveL += w * uPanL[j]; waveR += w * uPanR[j];
+                }
+            }
         } else if (!unisonOn) {
             float w = osc.nextMorphed(activeMorphPos, pwNow, ihNow, syNow);
             waveL = waveR = w;
