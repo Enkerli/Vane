@@ -144,13 +144,55 @@ int main()
         return 0;
     }
 
+    // Waveguide-mode test: enable the MiniSax reed/bore engine, hold breath
+    // (CC2 + pressure), play NOTE; report RMS, the tuned pitch, and H2/H3
+    // relative to H1 — the conical even-harmonic signature.  BREATH=0..127
+    // sets the breath level (default 110); at low breath the reed must not
+    // speak loudly (physical threshold), at high breath H2 should be strong.
+    if (std::getenv("WAVEGUIDE")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        setNorm("waveguideOn", 1.0f);
+        setNorm("monoMode", 1.0f);
+        const int breathCC = std::getenv("BREATH") ? atoi(std::getenv("BREATH")) : 110;
+        const double f0 = proc.tuning.noteToHz(note, chan);
+        std::vector<float> o;
+        for (int b=0;b<(int)(sr*1.5/bs);++b){ buf.clear(); juce::MidiBuffer m;
+            m.addEvent(juce::MidiMessage::controllerEvent(1,2,breathCC),0);
+            m.addEvent(juce::MidiMessage::channelPressureChange(chan,breathCC),0);
+            if(b==2) m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            proc.processBlock(buf,m);
+            if(b>=(int)(sr*0.5/bs)) for(int i=0;i<bs;++i) o.push_back(buf.getReadPointer(0)[i]); }
+        double sq=0; for(float s:o) sq+=(double)s*s;
+        const int M=16384; std::vector<float> w(2*M,0.f);
+        for(int i=0;i<M&&i<(int)o.size();++i) w[i]=o[(size_t)i]*(0.5f-0.5f*std::cos(juce::MathConstants<float>::twoPi*i/(M-1)));
+        juce::dsp::FFT f(14); f.performFrequencyOnlyForwardTransform(w.data());
+        // Detect the sounded fundamental (search ±4%) and measure harmonics
+        // around k×that, with the window scaled by k — fixed bins around the
+        // nominal pitch under-read every harmonic once the model runs a few
+        // cents off (each harmonic drifts k× as far in Hz).
+        auto binPeak=[&](double lo,double hi){ int a=std::max(1,(int)std::floor(lo*M/sr)),
+            z=std::min(M/2-1,(int)std::ceil(hi*M/sr)); double e=0;
+            for(int k=a;k<=z;++k) e=std::max(e,(double)w[(size_t)k]); return e; };
+        double fd=f0, best=0; for(double fr=f0*0.96;fr<=f0*1.04;fr+=0.25){
+            double e=binPeak(fr-1.5,fr+1.5); if(e>best){best=e;fd=fr;} }
+        auto hK=[&](int k){ return binPeak(fd*k-3.0*k, fd*k+3.0*k); };
+        double h1=hK(1), h2=hK(2), h3=hK(3);
+        std::printf("[waveguide] note=%d f0=%.1fHz sounded=%.1fHz (%+.0fc) breathCC=%d rms=%.4f  H2/H1=%+.1fdB H3/H1=%+.1fdB\n",
+                    note, f0, fd, 1200.0*std::log2(fd/f0), breathCC,
+                    std::sqrt(sq/(double)std::max<size_t>(1,o.size())),
+                    20.0*std::log10(h2/(h1+1e-12)), 20.0*std::log10(h3/(h1+1e-12)));
+        return 0;
+    }
+
     // Legato-continuity test: mono mode, sustained breath, slur note A→B; measure
     // the worst sample-to-sample jump at the boundary vs the steady-state slope.
     // A clean handoff → boundary jump ≈ steady slope (ratio ~1); a click → ratio≫1.
+    // WG=1 runs the same measurement with the waveguide (MiniSax) mode enabled.
     if (std::getenv("LEGATO")) {
         auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
         SynthVoice::s_unisonLegatoFix = !std::getenv("NOFIX");
         setNorm("monoMode", 1.0f);
+        if (std::getenv("WG")) setNorm("waveguideOn", 1.0f);
         if (std::getenv("UVOX")) if(auto* cp=dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("unisonVoices"))) *cp=atoi(std::getenv("UVOX"));
         setNorm("unisonWidth", 1.0f);
         const int legB = (int)(sr*0.30/bs);

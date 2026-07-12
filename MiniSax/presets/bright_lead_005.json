@@ -1,0 +1,34 @@
+{
+  "id": "bright_lead_005",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / ChatGPT",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Bright, resistant lead voice intended for strong breath gestures and projection.",
+  "reason": "Test the upper-brightness and reed-resistance corner without relying on growl or vibrato.",
+  "parameters": {
+    "breath": 0.66,
+    "embouchure": 0.63,
+    "reedStiffness": 0.72,
+    "reedAperture": 0.34,
+    "boreDamping": 0.18,
+    "bellBrightness": 0.88,
+    "noiseAmount": 0.045,
+    "growlAmount": 0.0,
+    "vibratoAirAmount": 0.0,
+    "vibratoPitchAmount": 0.0,
+    "outputGain": 0.72
+  },
+  "observations": [
+    "Candidate preset only; render and descriptor review required before musical acceptance.",
+    "Parameters remain within the existing v0.1 schema and engine controls."
+  ],
+  "tags": [
+    "bright",
+    "lead",
+    "resistant",
+    "projection"
+  ]
+}

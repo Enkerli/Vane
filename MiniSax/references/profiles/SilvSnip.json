@@ -1,0 +1,28 @@
+{
+  "file": "SilvSnip.wav",
+  "sampleRate": 44100,
+  "durationSeconds": 8.394013605442177,
+  "peak": 0.5465098622005945,
+  "rms": 0.042473176580190446,
+  "attackMs": 379.1383219954649,
+  "spectralCentroidHz": 1471.2138336032604,
+  "zeroCrossingRate": 0.014306746808941716,
+  "pitchHz": 196.7976953320198,
+  "pitchStabilityCents": 383.7447672427695,
+  "harmonicProfileDb": [
+    -0.2,
+    -7.8,
+    -6.4,
+    -7.8,
+    -5.8,
+    -7.8,
+    -5.8
+  ],
+  "h2RelH1Db": -0.2,
+  "evenOddRatioDb": 5.4,
+  "sustainAmplitudeVariation": 0.1498666581706426,
+  "isSilent": false,
+  "isClipped": false,
+  "warnings": [],
+  "provenance": {}
+}

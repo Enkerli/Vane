@@ -10,6 +10,7 @@
 #include "Synth/SamplePlayer.h"
 #include "Synth/CombResonator.h"
 #include "Synth/TransientLibrary.h"
+#include "MiniSaxVoice.h"   // MiniSax waveguide engine (MiniSax/Source, no JUCE deps)
 
 // One MPE voice.  Signal path per sample:
 //   wavetable-morph oscillator (+ PD pulse-width, √2-FM inharmonicity, hard-sync)
@@ -132,6 +133,31 @@ public:
     // Wire the transient library (owned by VaneProcessor, shared across all voices).
     // Safe to call before prepare() — used in the processor constructor.
     void setTransientLibrary(const TransientLibrary* lib) noexcept { transientLib = lib; }
+
+    // Wire the waveguide (MiniSax) APVTS pointers.  When `on` reads > 0.5 the
+    // MiniSax reed/bore engine replaces the wavetable oscillator as the voice's
+    // sound source; everything downstream (noise blend, fold, SVF, vowel,
+    // transients, VCA) is unchanged.  All pointers may be null — the mode
+    // gracefully disables.  Follows the setTransientParams() wiring pattern.
+    void setWaveguideParams(std::atomic<float>* on,
+                            std::atomic<float>* embouchure,
+                            std::atomic<float>* reedStiffness,
+                            std::atomic<float>* reedAperture,
+                            std::atomic<float>* boreDamping,
+                            std::atomic<float>* bellBrightness,
+                            std::atomic<float>* conicalAmount,
+                            std::atomic<float>* breathNoise,
+                            std::atomic<float>* growl) noexcept {
+        paramWgOn         = on;
+        paramWgEmbouchure = embouchure;
+        paramWgReedStiff  = reedStiffness;
+        paramWgAperture   = reedAperture;
+        paramWgDamping    = boreDamping;
+        paramWgBell       = bellBrightness;
+        paramWgConical    = conicalAmount;
+        paramWgNoise      = breathNoise;
+        paramWgGrowl      = growl;
+    }
 
     // Wire the four APVTS raw-parameter pointers for the transient section.
     // Call after addVoice() in the processor constructor, following the same
@@ -381,6 +407,25 @@ private:
     float                   oscMorphRamp = 1.0f;         // note body fade-in under the transient (0..1)
     float                   oscMorphInc  = 0.0f;         // per-sample increment for the morph ramp
     bool                    oscMorphArmed = false;       // morph active for this note (transient fired)
+
+    // ── Waveguide (MiniSax) mode ─────────────────────────────────────────────────
+    // Per-voice reed/bore physical model.  Breath (the smoothed VCA signal)
+    // drives the model's breath input through a floor mapping (see
+    // kWaveguideBreathFloor in SynthVoice.cpp) so pp playing stays above the
+    // reed's speaking threshold; pitch comes from the voice's glide/pitchbend
+    // machinery per sample.  The engine is reset on non-legato attacks only —
+    // a legato note re-entrains the still-ringing bore at the new delay length.
+    minisax::MiniSaxVoice waveguide;
+    uint32_t              waveguideSeed = 0;   // per-voice, derived in prepare()
+    std::atomic<float>* paramWgOn         = nullptr;  // > 0.5 = waveguide replaces the oscillator
+    std::atomic<float>* paramWgEmbouchure = nullptr;  // 0..1
+    std::atomic<float>* paramWgReedStiff  = nullptr;  // 0..1
+    std::atomic<float>* paramWgAperture   = nullptr;  // 0..1
+    std::atomic<float>* paramWgDamping    = nullptr;  // 0..1
+    std::atomic<float>* paramWgBell       = nullptr;  // 0..1
+    std::atomic<float>* paramWgConical    = nullptr;  // 0..1 even-harmonic (sax) body
+    std::atomic<float>* paramWgNoise      = nullptr;  // 0..1 breath noise
+    std::atomic<float>* paramWgGrowl      = nullptr;  // 0..1 flutter growl
 
     // Transient APVTS parameter pointers — set via setTransientParams().
     std::atomic<float>* paramTransientGain      = nullptr; // 0..2, default 0 (off)

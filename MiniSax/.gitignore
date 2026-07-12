@@ -1,0 +1,11 @@
+build/
+renders/*
+!renders/.gitkeep
+analysis/*
+!analysis/.gitkeep
+references/*
+!references/.gitkeep
+!references/profiles
+references/profiles/*
+!references/profiles/*.json
+__pycache__/

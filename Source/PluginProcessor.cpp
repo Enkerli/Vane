@@ -81,11 +81,22 @@ VaneProcessor::VaneProcessor()
         auto* pUniV      = apvts.getRawParameterValue("unisonVoices");
         auto* pUniD      = apvts.getRawParameterValue("unisonDetune");
         auto* pUniW      = apvts.getRawParameterValue("unisonWidth");
+        auto* pWgOn      = apvts.getRawParameterValue("waveguideOn");
+        auto* pWgEmb     = apvts.getRawParameterValue("waveguideEmbouchure");
+        auto* pWgStiff   = apvts.getRawParameterValue("waveguideReedStiffness");
+        auto* pWgAper    = apvts.getRawParameterValue("waveguideReedAperture");
+        auto* pWgDamp    = apvts.getRawParameterValue("waveguideBoreDamping");
+        auto* pWgBell    = apvts.getRawParameterValue("waveguideBellBrightness");
+        auto* pWgConical = apvts.getRawParameterValue("waveguideConical");
+        auto* pWgNoise   = apvts.getRawParameterValue("waveguideBreathNoise");
+        auto* pWgGrowl   = apvts.getRawParameterValue("waveguideGrowl");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
                 v->setTransientParams(pTrGain, pTrDecay, pTrChoice, pTrTrigger, pTrVar, pTrFilt, pTrDyn,
                                       pTrReso, pTrDamp, pTrMorph);
+                v->setWaveguideParams(pWgOn, pWgEmb, pWgStiff, pWgAper, pWgDamp,
+                                      pWgBell, pWgConical, pWgNoise, pWgGrowl);
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setGlideLUT(glideLUT.data());
@@ -1380,6 +1391,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"macroExprCC", 1}, "Expression CC Number",
         juce::NormalisableRange<float>(0.0f, 127.0f, 1.0f), 11.0f));
+
+    // ── Waveguide (MiniSax) synthesis mode ───────────────────────────────────
+    // A reed/bore physical model (MiniSax/ in this repo) that replaces the
+    // wavetable oscillator as the voice's sound source when enabled.  Breath
+    // (the VCA signal) blows the reed, so brightness and body track air
+    // physically; everything downstream (noise blend, fold, SVF, vowel,
+    // transients) is unchanged.  Defaults mirror the tenor_sax_009 preset
+    // tuned against the Silverwood reference (MiniSax/experiments/).
+    // Display names are plain ASCII (see CLAUDE.md).
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"waveguideOn", 1}, "Waveguide Mode", false));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideEmbouchure", 1}, "Waveguide Embouchure",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideReedStiffness", 1}, "Waveguide Reed Stiffness",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideReedAperture", 1}, "Waveguide Reed Aperture",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideBoreDamping", 1}, "Waveguide Bore Damping",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.2f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideBellBrightness", 1}, "Waveguide Bell Brightness",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.7f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideConical", 1}, "Waveguide Conical Amount",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.62f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideBreathNoise", 1}, "Waveguide Breath Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.05f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"waveguideGrowl", 1}, "Waveguide Growl",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     return layout;
 }

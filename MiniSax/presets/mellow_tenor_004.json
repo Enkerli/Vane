@@ -1,0 +1,34 @@
+{
+  "id": "mellow_tenor_004",
+  "modelName": "MiniSax",
+  "modelVersion": "0.1.0",
+  "createdAt": "2026-07-09",
+  "author": "Alex Enkerli / ChatGPT",
+  "derivedFrom": "breathy_001",
+  "gitCommit": null,
+  "description": "Rounded, moderately dark tenor-oriented baseline with restrained noise.",
+  "reason": "Provide a stable lyrical preset between the breathy and dark traceability baselines.",
+  "parameters": {
+    "breath": 0.58,
+    "embouchure": 0.47,
+    "reedStiffness": 0.54,
+    "reedAperture": 0.48,
+    "boreDamping": 0.34,
+    "bellBrightness": 0.34,
+    "noiseAmount": 0.055,
+    "growlAmount": 0.0,
+    "vibratoAirAmount": 0.0,
+    "vibratoPitchAmount": 0.0,
+    "outputGain": 0.84
+  },
+  "observations": [
+    "Candidate preset only; render and descriptor review required before musical acceptance.",
+    "Parameters remain within the existing v0.1 schema and engine controls."
+  ],
+  "tags": [
+    "mellow",
+    "tenor",
+    "lyrical",
+    "baseline"
+  ]
+}
