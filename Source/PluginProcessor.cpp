@@ -99,6 +99,7 @@ VaneProcessor::VaneProcessor()
                                       pWgBell, pWgConical, pWgNoise, pWgGrowl);
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
+                v->setWaveguideHandoff(&lastWaveguideVoice);
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,

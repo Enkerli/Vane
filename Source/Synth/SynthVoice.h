@@ -126,6 +126,14 @@ public:
         sharedUnisonPhase = uniPhase; sharedFilterRS1 = fRS1; sharedFilterRS2 = fRS2;
     }
 
+    // Mono-legato waveguide handoff: the processor-owned pointer to the last
+    // voice that rendered waveguide audio.  Mono legato allocates a NEW voice;
+    // the oscillator hands its phase across via atomics, but the bore is a whole
+    // delay-line state — the new voice adopts it by copying the predecessor's
+    // engines at noteStarted (noteStarted and rendering share the audio thread,
+    // so the copy is race-free).  May be null.
+    void setWaveguideHandoff(std::atomic<SynthVoice*>* slot) noexcept { sharedWgVoice = slot; }
+
     // Editable glide curve (Bezier mode): a 65-point time→progress LUT owned by the
     // processor.  Shaping how pitch travels old→new over the glide.  May be null.
     void setGlideLUT(const float* lut) noexcept { glideLUT = lut; }
@@ -421,6 +429,7 @@ private:
     // like unison-of-clones.
     std::array<minisax::MiniSaxVoice, kMaxUnison> waveguideVoices;
     std::array<uint32_t, kMaxUnison>              waveguideSeeds {};   // per-voice, derived in prepare()
+    std::atomic<SynthVoice*>* sharedWgVoice = nullptr;  // last waveguide-rendering voice (bore handoff)
     std::atomic<float>* paramWgOn         = nullptr;  // > 0.5 = waveguide replaces the oscillator
     std::atomic<float>* paramWgEmbouchure = nullptr;  // 0..1
     std::atomic<float>* paramWgReedStiff  = nullptr;  // 0..1

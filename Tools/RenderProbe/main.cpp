@@ -211,6 +211,16 @@ int main()
         double bndR=maxDelta(R,0.298,0.306), stdR=maxDelta(R,0.20,0.28);
         std::printf("[legato] boundary/steady Δ  L=%.2fx  R=%.2fx  (1≈clean handoff, ≫1 = click)\n",
                     bndL/(stdL+1e-9), bndR/(stdR+1e-9));
+        // Amplitude continuity through the slur: with breath held, a legato
+        // transition must not dip toward silence and swell back (the re-attack
+        // valley).  Report the minimum 10 ms RMS across the boundary region
+        // relative to the pre-slur steady RMS — 1 ≈ seamless, ≪1 = dropout.
+        auto rmsWin=[&](std::vector<float>& x,double t0,double t1){ int a=(int)(sr*t0),z=std::min((int)(sr*t1),(int)x.size());
+            double s=0; int n=std::max(1,z-a); for(int i=a;i<z;++i) s+=(double)x[i]*x[i]; return std::sqrt(s/n); };
+        double steady=rmsWin(L,0.20,0.28), trough=1e9;
+        for(double t=0.28;t<0.45;t+=0.01) trough=std::min(trough,rmsWin(L,t,t+0.01));
+        std::printf("[legato] slur envelope trough/steady = %.2f  (1≈seamless, ≪1 = dip-and-swell)\n",
+                    trough/(steady+1e-9));
         return 0;
     }
 

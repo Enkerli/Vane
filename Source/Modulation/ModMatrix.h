@@ -134,6 +134,20 @@ public:
     void  setMacroSlot(int macroIdx, float value, int voiceBacking);
     float getMacroValue(int macroIdx) const;  // last-set value (CC/AT macros)
 
+    // Resolve a macro's live value for one voice — the same resolution
+    // evaluate() applies: per-voice-backed macros read voiceVals, CC/AT-backed
+    // macros read the last-set block value.  Lets a voice consume a control
+    // signal directly (e.g. the waveguide reed's breath excitation) without
+    // routing it through a matrix destination.
+    float macroValueForVoice(int macroIdx,
+                             const std::array<float, ModSourceID::NumVoiceSources>& voiceVals) const {
+        if (macroIdx < 0 || macroIdx >= ModSourceID::NumMacros) return 0.0f;
+        const int backing = macroVoiceBacking[macroIdx];
+        if (backing >= 0 && backing < ModSourceID::NumVoiceSources)
+            return voiceVals[(size_t) backing];
+        return macroValues[macroIdx];
+    }
+
     // Bind a configurable global "aux" source (0..NumAux-1) to a CC number.
     // Set each block by the processor from the aux{g}_cc params; the matrix then
     // resolves slot source choices 7.. as global CC sources.  See ModSlots.

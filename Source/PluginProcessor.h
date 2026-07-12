@@ -371,6 +371,9 @@ private:
     std::array<std::atomic<float>, SynthVoice::kMaxUnison - 1> lastUnisonPhase {};
     std::atomic<float> lastFilterRS1  { 0.0f };
     std::atomic<float> lastFilterRS2  { 0.0f };
+    // Waveguide bore handoff: the last voice that rendered waveguide audio.
+    // A mono-legato successor copies its bores at noteStarted (audio thread only).
+    std::atomic<SynthVoice*> lastWaveguideVoice { nullptr };
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.
     std::array<float, ModRoute::kCurveLUT> glideLUT {};
     // Rotating-chord sequences (fixed-capacity so audio-thread reads are realloc-safe).

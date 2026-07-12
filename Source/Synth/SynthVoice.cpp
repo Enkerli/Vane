@@ -229,12 +229,21 @@ void SynthVoice::noteStarted()
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
     // Waveguide: clear every unison slot's bore only on non-legato attacks.
-    // On legato the still-ringing bores are simply read at the new delay
-    // length next block, which re-entrains them at the new pitch without a
-    // re-attack transient.
-    if (!isLegato)
+    // On legato, ADOPT the predecessor voice's still-ringing bores: mono legato
+    // allocates a NEW voice object, so "the bore keeps ringing" is only true if
+    // its state moves across.  The copy is a fixed-size buffer transfer (both
+    // voices were prepared at the same rate, so the vectors match and no
+    // allocation occurs); noteStarted runs on the audio thread alongside
+    // rendering, so reading the predecessor is race-free.  The adopted bores
+    // are then read at the new delay length next block — a physical slur, not
+    // a re-attack from an empty tube.
+    if (!isLegato) {
         for (int j = 0; j < kMaxUnison; ++j)
             waveguideVoices[(size_t) j].reset(waveguideSeeds[(size_t) j]);
+    } else if (auto* prev = sharedWgVoice ? sharedWgVoice->load() : nullptr) {
+        if (prev != this)
+            waveguideVoices = prev->waveguideVoices;
+    }
 
     // Per-voice slewer reset for non-legato attacks.
     // Each voice slot retains slewer state from the previous note it played.
@@ -740,6 +749,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // block-rate reads of the tone parameters are sufficient here.
     const bool wgOn = paramWgOn && paramWgOn->load() > 0.5f;
     minisax::VoiceInputs wgIn;
+    float wgBreath = 0.0f;
     if (wgOn) {
         auto ld = [](std::atomic<float>* p, float fb) { return p ? p->load() : fb; };
         auto clamp01 = [](float v) { return std::clamp(v, 0.0f, 1.0f); };
@@ -756,6 +766,18 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         wgIn.params.vibratoAirAmount   = 0.0f;
         wgIn.params.vibratoPitchAmount = 0.0f;
         wgIn.params.outputGain         = 1.0f;
+        // Physical excitation: breath blows the reed DIRECTLY — the macro
+        // (CC2/CC11/aftertouch per the binding) or MPE pressure, with the
+        // velocity mix as the keyboard fallback.  No VCA routing required and
+        // no floor: the reed's own speaking threshold gives the subtone and
+        // rearticulation the MiniSax lab renders demonstrated, and the model's
+        // output level IS the dynamics (the VCA multiply is bypassed below).
+        // Block-rate is fine — the engine smooths breath internally (20 ms).
+        const float breathM = modMatrix.macroValueForVoice(0, voiceVals);   // MacroBreath
+        const float exprM   = modMatrix.macroValueForVoice(1, voiceVals);   // MacroExpr
+        wgBreath = clamp01(std::max({ breathM, exprM, pressure,
+                                      veloMix * std::sqrt(velocity) }));
+        wgIn.params.breath = wgBreath;
     }
 
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
@@ -972,20 +994,19 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         const float syNow = smoothedSync.getNextValue();
         float waveL, waveR;
         if (wgOn) {
-            // Waveguide mode: the MiniSax reed/bore engine IS the sound source.
-            // Breath = the smoothed VCA signal through a floor mapping, so soft
-            // playing stays above the reed's speaking threshold (~0.22) while
-            // the actual dynamics still come from the VCA multiply downstream.
+            // Waveguide mode: the MiniSax reed/bore engine IS the sound source
+            // AND its own dynamics.  Breath (set block-rate above, straight from
+            // the breath macro — no VCA routing, no floor) blows the reed; level,
+            // subtone, speaking threshold, and rearticulation all emerge from the
+            // model, exactly as in the MiniSax lab renders.  The external VCA
+            // multiply is bypassed for this signal (see vgain below).
             // One bore per unison/chord voice (waveguideVoices), pitched and
             // panned exactly like the wavetable path below — Unison/Chord mode
-            // now applies to Waveguide the same as it does to the oscillator.
+            // applies to Waveguide the same as it does to the oscillator.
             // Tone params (embouchure/reed/bore/etc.) are shared across voices —
             // one instrument's physical settings, not a per-voice detune target.
-            constexpr float kWaveguideBreathFloor = 0.18f;
-            constexpr float kWaveguideMakeupGain  = 2.5f;  // engine peaks ~0.4 at full breath
+            constexpr float kWaveguideMakeupGain = 2.5f;  // engine peaks ~0.4 at full breath
             wgIn.gate = isTailingOff ? 0.0f : 1.0f;
-            wgIn.params.breath = kWaveguideBreathFloor
-                               + (1.0f - kWaveguideBreathFloor) * juce::jlimit(0.0f, 1.0f, gain);
             if (!unisonOn) {
                 wgIn.pitchHz = reqHzNow;
                 waveL = waveR = waveguideVoices[0].processSample(wgIn) * kWaveguideMakeupGain;
@@ -1053,7 +1074,12 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 noiseOut = white;  // White: use LCG output directly.
             }
 
-            const float dry = 1.0f - activeNoiseMix, wet = noiseOut * activeNoiseMix;
+            const float dry = 1.0f - activeNoiseMix;
+            float wet = noiseOut * activeNoiseMix;
+            // Waveguide mode bypasses the VCA multiply (the model is
+            // self-dynamic), but the blended LCG noise is NOT — gate it by the
+            // VCA envelope here so silence stays silent at Noise > 0.
+            if (wgOn) wet *= gain;
             rawL = waveL * dry + wet;
             rawR = waveR * dry + wet;
         }
@@ -1067,7 +1093,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         const float foldedL = Oscillator::wavefold(rawL, foldDrive) * subGain;
 
         // Filter L (and R separately when unison is active → true stereo width).
-        const float vgain = gain * tailLevel;
+        // Waveguide mode: the model's output level IS the dynamics (breath drove
+        // the reed), so the VCA multiply is bypassed — applying it on top would
+        // square every dip and smear every attack (the "double envelope" that
+        // made legato mushy).  tailLevel stays: it is the voice-death envelope.
+        const float vgain = (wgOn ? 1.0f : gain) * tailLevel;
         float sampleL = filter.process(foldedL, filterMode) * vgain;
         float sampleR;
         if (unisonOn) {
@@ -1138,7 +1168,17 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // so these atomics are always written by exactly the current voice.
     // In poly mode, all voices publish — the last one to render "wins", which is
     // fine since state sync is only used when returning to mono.
-    if (sharedLastVCALevel) sharedLastVCALevel->store(smoothedVCA.getCurrentValue() * tailLevel);
+    // Waveguide mode: the sounding amplitude is model-driven, not VCA-driven, so
+    // publish the breath excitation as the legato proxy too — otherwise removing
+    // the Breath→VCA route (now optional in waveguide mode) would make every
+    // slur read as a cold attack and reset the bore.
+    if (sharedLastVCALevel) sharedLastVCALevel->store(
+        (wgOn ? std::max(smoothedVCA.getCurrentValue(), wgBreath)
+              : smoothedVCA.getCurrentValue()) * tailLevel);
+    // Publish this voice as the bore-handoff source while it is the sounding
+    // waveguide voice (a tailing voice must not claim it — the new note owns it).
+    if (sharedWgVoice && wgOn && active && !isTailingOff)
+        sharedWgVoice->store(this);
     if (sharedOscPhase)     sharedOscPhase->store(osc.getPhase());
     if (sharedPmPhase)      sharedPmPhase->store(osc.getPmPhase());
     if (sharedFilterS1 && sharedFilterS2) {
