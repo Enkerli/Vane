@@ -41,6 +41,8 @@
 #include "Synth/Wavetable.h"
 #include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
+#include "MiniSaxVoice.h"       // the REAL waveguide reed/bore engine (MiniSax — std-lib only)
+#include <algorithm>
 #include <cmath>
 
 // The real Wavetable.cpp is compiled in (with the stub juce_dsp FFT and the WAV
@@ -143,6 +145,23 @@ float pVowBite   = 0.5f;   // [id 24]  reso / Q (talkbox bite)
 float pVowMove   = 0.0f;   // [id 25]  slow drift depth
 float gVowelPosMod = 0.0f; // VowelPos mod-dest (12), captured from the sounding voice
 
+// Noise blend (pre-filter, mixed with the oscillator — SynthVoice's noise path):
+float pNoise     = 0.0f;   // [id 26] 0..1 blend (0 = pure wave, 1 = pure noise)
+int   pNoiseType = 0;      // [id 27] 0 White / 1 Pink / 2 Brown
+float pDetune    = 0.0f;   // [id 28] cents, ±100 — oscillator detune (added to the pitch multiplier)
+float pMasterTune = 0.0f;  // [id 29] cents, ±100 — global tune (same multiplier path)
+
+// Waveguide (MiniSax reed/bore) mode — parity with the plugin's Phase 6 + the
+// direct-breath rework: breath (macro/pressure/velocity-mix) blows the reed
+// directly, the model's output level IS the dynamics (VCA bypassed for the wg
+// signal; blended noise stays VCA-gated), and tone params take the Wg mod-
+// matrix destinations (13..20) additively.
+bool  gWgOn = false;       // [id 30]
+float pWgEmbouchure = 0.5f, pWgReedStiff = 0.5f, pWgAperture = 0.5f;   // [31..33]
+float pWgDamping = 0.2f, pWgBell = 0.7f, pWgConical = 0.62f;           // [34..36]
+float pWgNoise = 0.05f, pWgGrowl = 0.0f;                               // [37..38]
+constexpr float kWgMakeupGain = 2.5f;   // engine peaks ~0.4 at full breath — same constant as SynthVoice
+
 // One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
 // character smoothers (morph/PW/inharm/sync). Set from the sample rate in
 // vane_init; matches the real engine's smoothedX.reset(sr, 0.003).
@@ -163,7 +182,11 @@ float gParamSmooth = 0.00693f;
 // matching the real engine; the UI's per-slot atk/rel are accepted but ignored
 // for now (same as the real header's "future revision" note).
 constexpr int kNumSlots = 24;
-constexpr int kNumDests = 13;
+// 13 original dests + the 8 Waveguide tone dests (13..20) — index-aligned with
+// the UI's DESTS list and the plugin's ModSlots::kDestNames. Dest 7 (Noise) and
+// 13..20 (Wg) are now implemented here; Transient (10) / UniDetune (11) still
+// accumulate unused (those features aren't in the standalone voice yet).
+constexpr int kNumDests = 21;
 struct Slot { int src = 0, dst = 0, curve = 0; float amt = 0.0f; bool on = true; };
 Slot gSlots[kNumSlots];
 
@@ -273,6 +296,19 @@ struct Voice {
     float targetHz   = 440.0f;
     float glideCoeff = 1.0f;   // per-sample multiplicative step exponent base; 1 = snap
     uint32_t tuningEpoch = 0;  // gTuning.tuningEpoch() at last pitch resolve — live retune
+
+    // Noise blend state (per-voice, ported verbatim from SynthVoice: 64-bit LCG
+    // white source, Paul Kellett 7-state pink approximation, brown integrator).
+    uint64_t noiseWhiteState = 0x9E3779B97F4A7C15ULL;
+    float    noisePinkB[7] = {};
+    float    noiseBrownAcc = 0.0f;
+
+    // Waveguide (MiniSax) engine — one bore per voice. Reset on non-legato
+    // attacks only; mono legato REUSES this voice slot, so the bore keeps
+    // ringing across a slur for free (the plugin needs an explicit cross-voice
+    // handoff for the same effect — here the state simply stays put).
+    minisax::MiniSaxVoice wg;
+    uint32_t              wgSeed = 0;
 };
 
 Voice   voices[kMaxVoices];
@@ -364,6 +400,7 @@ void vane_init (double sampleRate) {
     gFormant.prepare (sampleRate); gFormant.reset(); gVowelPosMod = 0.0f;
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
     exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
+    int vi = 0;
     for (auto& v : voices) {
         v.osc.prepare (sampleRate);   // also wires Wavetable::builtInDefault() (Harmonic Stack)
         v.filt.prepare (sampleRate);
@@ -372,6 +409,14 @@ void vane_init (double sampleRate) {
         v.velSlewer.prepare (sampleRate);      v.velSlewer.setRates (20.0f, 0.0f);
         v.pbModSlewer.prepare (sampleRate);    v.pbModSlewer.setRates (2.0f, 20.0f);
         v.active = false; v.tailLevel = 0.0f; v.vca = 0.0f;
+        // Waveguide engine: deterministic per-voice noise seed (decorrelated
+        // breath noise across voices — same intent as SynthVoice's seeds).
+        v.wgSeed = minisax::NoiseGenerator::defaultSeed ^ (uint32_t) (vi * 0x9E3779B1u);
+        v.wg.prepare (sampleRate, v.wgSeed);
+        v.noiseWhiteState = 0x9E3779B97F4A7C15ULL ^ (uint64_t) vi;
+        for (auto& b : v.noisePinkB) b = 0.0f;
+        v.noiseBrownAcc = 0.0f;
+        ++vi;
     }
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
     // Master limiter coefficients (see masterLimit): 50 ms env release, 1 ms
@@ -458,6 +503,10 @@ void startNote (int note, int vel, int channel) {
     if (! legato) {
         v.bend = 0.0f; v.slide = 0.5f; v.pressure = 0.0f;
         v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.pbModSlewer.reset();
+        // Waveguide: clear the bore on fresh attacks only — a legato note keeps
+        // the ringing bore (this voice slot is reused in mono, so continuity is
+        // inherent) and re-entrains it at the new delay length: a physical slur.
+        v.wg.reset (v.wgSeed);
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
         v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
@@ -550,6 +599,19 @@ void vane_set_param (int id, float val) {
         case 23: pVowAmt    = val; break;
         case 24: pVowBite   = val; break;
         case 25: pVowMove   = val; break;
+        case 26: pNoise     = val; break;
+        case 27: pNoiseType = (int) (val + 0.5f); if (pNoiseType < 0) pNoiseType = 0; else if (pNoiseType > 2) pNoiseType = 2; break;
+        case 28: pDetune     = val; break;   // cents
+        case 29: pMasterTune = val; break;   // cents
+        case 30: gWgOn = (val > 0.5f); break;
+        case 31: pWgEmbouchure = val; break;
+        case 32: pWgReedStiff  = val; break;
+        case 33: pWgAperture   = val; break;
+        case 34: pWgDamping    = val; break;
+        case 35: pWgBell       = val; break;
+        case 36: pWgConical    = val; break;
+        case 37: pWgNoise      = val; break;
+        case 38: pWgGrowl      = val; break;
         default: break;
     }
 }
@@ -667,7 +729,10 @@ void vane_render (int n) {
         // adds mod-matrix fine-tune semitones on top, like OscPitchFine. This is
         // the RAW per-block target; v.pitchMulSmoothed ramps to it per-sample
         // below (mirrors smoothedPitchMult exactly — see the Voice struct note).
-        const float bendMulTarget = std::pow (2.0f, (v.bend * pBendRange + mods[3]) / 12.0f);
+        // Detune + Master Tune ride the same multiplier (cents → semitones),
+        // exactly like SynthVoice's totalSemitones (+ detuneCents / 100).
+        const float bendMulTarget = std::pow (2.0f,
+            (v.bend * pBendRange + mods[3] + (pDetune + pMasterTune) * 0.01f) / 12.0f);
 
         // Legato-hold countdown: while holding, the VCA is FROZEN at the level it
         // had at note-off (bridging the gap to a possible next note); when the
@@ -695,6 +760,33 @@ void vane_render (int n) {
         // to the oscillator output BEFORE the filter, exactly like the real engine.
         const float foldDriveTarget = Oscillator::foldDrive (clamp01 (pFold + mods[6]));
         const SVFilter::Mode filtMode = (SVFilter::Mode) pFilterMode;   // 0 LP / 1 BP / 2 HP
+
+        // Noise blend amount (dest 7 = OscNoiseMix), block-rate like the plugin.
+        const float noiseMix = clamp01 (pNoise + mods[7]);
+
+        // ── Waveguide (MiniSax) block-rate snapshot — mirrors SynthVoice ───────
+        // Tone params take the Wg mod destinations (13..20) additively; breath
+        // blows the reed DIRECTLY (breath/expression macro, MPE pressure, or the
+        // velocity mix as keyboard fallback — max of them), no floor, no VCA
+        // routing: dynamics/subtone/rearticulation come from the model. The
+        // engine smooths breath internally (20 ms), so block-rate is fine.
+        minisax::VoiceInputs wgIn;
+        if (gWgOn) {
+            wgIn.params.embouchure     = clamp01 (pWgEmbouchure + mods[13]);
+            wgIn.params.reedStiffness  = clamp01 (pWgReedStiff  + mods[14]);
+            wgIn.params.reedAperture   = clamp01 (pWgAperture   + mods[15]);
+            wgIn.params.boreDamping    = clamp01 (pWgDamping    + mods[16]);
+            wgIn.params.bellBrightness = clamp01 (pWgBell       + mods[17]);
+            wgIn.params.conicalAmount  = clamp01 (pWgConical    + mods[18]);
+            wgIn.params.noiseAmount    = clamp01 (pWgNoise      + mods[19]);
+            wgIn.params.growlAmount    = clamp01 (pWgGrowl      + mods[20]);
+            // Vibrato comes from Vane's own modulation, not the engine LFO.
+            wgIn.params.vibratoAirAmount   = 0.0f;
+            wgIn.params.vibratoPitchAmount = 0.0f;
+            wgIn.params.outputGain         = 1.0f;
+            wgIn.params.breath = clamp01 (std::max (std::max (breathS, exprS),
+                                                    std::max (pressS, pVelVCA * std::sqrt (v.vel))));
+        }
 
         // Resonance (k) is block-rate, matching the real engine — only cutoff
         // (g/a1-a3) needs per-sample updates to stay coefficient-continuous.
@@ -744,20 +836,66 @@ void vane_render (int n) {
             if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
             v.osc.setFrequency (v.currentHz * v.pitchMulSmoothed);
 
-            // The real morph engine: 16-frame Harmonic Stack (sine → rich saw)
-            // + phase-distortion PW + √2-FM inharmonicity + hard-sync, all from
-            // Oscillator::nextMorphed — identical DSP to the plugin, with this
-            // voice's OWN mod-matrix-offset values (per-note morph et al.).
-            float oscOut  = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
-            oscOut = Oscillator::wavefold (oscOut, v.foldDriveSmoothed);   // pre-filter, like SynthVoice
-            const float filtOut = v.filt.process (oscOut, filtMode);       // LP / BP / HP per the Mode param
-            renderBuf[s] += filtOut * v.vca * v.tailLevel;
+            // Sound source: the real morph engine (16-frame Harmonic Stack +
+            // PD PW + √2-FM inharmonicity + hard-sync via Oscillator::
+            // nextMorphed), or the MiniSax reed/bore when Waveguide mode is on
+            // — identical DSP to the plugin either way.
+            float srcOut;
+            if (gWgOn) {
+                wgIn.pitchHz = v.currentHz * v.pitchMulSmoothed;
+                wgIn.gate    = v.releasing ? 0.0f : 1.0f;   // holding = still bridging → keep blowing
+                srcOut = v.wg.processSample (wgIn) * kWgMakeupGain;
+            } else {
+                srcOut = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
+            }
+
+            // Noise blend (pre-filter, so noise shares the SVF's tonal character)
+            // — SynthVoice's generation verbatim: 64-bit LCG white, Paul Kellett
+            // pink, leaky-integrator brown. In waveguide mode the blended noise
+            // stays VCA-gated (the model is self-dynamic; bare noise is not).
+            if (noiseMix > 0.0005f) {
+                v.noiseWhiteState = v.noiseWhiteState * 6364136223846793005ULL
+                                                      + 1442695040888963407ULL;
+                const float white = (float) ((int32_t) (v.noiseWhiteState >> 33)) / 2147483648.0f;
+                float noiseOut;
+                if (pNoiseType == 1) {
+                    v.noisePinkB[0] = 0.99886f * v.noisePinkB[0] + white * 0.0555179f;
+                    v.noisePinkB[1] = 0.99332f * v.noisePinkB[1] + white * 0.0750759f;
+                    v.noisePinkB[2] = 0.96900f * v.noisePinkB[2] + white * 0.1538520f;
+                    v.noisePinkB[3] = 0.86650f * v.noisePinkB[3] + white * 0.3104856f;
+                    v.noisePinkB[4] = 0.55000f * v.noisePinkB[4] + white * 0.5329522f;
+                    v.noisePinkB[5] = -0.7616f * v.noisePinkB[5] - white * 0.0168980f;
+                    noiseOut = (v.noisePinkB[0] + v.noisePinkB[1] + v.noisePinkB[2]
+                               + v.noisePinkB[3] + v.noisePinkB[4] + v.noisePinkB[5]
+                               + v.noisePinkB[6] + white * 0.5362f) * (1.0f / 9.0f);
+                    v.noisePinkB[6] = white * 0.115926f;
+                } else if (pNoiseType == 2) {
+                    v.noiseBrownAcc = 0.999f * v.noiseBrownAcc + 0.025f * white;
+                    noiseOut = v.noiseBrownAcc * 3.0f;
+                } else {
+                    noiseOut = white;
+                }
+                float wet = noiseOut * noiseMix;
+                if (gWgOn) wet *= v.vca;
+                srcOut = srcOut * (1.0f - noiseMix) + wet;
+            }
+
+            srcOut = Oscillator::wavefold (srcOut, v.foldDriveSmoothed);   // pre-filter, like SynthVoice
+            const float filtOut = v.filt.process (srcOut, filtMode);       // LP / BP / HP per the Mode param
+            // Waveguide mode bypasses the VCA multiply — the model's output
+            // level IS the dynamics (breath drove the reed); tailLevel stays
+            // as the voice-death envelope. Mirrors SynthVoice's vgain exactly.
+            renderBuf[s] += filtOut * (gWgOn ? 1.0f : v.vca) * v.tailLevel;
 
             if (! v.active) break;
         }
 
         if (gMono && monoVoiceIdx >= 0 && &v == &voices[monoVoiceIdx]) {
-            monoLastHz = v.currentHz; monoLastVCA = v.vca * v.tailLevel;
+            monoLastHz = v.currentHz;
+            // Waveguide mode: the sounding amplitude is model-driven, so the
+            // legato proxy considers the breath excitation too — a slur must be
+            // recognized even when no Breath→VCA route exists (plugin parity).
+            monoLastVCA = (gWgOn ? std::max (v.vca, wgIn.params.breath) : v.vca) * v.tailLevel;
         }
     }
 

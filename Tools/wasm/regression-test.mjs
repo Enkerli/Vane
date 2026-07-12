@@ -498,5 +498,96 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         dip > 0.8, `dip=${(dip*100).toFixed(0)}% of steady (was ~54% without max-pressure)`);
 }
 
+// ── 14. Waveguide (MiniSax) mode: physical breath response. Breath drives the
+//      reed DIRECTLY — below the speaking threshold the reed must stay quiet
+//      (subtone), above it the model sounds at (near) the requested pitch, and
+//      silence with zero breath. No VCA routing involved (the factory
+//      Breath→VCA routes are cleared to prove it). ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  async function wgAtBreath(breath) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_mono(1);
+    for (let s = 0; s < 24; s++) e.vane_set_slot(s, 0, 0, 0, 0, 0);   // NO routes at all
+    e.vane_set_param(30, 1);                    // WaveguideOn
+    e.vane_set_cc(2, breath);
+    e.vane_note_on(60, 100, 2);
+    for (let i = 0; i < 60; i++) render(e, 128);   // settle
+    return e;
+  }
+  const eQuiet = await wgAtBreath(0.15);
+  const quiet  = rmsOf(eQuiet, 20);
+  const eLoud  = await wgAtBreath(0.85);
+  const loud   = rmsOf(eLoud, 20);
+  check("waveguide: reed stays quiet below the speaking threshold (subtone)",
+        quiet < loud * 0.1, `rms@0.15=${quiet.toFixed(4)} vs rms@0.85=${loud.toFixed(4)}`);
+  check("waveguide: full breath sounds without any VCA route (breath drives the reed directly)",
+        loud > 0.05, `rms=${loud.toFixed(4)}`);
+  // Pitch via Goertzel peak search around the nominal fundamental — the
+  // conical shaper's strong H2/H4 give multiple zero crossings per period,
+  // which fools the crossing-count estimator (reads ~3x); spectral detection
+  // is what the plugin's RenderProbe uses for the same reason.
+  const eHz = await wgAtBreath(0.85);
+  const samples = [];
+  for (let i = 0; i < 120; i++) samples.push(...render(eHz, 128));
+  const goertzel = (hz) => { let re = 0, im = 0;
+    for (let i = 0; i < samples.length; i++) { const w = 2*Math.PI*hz*i/48000; re += samples[i]*Math.cos(w); im += samples[i]*Math.sin(w); }
+    return Math.hypot(re, im); };
+  let best = 0, hz = 0;
+  for (let f = 261.63*0.94; f <= 261.63*1.06; f += 0.5) { const m = goertzel(f); if (m > best) { best = m; hz = f; } }
+  const cents = 1200 * Math.log2(hz / 261.63);
+  check("waveguide: sounded pitch lands near the note (|err| < 60c)",
+        Math.abs(cents) < 60 && best > 0.01 * samples.length,
+        `C4 sounded ${hz.toFixed(1)} Hz (${cents.toFixed(0)}c)`);
+  // Legato slur: breath held, note change on the SAME mono voice — the bore
+  // keeps ringing (no reset), so the envelope must not dip toward silence.
+  const e = await wgAtBreath(0.85);
+  const steady = rmsOf(e, 16);
+  const env = [];
+  e.vane_note_on(65, 100, 2);   // slur up a fourth, breath still on
+  for (let i = 0; i < 40; i++) env.push(rmsOf(e, 1));
+  const dip = Math.min(...env) / steady;
+  check("waveguide: legato slur keeps the bore ringing (no re-attack valley)",
+        dip > 0.6, `trough=${(dip*100).toFixed(0)}% of steady`);
+}
+
+// ── 15. Noise blend: type shapes the spectrum, blend is VCA-gated silence-safe. ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_cc(2, 0.9);
+  e.vane_set_param(26, 1.0);   // Noise blend full
+  e.vane_note_on(60, 100, 2);
+  for (let i = 0; i < 40; i++) render(e, 128);
+  const white = rmsOf(e, 12);
+  e.vane_set_param(27, 2);     // Brown
+  for (let i = 0; i < 40; i++) render(e, 128);
+  const brown = rmsOf(e, 12);
+  check("noise blend: audible at full blend (white)", white > 0.02, `rms=${white.toFixed(4)}`);
+  check("noise blend: brown type still renders (leaky integrator)", brown > 0.005, `rms=${brown.toFixed(4)}`);
+  const e2 = await fresh();
+  e2.vane_init(48000); e2.vane_set_param(8, 0.8); e2.vane_set_param(26, 1.0);
+  e2.vane_set_cc(2, 0.0);      // no breath
+  e2.vane_note_on(60, 100, 2);
+  for (let i = 0; i < 30; i++) render(e2, 128);
+  const silent = rmsOf(e2, 12);
+  check("noise blend: silent with no breath (VCA still gates the noise)", silent < 0.001, `rms=${silent.toFixed(5)}`);
+}
+
+// ── 16. Detune: +100 cents moves the sounded pitch one semitone up. ──
+{
+  const e = await fresh();
+  e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_cc(2, 0.9);
+  e.vane_note_on(69, 100, 2);
+  for (let i = 0; i < 40; i++) render(e, 128);
+  const base = estimateHz(e, 40);
+  e.vane_set_param(28, 100);   // Detune +100c
+  for (let i = 0; i < 60; i++) render(e, 128);
+  const detuned = estimateHz(e, 40);
+  const cents = 1200 * Math.log2(detuned / base);
+  check("detune: +100 cents raises pitch ~one semitone", Math.abs(cents - 100) < 8,
+        `${base.toFixed(1)} -> ${detuned.toFixed(1)} Hz (${cents.toFixed(1)}c)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
