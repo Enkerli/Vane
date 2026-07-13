@@ -10,11 +10,11 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/../.."
 
-emcc "$here/vane-dsp.cpp" "$root/Source/Synth/Oscillator.cpp" "$root/Source/Synth/Wavetable.cpp" "$root/Source/MPE/TuningClient.cpp" "$root/MiniSax/Source/MiniSaxVoice.cpp" \
+emcc "$here/vane-dsp.cpp" "$root/Source/Synth/Oscillator.cpp" "$root/Source/Synth/Wavetable.cpp" "$root/Source/MPE/TuningClient.cpp" "$root/MiniSax/Source/MiniSaxVoice.cpp" "$root/Source/Synth/SamplePlayer.cpp" \
   -I "$here/juce-stub" -I "$root/Source" -I "$root/MiniSax/Source" \
   -DVANE_WASM=1 \
   -O3 -std=c++17 -s STANDALONE_WASM=1 \
-  -s EXPORTED_FUNCTIONS='["_vane_init","_vane_note_on","_vane_note_off","_vane_set_expr","_vane_set_cc","_vane_set_mono","_vane_set_param","_vane_set_slot","_vane_set_tuning_source","_vane_set_internal_tuning","_vane_render","_vane_buffer","_vane_buffer_r","_vane_set_chord","_vane_set_chord_len"]' \
+  -s EXPORTED_FUNCTIONS='["_vane_init","_vane_note_on","_vane_note_off","_vane_set_expr","_vane_set_cc","_vane_set_mono","_vane_set_param","_vane_set_slot","_vane_set_tuning_source","_vane_set_internal_tuning","_vane_render","_vane_buffer","_vane_buffer_r","_vane_set_chord","_vane_set_chord_len","_vane_staging","_vane_load_wavetable","_vane_use_builtin_wavetable","_vane_add_transient","_vane_set_glide_anchors"]' \
   --no-entry -o "$here/vane-dsp.wasm"
 echo "built $here/vane-dsp.wasm ($(wc -c < "$here/vane-dsp.wasm") bytes)"
 

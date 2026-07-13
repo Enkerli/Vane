@@ -42,8 +42,12 @@
 #include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
 #include "MiniSaxVoice.h"       // the REAL waveguide reed/bore engine (MiniSax — std-lib only)
+#include "Synth/SamplePlayer.h" // one-shot PCM transient player (pure std, no JUCE)
+#include "Synth/CombResonator.h"// Karplus-Strong pitch resonator (pure std)
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 // The real Wavetable.cpp is compiled in (with the stub juce_dsp FFT and the WAV
 // interchange compiled out via VANE_WASM), so Oscillator::prepare() wires the
@@ -179,6 +183,88 @@ bool  gChordMode    = false;// [42] 0 = Detune, 1 = Chord
 float gChordSeq[kMaxUnison - 1][kChordSteps] = {};
 int   gChordLen[kMaxUnison - 1] = {};
 int   gChordRot = 0;
+
+// ── Transient layer (SynthVoice parity) ──────────────────────────────────────
+// Factory samples arrive from the host (fetched + WAV-decoded in JS, pushed
+// through the staging buffer) instead of BinaryData; index 0 = "None".
+struct TrEntry { std::vector<float> data; float srcRate = 48000.0f, nativeHz = 440.0f; bool pitched = true; };
+std::vector<TrEntry> gTransients;   // [0] = None sentinel
+int   pTrChoice  = 0;      // [43] sample index (0 = None)
+float pTrGain    = 0.0f;   // [44] 0..2
+float pTrDecay   = 200.0f; // [45] ms
+int   pTrTrigger = 1;      // [46] 0 = Always, 1 = Non-legato only
+float pTrVar     = 0.3f;   // [47] per-trigger variation 0..1
+bool  pTrFilt    = true;   // [48] route through the voice filter
+float pTrDyn     = 0.75f;  // [49] 0 = fixed level, 1 = fully VCA-gated
+float pTrReso    = 0.3f;   // [50] pitch-resonator depth
+float pTrDamp    = 0.5f;   // [51] resonator damping (bright→dark)
+float pTrMorph   = 12.0f;  // [52] ms — noise→tone duck ramp
+float gTrScratch[kMaxBlock];
+
+// ── Glide modes / curves (SynthVoice parity) ─────────────────────────────────
+int  pGlideMode  = 0;      // [53] 0 = Fixed Time, 1 = Fixed Rate (ms per semitone)
+int  pGlideCurve = 0;      // [54] 0 Lin / 1 Exp / 2 RC / 3 Bezier
+constexpr int kGlideLUT = 65;
+float gGlideLUT[kGlideLUT];
+bool  gGlideLUTActive = false;
+
+// ── Host staging buffer — wavetable frames / transient PCM / glide anchors ──
+// The host grows it via vane_staging(n), writes floats straight into WASM
+// memory, then calls the matching commit entry. Loads are user-initiated and
+// rare; the brief allocation is acceptable (single-threaded worklet).
+std::vector<float> gStaging;
+
+// User-loaded morph wavetable (Library table or .wav import). All oscillators
+// point here when active; Built-in reverts to Wavetable::builtInDefault().
+Wavetable gUserTable;
+bool      gUserTableActive = false;
+
+// ── Monotone-cubic curve LUT — ModMatrix::buildCurveLUT verbatim ─────────────
+void monotoneTangents (const std::vector<float>& xs, const std::vector<float>& ys,
+                       std::vector<float>& m) {
+    const int n = (int) xs.size();
+    std::vector<float> d ((size_t) (n - 1));
+    for (int i = 0; i < n - 1; ++i) d[(size_t) i] = (ys[(size_t)(i+1)] - ys[(size_t) i]) / (xs[(size_t)(i+1)] - xs[(size_t) i]);
+    m.assign ((size_t) n, 0.0f);
+    m[0] = d[0]; m[(size_t)(n-1)] = d[(size_t)(n-2)];
+    for (int i = 1; i < n - 1; ++i)
+        m[(size_t) i] = (d[(size_t)(i-1)] * d[(size_t) i] <= 0.0f) ? 0.0f
+                                                                   : (d[(size_t)(i-1)] + d[(size_t) i]) * 0.5f;
+    for (int i = 0; i < n - 1; ++i) {
+        if (d[(size_t) i] == 0.0f) { m[(size_t) i] = 0.0f; m[(size_t)(i+1)] = 0.0f; continue; }
+        const float a = m[(size_t) i] / d[(size_t) i], b = m[(size_t)(i+1)] / d[(size_t) i];
+        const float h = std::hypot (a, b);
+        if (h > 3.0f) { const float t = 3.0f / h; m[(size_t) i] = t*a*d[(size_t) i]; m[(size_t)(i+1)] = t*b*d[(size_t) i]; }
+    }
+}
+void buildGlideLUT (const std::vector<std::pair<float, float>>& anchors) {
+    std::vector<std::pair<float, float>> a;
+    for (const auto& pr : anchors)
+        a.emplace_back (std::clamp (pr.first, 0.012f, 0.988f), std::clamp (pr.second, 0.0f, 1.0f));
+    if (a.empty()) { gGlideLUTActive = false; return; }
+    std::sort (a.begin(), a.end(), [](const auto& p1, const auto& q){ return p1.first < q.first; });
+    std::vector<float> xs, ys;
+    xs.push_back (0.0f); ys.push_back (0.0f);
+    for (const auto& pr : a) { xs.push_back (pr.first); ys.push_back (pr.second); }
+    xs.push_back (1.0f); ys.push_back (1.0f);
+    std::vector<float> m; monotoneTangents (xs, ys, m);
+    const int n = (int) xs.size();
+    for (int k = 0; k < kGlideLUT; ++k) {
+        const float x = (float) k / (float) (kGlideLUT - 1);
+        int i = 0; while (i < n - 2 && x > xs[(size_t)(i+1)]) ++i;
+        const float x0 = xs[(size_t) i], x1 = xs[(size_t)(i+1)], y0 = ys[(size_t) i], y1 = ys[(size_t)(i+1)];
+        const float h = x1 - x0;
+        float y;
+        if (h <= 0.0f) y = y0;
+        else {
+            const float t = (x - x0) / h, t2 = t*t, t3 = t2*t;
+            y = (2*t3 - 3*t2 + 1)*y0 + (t3 - 2*t2 + t)*h*m[(size_t) i]
+              + (-2*t3 + 3*t2)*y1 + (t3 - t2)*h*m[(size_t)(i+1)];
+        }
+        gGlideLUT[k] = std::clamp (y, 0.0f, 1.0f);
+    }
+    gGlideLUTActive = true;
+}
 
 // One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
 // character smoothers (morph/PW/inharm/sync). Set from the sample rate in
@@ -336,6 +422,23 @@ struct Voice {
     uint32_t              wgUniSeeds[kMaxUnison - 1] = {};
     SVFilter              filtR;
     float                 chordInterval[kMaxUnison - 1] = {};
+
+    // Transient layer (SynthVoice's per-voice state, same names).
+    SamplePlayer  trPlayer;
+    CombResonator trReso;
+    SVFilter      trFilt;
+    float trEnvLevel = 0.0f, trGainMul = 1.0f;
+    bool  trResoActive = false;
+    int   trResoSilent = 0;
+    float oscMorphRamp = 1.0f, oscMorphInc = 0.0f;
+    bool  oscMorphArmed = false;
+
+    // Glide-curve state (Exp / RC / Bezier — Linear uses currentHz/glideCoeff).
+    float glideTargetLog = 8.78f;    // log2(targetHz), cached like the plugin
+    float glideExpLogHz  = 8.78f, glideExpCoeff = 0.0f;
+    float glideRcHz      = 440.0f, glideRcCoeff = 0.0f;
+    float glideBezStartLog = 8.78f;
+    int   glideBezSamples = 0, glideBezElapsed = 0;
 };
 
 Voice   voices[kMaxVoices];
@@ -454,6 +557,11 @@ void vane_init (double sampleRate) {
         // Stereo-unison sub-voices: extra oscillators + one bore per slot (each
         // with its own decorrelated seed), and the right-channel filter.
         v.filtR.prepare (sampleRate);
+        // Transient layer.
+        v.trReso.prepare (sampleRate);
+        v.trFilt.prepare (sampleRate);
+        v.trPlayer.stop(); v.trEnvLevel = 0.0f; v.trResoActive = false;
+        v.oscMorphArmed = false; v.oscMorphRamp = 1.0f;
         for (int j = 0; j < kMaxUnison - 1; ++j) {
             v.uniOscs[j].prepare (sampleRate);
             v.wgUniSeeds[j] = v.wgSeed ^ (uint32_t) ((j + 1) * 0x85EBCA6Bu);
@@ -474,6 +582,9 @@ void vane_init (double sampleRate) {
         }
         gChordRot = 0;
     }
+    // Transient store: keep host-loaded samples across re-inits (the host loads
+    // once per page); just ensure the None sentinel exists.
+    if (gTransients.empty()) gTransients.emplace_back();
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
     // Master limiter coefficients (see masterLimit): 50 ms env release, 1 ms
     // gain attack, 150 ms gain recovery — the slow recovery is what keeps it
@@ -596,18 +707,95 @@ void startNote (int note, int vel, int channel) {
     if (targetHz <= 0.0f) { v.active = false; v.tailLevel = 0.0f; return; }
     v.targetHz = targetHz;
     v.tuningEpoch = gTuning.tuningEpoch();
+    // Fixed Rate (mode 1): glideMs is the cost PER SEMITONE — larger intervals
+    // take proportionally longer, capped at 5 s (SynthVoice verbatim).
+    float nominalGlideMs = pGlideMs;
+    if (pGlideMode == 1 && legato && prevHz > 0.0f && pGlideMs > 0.0f) {
+        const float semis = std::fabs (12.0f * std::log2 (targetHz / prevHz));
+        nominalGlideMs = std::min (pGlideMs * semis, 5000.0f);
+    }
     const float minGlideMs = (legato && prevHz > 0.0f) ? (1000.0f / targetHz) : 0.0f;
-    const float effGlideMs = legato ? (pGlideMs > minGlideMs ? pGlideMs : minGlideMs) : 0.0f;
-    if (legato && effGlideMs > 0.0f && prevHz > 0.0f) {
-        v.currentHz = prevHz;
-        const float nSamples = effGlideMs * 0.001f * (float) gSampleRate;
-        // Multiplicative per-sample step so the ratio glide is constant in
-        // semitones (matches juce::ValueSmoothingTypes::Multiplicative).
-        v.glideCoeff = std::pow (targetHz / prevHz, 1.0f / (nSamples > 1.0f ? nSamples : 1.0f));
-    } else {
-        v.currentHz = targetHz; v.glideCoeff = 1.0f;
+    const float effGlideMs = legato ? (nominalGlideMs > minGlideMs ? nominalGlideMs : minGlideMs) : 0.0f;
+
+    // Curve state — SynthVoice::noteStarted's four branches. All start at
+    // prevHz on legato so the handoff is slope-continuous; non-legato snaps.
+    // Coefficient formula (Exp/RC): c = 1 - exp(-4.6/N) -> 99% arrival in N.
+    v.glideTargetLog = std::log2 (targetHz > 1.0f ? targetHz : 1.0f);
+    const bool glideLegato = legato && effGlideMs > 0.0f && prevHz > 0.0f;
+    if (pGlideCurve == 1) {          // Exponential — 1-pole IIR in log2(Hz)
+        if (glideLegato) {
+            v.glideExpLogHz = std::log2 (prevHz);
+            const float N   = effGlideMs * 0.001f * (float) gSampleRate;
+            v.glideExpCoeff = (N > 0.0f) ? (1.0f - std::exp (-4.6f / N)) : 1.0f;
+        } else { v.glideExpLogHz = v.glideTargetLog; v.glideExpCoeff = 1.0f; }
+        v.currentHz = glideLegato ? prevHz : targetHz; v.glideCoeff = 1.0f;
+    } else if (pGlideCurve == 2) {   // RC — 1-pole IIR in linear Hz
+        if (glideLegato) {
+            v.glideRcHz  = prevHz;
+            const float N = effGlideMs * 0.001f * (float) gSampleRate;
+            v.glideRcCoeff = (N > 0.0f) ? (1.0f - std::exp (-4.6f / N)) : 1.0f;
+        } else { v.glideRcHz = targetHz; v.glideRcCoeff = 1.0f; }
+        v.currentHz = glideLegato ? prevHz : targetHz; v.glideCoeff = 1.0f;
+    } else if (pGlideCurve == 3) {   // Bezier — time-driven trajectory (LUT)
+        if (glideLegato) {
+            v.glideBezStartLog = std::log2 (prevHz);
+            v.glideBezSamples  = (int) (effGlideMs * 0.001f * (float) gSampleRate);
+            v.glideBezElapsed  = 0;
+        } else { v.glideBezSamples = 0; }
+        v.currentHz = glideLegato ? prevHz : targetHz; v.glideCoeff = 1.0f;
+    } else {                          // Linear in semitones — multiplicative
+        if (glideLegato) {
+            v.currentHz = prevHz;
+            const float nSamples = effGlideMs * 0.001f * (float) gSampleRate;
+            v.glideCoeff = std::pow (targetHz / prevHz, 1.0f / (nSamples > 1.0f ? nSamples : 1.0f));
+        } else {
+            v.currentHz = targetHz; v.glideCoeff = 1.0f;
+        }
     }
     v.osc.setFrequency (v.currentHz);
+
+    // ── Transient trigger — SynthVoice::noteStarted verbatim ─────────────────
+    // "Always" (0) fires on every note-on; "Non-legato" (1) only on a fresh
+    // attack. Pitched samples track the note (speed = hz/nativeHz, clamped
+    // 0.125..8); inharmonic ones play at fixed speed. Per-trigger variation
+    // jitters gain (±2.5 dB), micro-pitch (±5%), and — noise only — the start
+    // offset (up to ~4 ms) so repeated hits stop sounding like a loop.
+    if (pTrChoice > 0 && pTrChoice < (int) gTransients.size()) {
+        const bool shouldTrigger = (pTrTrigger == 0) || ! legato;
+        if (shouldTrigger) {
+            TrEntry& ts = gTransients[(size_t) pTrChoice];
+            if (ts.data.size() >= 2) {
+                const float pitchTrack = ts.pitched
+                    ? std::clamp (targetHz / ts.nativeHz, 0.125f, 8.0f) : 1.0f;
+                float speedRatio = pitchTrack * (float) (ts.srcRate / gSampleRate);
+                auto rnd = [&v]() {
+                    v.noiseWhiteState = v.noiseWhiteState * 6364136223846793005ULL
+                                                          + 1442695040888963407ULL;
+                    return (float) ((int32_t) (v.noiseWhiteState >> 33)) / 2147483648.0f;
+                };
+                v.trGainMul  = 1.0f + pTrVar * 0.30f * rnd();
+                speedRatio  *= 1.0f + pTrVar * 0.05f * rnd();
+                int startOff = 0;
+                if (! ts.pitched) {
+                    const float u = 0.5f * (rnd() + 1.0f);
+                    startOff = (int) (pTrVar * u * 0.004f * ts.srcRate);
+                }
+                v.trPlayer.setSample (ts.data.data(), (int) ts.data.size());
+                v.trEnvLevel = 1.0f;
+                v.trPlayer.trigger (speedRatio, startOff);
+                v.trReso.reset();
+                v.trReso.setTuning (targetHz > 0.0f ? targetHz : 110.0f);
+                v.trResoActive = true; v.trResoSilent = 0;
+                // Noise→tone morph: duck the note body so the oscillator
+                // emerges from under the transient (TrMorph ms ramp).
+                if (pTrMorph > 0.5f) {
+                    v.oscMorphRamp  = 0.0f;
+                    v.oscMorphInc   = 1.0f / (pTrMorph * 0.001f * (float) gSampleRate);
+                    v.oscMorphArmed = true;
+                } else { v.oscMorphRamp = 1.0f; v.oscMorphArmed = false; }
+            }
+        }
+    } else { v.oscMorphArmed = false; v.oscMorphRamp = 1.0f; }
 }
 
 void vane_note_on (int note, int vel, int channel) {
@@ -687,8 +875,90 @@ void vane_set_param (int id, float val) {
         case 40: pUniDet       = val; break;   // cents 0..50
         case 41: pUniWid       = val; break;   // 0..1
         case 42: gChordMode    = (val > 0.5f); break;
+        case 43: pTrChoice  = (int) (val + 0.5f); break;
+        case 44: pTrGain    = val; break;
+        case 45: pTrDecay   = val; break;
+        case 46: pTrTrigger = (int) (val + 0.5f); break;
+        case 47: pTrVar     = val; break;
+        case 48: pTrFilt    = (val > 0.5f); break;
+        case 49: pTrDyn     = val; break;
+        case 50: pTrReso    = val; break;
+        case 51: pTrDamp    = val; break;
+        case 52: pTrMorph   = val; break;
+        case 53: pGlideMode  = (int) (val + 0.5f); break;
+        case 54: pGlideCurve = (int) (val + 0.5f); break;
         default: break;
     }
+}
+
+// ── Host staging + load entries (wavetables / transients / glide anchors) ────
+float* vane_staging (int nFloats) {
+    if (nFloats < 1) nFloats = 1;
+    if ((int) gStaging.size() < nFloats) gStaging.resize ((size_t) nFloats);
+    return gStaging.data();
+}
+
+// Build the user morph wavetable from staged raw frames: total/frameSize
+// frames, each linear-resampled to Wavetable::kTableSize — mirroring
+// loadFromMemory's slicing (which is compiled out under VANE_WASM because it
+// depends on JUCE's WAV reader; the HOST decodes the WAV instead).
+// Returns the frame count (0 = rejected). All oscillators re-point here.
+int vane_load_wavetable (int totalSamples, int frameSize, int phaseAlign) {
+    if (frameSize < 8 || totalSamples < frameSize
+        || totalSamples > (int) gStaging.size()) return 0;
+    const int numFrames = totalSamples / frameSize;
+    std::vector<std::vector<float>> frames ((size_t) numFrames);
+    for (int f = 0; f < numFrames; ++f) {
+        auto& out = frames[(size_t) f];
+        out.resize ((size_t) Wavetable::kTableSize);
+        const float* in = gStaging.data() + (size_t) f * (size_t) frameSize;
+        for (int i = 0; i < Wavetable::kTableSize; ++i) {
+            const float pos = (float) i * (float) frameSize / (float) Wavetable::kTableSize;
+            const int   i0  = (int) pos;
+            const float fr  = pos - (float) i0;
+            const int   i1  = (i0 + 1 < frameSize) ? i0 + 1 : 0;   // wrap: single cycle
+            out[(size_t) i] = in[i0] + fr * (in[i1] - in[i0]);
+        }
+    }
+    Wavetable built;
+    if (! built.build (frames, phaseAlign != 0)) return 0;
+    gUserTable = std::move (built);
+    gUserTableActive = true;
+    for (auto& v : voices) {
+        v.osc.setWavetable (&gUserTable);
+        for (auto& o : v.uniOscs) o.setWavetable (&gUserTable);
+    }
+    return numFrames;
+}
+
+void vane_use_builtin_wavetable () {
+    gUserTableActive = false;
+    for (auto& v : voices) {
+        v.osc.setWavetable (&Wavetable::builtInDefault());
+        for (auto& o : v.uniOscs) o.setWavetable (&Wavetable::builtInDefault());
+    }
+}
+
+// Append one transient sample from staging. Returns its 1-based index
+// (matching the page's TrChoice ordering; 0 stays "None").
+int vane_add_transient (int totalSamples, float srcRate, float nativeHz, int pitched) {
+    if (totalSamples < 2 || totalSamples > (int) gStaging.size()) return 0;
+    if (gTransients.empty()) gTransients.emplace_back();   // None sentinel
+    TrEntry e;
+    e.data.assign (gStaging.begin(), gStaging.begin() + totalSamples);
+    e.srcRate  = srcRate  > 0.0f ? srcRate  : 48000.0f;
+    e.nativeHz = nativeHz > 0.0f ? nativeHz : 440.0f;
+    e.pitched  = pitched != 0;
+    gTransients.push_back (std::move (e));
+    return (int) gTransients.size() - 1;
+}
+
+// Bezier glide trajectory: staging holds nPairs (x,y) anchor pairs.
+void vane_set_glide_anchors (int nPairs) {
+    std::vector<std::pair<float, float>> anchors;
+    for (int i = 0; i < nPairs && (i * 2 + 1) < (int) gStaging.size(); ++i)
+        anchors.emplace_back (gStaging[(size_t)(i * 2)], gStaging[(size_t)(i * 2 + 1)]);
+    buildGlideLUT (anchors);
 }
 
 // Rotating-chord sequences (the UI's chordSeqsEdit): per harmony voice j
@@ -760,6 +1030,13 @@ void vane_render (int n) {
                 v.targetHz = newHz;
                 const float nSamples = 0.015f * (float) gSampleRate;
                 v.glideCoeff = std::pow (newHz / v.currentHz, 1.0f / nSamples);
+                // Non-linear curves read their own targets — retune those too
+                // (15 ms arrival, same as the linear path above).
+                v.glideTargetLog = std::log2 (newHz);
+                const float c = 1.0f - std::exp (-4.6f / nSamples);
+                v.glideExpCoeff = c; v.glideRcCoeff = c;
+                v.glideBezStartLog = std::log2 (v.currentHz > 1.0f ? v.currentHz : 1.0f);
+                v.glideBezSamples  = (int) nSamples; v.glideBezElapsed = 0;
             }
         }
 
@@ -908,6 +1185,29 @@ void vane_render (int n) {
         v.filt.setResonance (resonance);
         if (unisonOn) v.filtR.setResonance (resonance);
 
+        // ── Transient: pre-render this block into the shared scratch ─────────
+        // (env × gain × per-trigger jitter, NOT tailLevel and NOT the filter —
+        // both are applied per-sample below, mirroring SynthVoice.) mods[10]
+        // is the TransientLevel matrix destination (e.g. Velocity→Transient).
+        int   transientN = 0;
+        bool  transientRouteFilter = false;
+        if (v.trPlayer.isPlaying() && pTrChoice > 0) {
+            const float gain0 = std::clamp (pTrGain + mods[10], 0.0f, 2.0f) * v.trGainMul;
+            if (gain0 > 1.0e-6f) {
+                const float decayCoeff = pTrDecay > 0.0f
+                    ? std::exp (-1.0f / (pTrDecay * 0.001f * (float) gSampleRate)) : 0.0f;
+                transientN = n;
+                for (int i = 0; i < n; ++i) gTrScratch[i] = 0.0f;
+                v.trPlayer.renderAdding (gTrScratch, n, v.trEnvLevel, decayCoeff, gain0);
+                transientRouteFilter = pTrFilt;
+                if (transientRouteFilter) v.trFilt.setResonance (resonance);
+            }
+        }
+        const float resoFb   = 0.90f * pTrReso;
+        const float resoDamp = 1.0f - 0.95f * pTrDamp;
+        const bool  resoOn   = pTrReso > 1.0e-4f && v.trResoActive;
+        const bool  transientOn = (transientN > 0) || resoOn;
+
         for (int s = 0; s < n; ++s) {
             // VCA: 3 ms linear rate-limited approach to the block target (mirrors
             // smoothedVCA.reset(sr, 0.003) — eliminates block-boundary amplitude
@@ -947,9 +1247,43 @@ void vane_render (int n) {
                 if (v.tailLevel < 0.0001f) { v.tailLevel = 0.0f; v.active = false; v.releasing = false; }
             }
 
-            v.currentHz *= v.glideCoeff;
-            const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
-            if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
+            // Glide — SynthVoice's four curves. Linear advances currentHz
+            // multiplicatively (constant semitone rate); Exp is a 1-pole IIR in
+            // log2(Hz); RC the same in linear Hz (analog-circuit feel); Bezier
+            // interpolates log-pitch along the editable LUT trajectory.
+            // currentHz mirrors the resolved pitch in every mode so the mono
+            // legato handoff (monoLastHz → prevHz) works across curve changes.
+            if (pGlideCurve == 1) {
+                v.glideExpLogHz += (v.glideTargetLog - v.glideExpLogHz) * v.glideExpCoeff;
+                if (std::fabs (v.glideExpLogHz - v.glideTargetLog) < 8.33e-6f)   // 0.01 cent
+                    v.glideExpLogHz = v.glideTargetLog;
+                v.currentHz = std::exp2 (v.glideExpLogHz);
+            } else if (pGlideCurve == 2) {
+                v.glideRcHz += (v.targetHz - v.glideRcHz) * v.glideRcCoeff;
+                if (std::fabs (v.glideRcHz - v.targetHz) < 0.01f)                // ~0.04 cent at A4
+                    v.glideRcHz = v.targetHz;
+                v.currentHz = v.glideRcHz;
+            } else if (pGlideCurve == 3) {
+                if (v.glideBezSamples <= 0 || v.glideBezElapsed >= v.glideBezSamples) {
+                    v.currentHz = v.targetHz;
+                } else {
+                    const float t = (float) v.glideBezElapsed / (float) v.glideBezSamples;
+                    float prog = t;
+                    if (gGlideLUTActive) {                        // 65-point LUT, linear interp
+                        const float f = t * (float) (kGlideLUT - 1);
+                        const int   i0 = (int) f;
+                        prog = (i0 >= kGlideLUT - 1) ? gGlideLUT[kGlideLUT - 1]
+                             : gGlideLUT[i0] + (f - (float) i0) * (gGlideLUT[i0 + 1] - gGlideLUT[i0]);
+                    }
+                    v.currentHz = std::exp2 (v.glideBezStartLog
+                                             + prog * (v.glideTargetLog - v.glideBezStartLog));
+                    ++v.glideBezElapsed;
+                }
+            } else {
+                v.currentHz *= v.glideCoeff;
+                const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
+                if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
+            }
             const float hzNow = v.currentHz * v.pitchMulSmoothed;
             v.osc.setFrequency (hzNow * uDetMul[0]);
             for (int j = 1; j < uN; ++j) v.uniOscs[j - 1].setFrequency (hzNow * uDetMul[j]);
@@ -1034,8 +1368,35 @@ void vane_render (int n) {
             } else {
                 outR = outL;
             }
-            renderBuf[s]  += outL;
-            renderBufR[s] += outR;
+            // Noise→tone morph: duck the note BODY so the oscillator emerges
+            // from under the transient; then mix the transient (post-filter
+            // unless routed through trFilt, which shares the voice cutoff so
+            // the attack sits in the note's spectral space). Dynamics gates the
+            // transient by the VCA envelope so it never exceeds the sustained
+            // sound on breath instruments. Mono transient — added to both sides.
+            float bodyL = outL, bodyR = outR;
+            if (v.oscMorphArmed && v.oscMorphRamp < 1.0f) {
+                bodyL *= v.oscMorphRamp; bodyR *= v.oscMorphRamp;
+                v.oscMorphRamp += v.oscMorphInc;
+                if (v.oscMorphRamp > 1.0f) v.oscMorphRamp = 1.0f;
+            }
+            if (transientOn) {
+                float t = (s < transientN) ? gTrScratch[s] * v.tailLevel : 0.0f;
+                if (resoOn) {
+                    t = v.trReso.process (t, resoFb, resoDamp);
+                    if (std::fabs (t) < 1.0e-4f) {
+                        if (++v.trResoSilent > (int) (gSampleRate * 0.05)) v.trResoActive = false;
+                    } else v.trResoSilent = 0;
+                }
+                if (transientRouteFilter) {
+                    v.trFilt.setCutoff (v.cutoffSmoothed);
+                    t = v.trFilt.process (t, filtMode);
+                }
+                t *= (1.0f - pTrDyn) + pTrDyn * v.vca;
+                bodyL += t; bodyR += t;
+            }
+            renderBuf[s]  += bodyL;
+            renderBufR[s] += bodyR;
 
             if (! v.active) break;
         }

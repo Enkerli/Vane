@@ -653,5 +653,103 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         wl > 0.02 && wr > 0.02 && isFinite(wl) && isFinite(wr), `L=${wl.toFixed(3)} R=${wr.toFixed(3)}`);
 }
 
+// ── 18. Transient layer: staged sample plays at note-on, decays, and is
+//      VCA-dynamics-gated; wavetable loading reshapes the morph spectrum;
+//      glide curves shape the trajectory. ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  async function booted() {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_cc(2, 0.9);
+    return e;
+  }
+  // Stage a 100 ms burst as transient 1 and trigger it.
+  const e = await booted();
+  const N = 4800;
+  { const ptr = e.vane_staging(N);
+    const view = new Float32Array(e.memory.buffer, ptr, N);
+    for (let i = 0; i < N; i++) view[i] = Math.sin(2*Math.PI*880*i/48000) * (1 - i/N); }
+  const idx = e.vane_add_transient(N, 48000, 440, 1);
+  check("transient: staged sample registers at index 1", idx === 1, `idx=${idx}`);
+  e.vane_set_param(43, 1);     // TrChoice = the new sample
+  e.vane_set_param(44, 1.0);   // TrGain
+  e.vane_set_param(49, 0.0);   // TrDyn 0 = fixed level (not VCA-gated) for the first check
+  e.vane_set_param(52, 0);     // TrMorph 0 (no duck — isolate the transient)
+  e.vane_set_param(50, 0);     // TrReso off
+  e.vane_set_cc(2, 0.0);       // NO breath: only the transient should sound
+  e.vane_note_on(60, 100, 2);
+  const attack = rmsOf(e, 8);  // first ~21 ms
+  for (let i = 0; i < 80; i++) render(e, 128);
+  const later = rmsOf(e, 8);
+  check("transient: sounds at note-on without breath (TrDyn 0)", attack > 0.01, `rms=${attack.toFixed(4)}`);
+  check("transient: decays away (TrDecay envelope)", later < attack * 0.2, `later=${later.toFixed(4)} vs attack=${attack.toFixed(4)}`);
+  // TrDyn 1: fully VCA-gated — silent without breath.
+  const e2 = await booted();
+  { const ptr = e2.vane_staging(N); const view = new Float32Array(e2.memory.buffer, ptr, N);
+    for (let i = 0; i < N; i++) view[i] = Math.sin(2*Math.PI*880*i/48000) * (1 - i/N); }
+  e2.vane_add_transient(N, 48000, 440, 1);
+  e2.vane_set_param(43, 1); e2.vane_set_param(44, 1.0); e2.vane_set_param(49, 1.0);
+  e2.vane_set_param(52, 0); e2.vane_set_param(50, 0);
+  e2.vane_set_cc(2, 0.0);
+  e2.vane_note_on(60, 100, 2);
+  const gated = rmsOf(e2, 8);
+  check("transient: TrDyn 1 gates it by the VCA (silent, no breath)", gated < 0.002, `rms=${gated.toFixed(5)}`);
+
+  // Wavetable load: a pure-sine 2-frame table at Morph 0 must be MORE
+  // fundamental-dominated than the built-in Harmonic Stack at Morph 1.
+  const e3 = await booted();
+  const FR = 2048, TOT = FR * 2;
+  { const ptr = e3.vane_staging(TOT); const view = new Float32Array(e3.memory.buffer, ptr, TOT);
+    for (let i = 0; i < FR; i++) view[i] = Math.sin(2*Math.PI*i/FR);              // frame 0: sine
+    for (let i = 0; i < FR; i++) view[FR+i] = Math.sign(Math.sin(2*Math.PI*i/FR)); // frame 1: square
+  }
+  const frames = e3.vane_load_wavetable(TOT, FR, 0);
+  check("wavetable: staged 2-frame table builds", frames === 2, `frames=${frames}`);
+  e3.vane_set_param(12, 1.0);   // Morph → frame 1 (square: odd harmonics)
+  e3.vane_set_cc(2, 0.9); e3.vane_note_on(69, 100, 2);
+  for (let i = 0; i < 60; i++) render(e3, 128);
+  const samples = []; for (let i = 0; i < 80; i++) samples.push(...render(e3, 128));
+  const goert = (hz) => { let re = 0, im = 0;
+    for (let i = 0; i < samples.length; i++) { const w = 2*Math.PI*hz*i/48000; re += samples[i]*Math.cos(w); im += samples[i]*Math.sin(w); }
+    return Math.hypot(re, im); };
+  const h1 = goert(440), h3 = goert(1320), h2 = goert(880);
+  check("wavetable: loaded square frame shows odd harmonics (H3 >> H2)",
+        h3 > h2 * 3 && h1 > 0, `H1=${h1.toFixed(0)} H2=${h2.toFixed(0)} H3=${h3.toFixed(0)}`);
+
+  // Glide curves: at 30% of a 1 s slur C3→C4, Exp (fast start) must be HIGHER
+  // in pitch than Linear, and RC higher still (biggest early Hz movement).
+  async function glidePitchAt30(curve) {
+    const g = await fresh();
+    g.vane_init(48000); g.vane_set_param(8, 0.8); g.vane_set_mono(1);
+    g.vane_set_param(10, 1000); g.vane_set_param(54, curve);
+    g.vane_set_cc(2, 0.9);
+    g.vane_note_on(48, 100, 2);
+    for (let i = 0; i < Math.round(0.4*48000/128); i++) render(g, 128);
+    g.vane_note_on(60, 100, 2);                       // slur up an octave
+    for (let i = 0; i < Math.round(0.30*48000/128); i++) render(g, 128);   // 30% in
+    return estimateHz(g, 30);                          // morph 0 = sine → crossings OK
+  }
+  const lin = await glidePitchAt30(0), exp = await glidePitchAt30(1), rc = await glidePitchAt30(2);
+  check("glide curves: Exp starts faster than Linear; RC faster still",
+        exp > lin * 1.02 && rc > exp * 1.001,
+        `pitch@30%: lin=${lin.toFixed(1)} exp=${exp.toFixed(1)} rc=${rc.toFixed(1)} Hz`);
+  // Fixed-Rate mode: an octave at 100 ms/semitone should still be gliding at
+  // 0.5 s (12 semitones -> 1.2 s), where Fixed-Time 100 ms long since arrived.
+  async function pitchAtHalfSecond(mode) {
+    const g = await fresh();
+    g.vane_init(48000); g.vane_set_param(8, 0.8); g.vane_set_mono(1);
+    g.vane_set_param(10, 100); g.vane_set_param(53, mode); g.vane_set_param(54, 0);
+    g.vane_set_cc(2, 0.9);
+    g.vane_note_on(48, 100, 2);
+    for (let i = 0; i < Math.round(0.4*48000/128); i++) render(g, 128);
+    g.vane_note_on(60, 100, 2);
+    for (let i = 0; i < Math.round(0.5*48000/128); i++) render(g, 128);
+    return estimateHz(g, 30);
+  }
+  const ft = await pitchAtHalfSecond(0), fr2 = await pitchAtHalfSecond(1);
+  check("glide Fixed Rate: octave at 100 ms/semi still mid-glide at 0.5 s",
+        ft > 258 && fr2 < 250, `fixedTime=${ft.toFixed(1)} fixedRate=${fr2.toFixed(1)} Hz (target 261.6)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
