@@ -134,7 +134,7 @@ float pFold   = 0.0f;   // 0..1 wavefold amount (pre-filter drive)      [id 17]
 // Global vowel/formant stage (post-mix, one instance — matches the plugin's
 // global topology so mono legato stays seamless). Enable OFF by default → the
 // filter is a pass-through (amount forced 0). Real Patch-tab ids/units.
-FormantFilter gFormant;
+FormantFilter gFormantL, gFormantR;   // one per channel — plugin's formantL/formantR
 bool  gVowelEn   = false;  // [id 18]  Off/On
 int   gVowelMode = 0;      // [id 19]  0 Vowel / 1 Wah
 float pVowelPos  = 0.0f;   // [id 20]  open (close→open, F1) / Wah sweep
@@ -161,6 +161,24 @@ float pWgEmbouchure = 0.5f, pWgReedStiff = 0.5f, pWgAperture = 0.5f;   // [31..3
 float pWgDamping = 0.2f, pWgBell = 0.7f, pWgConical = 0.62f;           // [34..36]
 float pWgNoise = 0.05f, pWgGrowl = 0.0f;                               // [37..38]
 constexpr float kWgMakeupGain = 2.5f;   // engine peaks ~0.4 at full breath — same constant as SynthVoice
+
+// ── Stereo unison / rotating chords (SynthVoice parity) ──────────────────────
+// Up to kMaxUnison detuned (or chord-interval) sub-voices per note, spread
+// across the stereo field with the plugin's exact equal-power pan + power
+// normalisation. Chord mode: sub-voice j-1 plays chordInterval[j-1] semitones
+// above the melody, captured per note-on from a shared rotation counter that
+// wraps at LCM(1..kChordSteps) — the plugin's "deterministic but non-repeating"
+// rotating-chord scheme, verbatim.
+constexpr int kMaxUnison  = 6;
+constexpr int kChordSteps = 16;
+constexpr int kChordRotWrap = 720720;   // LCM(1..16) — every seq length divides it
+int   pUniVoxChoice = 0;    // [39] choice index → {1,2,3,4,6}
+float pUniDet       = 14.0f;// [40] detune spread, cents (0..50)
+float pUniWid       = 0.7f; // [41] stereo width (0..1)
+bool  gChordMode    = false;// [42] 0 = Detune, 1 = Chord
+float gChordSeq[kMaxUnison - 1][kChordSteps] = {};
+int   gChordLen[kMaxUnison - 1] = {};
+int   gChordRot = 0;
 
 // One-pole per-sample smoothing coefficient (~3 ms), shared by the oscillator-
 // character smoothers (morph/PW/inharm/sync). Set from the sample rate in
@@ -309,13 +327,26 @@ struct Voice {
     // handoff for the same effect — here the state simply stays put).
     minisax::MiniSaxVoice wg;
     uint32_t              wgSeed = 0;
+
+    // Stereo unison: extra sub-voices (osc or bore per slot, mirrors the
+    // plugin's unisonOscs/waveguideVoices), a right-channel filter for true
+    // stereo width, and this note's captured chord intervals.
+    Oscillator            uniOscs[kMaxUnison - 1];
+    minisax::MiniSaxVoice wgUni[kMaxUnison - 1];
+    uint32_t              wgUniSeeds[kMaxUnison - 1] = {};
+    SVFilter              filtR;
+    float                 chordInterval[kMaxUnison - 1] = {};
 };
 
 Voice   voices[kMaxVoices];
 int     monoVoiceIdx = -1;
 float   monoLastHz   = 0.0f;
 float   monoLastVCA  = 0.0f;
+// Stereo render: vane_buffer() stays the LEFT channel (every existing consumer
+// — the CLI's `enkerli render`, older worklets — keeps working as mono);
+// vane_buffer_r() adds the right channel for the stereo worklet.
 float   renderBuf[kMaxBlock];
+float   renderBufR[kMaxBlock];
 
 // ── Mono held-note stack (see vane_set_mono / vane_note_on / vane_note_off) ──
 struct HeldNote { int note, channel, vel; };
@@ -356,17 +387,20 @@ float limGainRel = 0.0f;  // gain release coeff (slow — recover)
 // chord level vs the plugin but removes the limiter-induced roughness.
 float gPolyGain  = 1.0f;
 float gPolyCoeff = 0.0f;  // ~15 ms one-pole (set from SR), smooths voice-count steps
-inline float masterLimit (float x) {
-    const float ax = std::fabs (x);
+// Stereo: ONE envelope from the louder channel and ONE gain applied to both —
+// independent per-channel limiters would shift the stereo image whenever one
+// side clips (the image "leans away" from peaks); a linked limiter preserves it.
+inline void masterLimit (float& l, float& r) {
+    const float ax = std::max (std::fabs (l), std::fabs (r));
     if (ax > limEnv) limEnv = ax;                          // instant peak catch
     else             limEnv = ax + (limEnv - ax) * limRelEnv;   // slow release
     constexpr float thr = 0.95f;
     const float tgt = limEnv > thr ? thr / limEnv : 1.0f;
     if (tgt < limGain) limGain += (tgt - limGain) * limGainAtk;   // reduce fast
     else               limGain += (tgt - limGain) * limGainRel;   // recover slow
-    float y = x * limGain;
-    if (y > 1.0f) y = 1.0f; else if (y < -1.0f) y = -1.0f;        // hard safety
-    return y;
+    l *= limGain; r *= limGain;
+    if (l > 1.0f) l = 1.0f; else if (l < -1.0f) l = -1.0f;        // hard safety
+    if (r > 1.0f) r = 1.0f; else if (r < -1.0f) r = -1.0f;
 }
 
 void pushHeld (int note, int channel, int vel) {
@@ -397,7 +431,8 @@ void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
     ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
     for (int c = 0; c < 17; ++c) gChPress[c] = 0.0f;
-    gFormant.prepare (sampleRate); gFormant.reset(); gVowelPosMod = 0.0f;
+    gFormantL.prepare (sampleRate); gFormantL.reset();
+    gFormantR.prepare (sampleRate); gFormantR.reset(); gVowelPosMod = 0.0f;
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
     exprSlewer.prepare (sampleRate);   exprSlewer.setRates (5.0f, 80.0f); exprSlewer.reset();
     int vi = 0;
@@ -416,7 +451,28 @@ void vane_init (double sampleRate) {
         v.noiseWhiteState = 0x9E3779B97F4A7C15ULL ^ (uint64_t) vi;
         for (auto& b : v.noisePinkB) b = 0.0f;
         v.noiseBrownAcc = 0.0f;
+        // Stereo-unison sub-voices: extra oscillators + one bore per slot (each
+        // with its own decorrelated seed), and the right-channel filter.
+        v.filtR.prepare (sampleRate);
+        for (int j = 0; j < kMaxUnison - 1; ++j) {
+            v.uniOscs[j].prepare (sampleRate);
+            v.wgUniSeeds[j] = v.wgSeed ^ (uint32_t) ((j + 1) * 0x85EBCA6Bu);
+            v.wgUni[j].prepare (sampleRate, v.wgUniSeeds[j]);
+            v.chordInterval[j] = 0.0f;
+        }
         ++vi;
+    }
+    // Rotating-chord defaults — the suite's factory sequences (index.html
+    // state.chordSeqs '3,4;7,5;10,9;12,7;5,3'); the host overwrites them via
+    // vane_set_chord/vane_set_chord_len when the user edits.
+    {
+        const float defSeq[kMaxUnison - 1][2] = { {3,4}, {7,5}, {10,9}, {12,7}, {5,3} };
+        for (int j = 0; j < kMaxUnison - 1; ++j) {
+            gChordLen[j] = 2;
+            for (int k = 0; k < kChordSteps; ++k)
+                gChordSeq[j][k] = (k < 2) ? defSeq[j][k] : 0.0f;
+        }
+        gChordRot = 0;
     }
     monoVoiceIdx = -1; monoLastHz = 0.0f; monoLastVCA = 0.0f; heldCount = 0;
     // Master limiter coefficients (see masterLimit): 50 ms env release, 1 ms
@@ -503,10 +559,11 @@ void startNote (int note, int vel, int channel) {
     if (! legato) {
         v.bend = 0.0f; v.slide = 0.5f; v.pressure = 0.0f;
         v.vca = 0.0f; v.pressureSlewer.reset(); v.slideSlewer.reset(); v.velSlewer.reset(); v.pbModSlewer.reset();
-        // Waveguide: clear the bore on fresh attacks only — a legato note keeps
-        // the ringing bore (this voice slot is reused in mono, so continuity is
-        // inherent) and re-entrains it at the new delay length: a physical slur.
+        // Waveguide: clear the bores on fresh attacks only — a legato note keeps
+        // the ringing bores (this voice slot is reused in mono, so continuity is
+        // inherent) and re-entrains them at the new delay length: a physical slur.
         v.wg.reset (v.wgSeed);
+        for (int j = 0; j < kMaxUnison - 1; ++j) v.wgUni[j].reset (v.wgUniSeeds[j]);
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
         v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
@@ -514,6 +571,20 @@ void startNote (int note, int vel, int channel) {
     }
     v.tailLevel = 1.0f; v.releasing = false;
     v.holding = false; v.holdSamples = 0;    // a new note cancels any pending legato-hold (seamless reconnect)
+
+    // Rotating-chord capture — SynthVoice::noteStarted verbatim: EVERY note-on
+    // in chord mode advances the shared counter (legato included), and this
+    // note keeps the intervals it captured for its whole life. The counter
+    // wraps at LCM(1..kChordSteps), so each sequence's (idx % len) phase is
+    // continuous across the wrap.
+    if (gChordMode) {
+        const int idx = gChordRot;
+        gChordRot = (idx + 1) % kChordRotWrap;
+        for (int j = 0; j < kMaxUnison - 1; ++j)
+            v.chordInterval[j] = (gChordLen[j] > 0)
+                ? gChordSeq[j][idx % gChordLen[j]]
+                : 0.0f;
+    }
 
     // Portamento: glide from the previous pitch when legato, with the real
     // engine's always-on minimum (one period at the target, so even glideMs=0
@@ -612,8 +683,25 @@ void vane_set_param (int id, float val) {
         case 36: pWgConical    = val; break;
         case 37: pWgNoise      = val; break;
         case 38: pWgGrowl      = val; break;
+        case 39: pUniVoxChoice = (int) (val + 0.5f); if (pUniVoxChoice < 0) pUniVoxChoice = 0; else if (pUniVoxChoice > 4) pUniVoxChoice = 4; break;
+        case 40: pUniDet       = val; break;   // cents 0..50
+        case 41: pUniWid       = val; break;   // 0..1
+        case 42: gChordMode    = (val > 0.5f); break;
         default: break;
     }
+}
+
+// Rotating-chord sequences (the UI's chordSeqsEdit): per harmony voice j
+// (0..kMaxUnison-2), a length + up to kChordSteps fractional-semitone steps.
+// Fractional so just ratios keep their precision (the host parses "3/2" into
+// 12·log2(3/2) before sending) — same contract as the plugin's setChordSeqs.
+void vane_set_chord_len (int j, int len) {
+    if (j < 0 || j >= kMaxUnison - 1) return;
+    gChordLen[j] = len < 0 ? 0 : (len > kChordSteps ? kChordSteps : len);
+}
+void vane_set_chord (int j, int k, float semis) {
+    if (j < 0 || j >= kMaxUnison - 1 || k < 0 || k >= kChordSteps) return;
+    gChordSeq[j][k] = semis;
 }
 
 // Configure one mod-matrix slot (the Matrix tab's slotEdit). src/dst/curve are
@@ -640,11 +728,12 @@ void vane_set_internal_tuning (int idx) {
         gTuning.setInternalTuning (kTuningIds[idx]);
 }
 
-float* vane_buffer () { return renderBuf; }
+float* vane_buffer   () { return renderBuf;  }   // LEFT (and mono-compat) channel
+float* vane_buffer_r () { return renderBufR; }   // RIGHT channel (stereo worklet)
 
 void vane_render (int n) {
     if (n > kMaxBlock) n = kMaxBlock;
-    for (int s = 0; s < n; ++s) renderBuf[s] = 0.0f;
+    for (int s = 0; s < n; ++s) { renderBuf[s] = 0.0f; renderBufR[s] = 0.0f; }
 
     // Recalibrate every slewer to THIS call's actual block size (see Slewer::
     // setStep) before processing — n can vary between calls.
@@ -788,9 +877,36 @@ void vane_render (int n) {
                                                     std::max (pressS, pVelVCA * std::sqrt (v.vel))));
         }
 
+        // ── Stereo unison — SynthVoice's block-rate computation verbatim ────────
+        // uN sub-voices spread across the field with equal-power pans, power-
+        // normalised so engaging unison doesn't change the level; Detune mode
+        // spreads ±uDetune cents, Chord mode plays this note's captured
+        // intervals. UnisonDetune mod (dest 11) sweeps the spread live.
+        static constexpr int kUnisonChoice[] = { 1, 2, 3, 4, 6 };
+        const int  uN       = kUnisonChoice[pUniVoxChoice];
+        const bool unisonOn = uN > 1;
+        const float uDetune = clampf (pUniDet + mods[11] * 50.0f, 0.0f, 50.0f);
+        float uDetMul[kMaxUnison], uPanL[kMaxUnison], uPanR[kMaxUnison];
+        {
+            float pwr = 0.0f;
+            for (int j = 0; j < uN; ++j) {
+                const float spread = (uN > 1) ? ((float) j / (float) (uN - 1)) * 2.0f - 1.0f : 0.0f;
+                uDetMul[j] = gChordMode
+                    ? ((j == 0) ? 1.0f : std::pow (2.0f, v.chordInterval[j - 1] / 12.0f))
+                    : std::pow (2.0f, spread * uDetune / 1200.0f);
+                const float ang = (spread * pUniWid + 1.0f) * 0.25f * 3.14159265358979f;
+                uPanL[j] = std::cos (ang);
+                uPanR[j] = std::sin (ang);
+                pwr += uPanL[j] * uPanL[j] + uPanR[j] * uPanR[j];
+            }
+            const float norm = (pwr > 0.0f) ? std::sqrt (2.0f / pwr) : 1.0f;
+            for (int j = 0; j < uN; ++j) { uPanL[j] *= norm; uPanR[j] *= norm; }
+        }
+
         // Resonance (k) is block-rate, matching the real engine — only cutoff
         // (g/a1-a3) needs per-sample updates to stay coefficient-continuous.
         v.filt.setResonance (resonance);
+        if (unisonOn) v.filtR.setResonance (resonance);
 
         for (int s = 0; s < n; ++s) {
             // VCA: 3 ms linear rate-limited approach to the block target (mirrors
@@ -834,19 +950,40 @@ void vane_render (int n) {
             v.currentHz *= v.glideCoeff;
             const bool overshot = v.glideCoeff > 1.0f ? (v.currentHz > v.targetHz) : (v.currentHz < v.targetHz);
             if (v.glideCoeff != 1.0f && overshot) { v.currentHz = v.targetHz; v.glideCoeff = 1.0f; }
-            v.osc.setFrequency (v.currentHz * v.pitchMulSmoothed);
+            const float hzNow = v.currentHz * v.pitchMulSmoothed;
+            v.osc.setFrequency (hzNow * uDetMul[0]);
+            for (int j = 1; j < uN; ++j) v.uniOscs[j - 1].setFrequency (hzNow * uDetMul[j]);
 
             // Sound source: the real morph engine (16-frame Harmonic Stack +
             // PD PW + √2-FM inharmonicity + hard-sync via Oscillator::
             // nextMorphed), or the MiniSax reed/bore when Waveguide mode is on
-            // — identical DSP to the plugin either way.
-            float srcOut;
+            // — identical DSP to the plugin either way. uN sub-voices (osc or
+            // bore each) pitched by uDetMul and panned by uPanL/R, exactly the
+            // plugin's stereo-unison path.
+            float srcL, srcR;
             if (gWgOn) {
-                wgIn.pitchHz = v.currentHz * v.pitchMulSmoothed;
-                wgIn.gate    = v.releasing ? 0.0f : 1.0f;   // holding = still bridging → keep blowing
-                srcOut = v.wg.processSample (wgIn) * kWgMakeupGain;
+                wgIn.gate = v.releasing ? 0.0f : 1.0f;   // holding = still bridging → keep blowing
+                if (! unisonOn) {
+                    wgIn.pitchHz = hzNow;
+                    srcL = srcR = v.wg.processSample (wgIn) * kWgMakeupGain;
+                } else {
+                    srcL = srcR = 0.0f;
+                    for (int j = 0; j < uN; ++j) {
+                        wgIn.pitchHz = hzNow * uDetMul[j];
+                        minisax::MiniSaxVoice& eng = (j == 0) ? v.wg : v.wgUni[j - 1];
+                        const float w = eng.processSample (wgIn) * kWgMakeupGain;
+                        srcL += w * uPanL[j]; srcR += w * uPanR[j];
+                    }
+                }
+            } else if (! unisonOn) {
+                srcL = srcR = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
             } else {
-                srcOut = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
+                const float w0 = v.osc.nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
+                srcL = w0 * uPanL[0]; srcR = w0 * uPanR[0];
+                for (int j = 1; j < uN; ++j) {
+                    const float w = v.uniOscs[j - 1].nextMorphed (v.morphSmoothed, v.pwSmoothed, v.inharmSmoothed, v.syncSmoothed);
+                    srcL += w * uPanL[j]; srcR += w * uPanR[j];
+                }
             }
 
             // Noise blend (pre-filter, so noise shares the SVF's tonal character)
@@ -877,15 +1014,28 @@ void vane_render (int n) {
                 }
                 float wet = noiseOut * noiseMix;
                 if (gWgOn) wet *= v.vca;
-                srcOut = srcOut * (1.0f - noiseMix) + wet;
+                srcL = srcL * (1.0f - noiseMix) + wet;   // noise is mono/centred —
+                srcR = srcR * (1.0f - noiseMix) + wet;   // added equally, like the plugin
             }
 
-            srcOut = Oscillator::wavefold (srcOut, v.foldDriveSmoothed);   // pre-filter, like SynthVoice
-            const float filtOut = v.filt.process (srcOut, filtMode);       // LP / BP / HP per the Mode param
             // Waveguide mode bypasses the VCA multiply — the model's output
             // level IS the dynamics (breath drove the reed); tailLevel stays
             // as the voice-death envelope. Mirrors SynthVoice's vgain exactly.
-            renderBuf[s] += filtOut * (gWgOn ? 1.0f : v.vca) * v.tailLevel;
+            const float vgain = (gWgOn ? 1.0f : v.vca) * v.tailLevel;
+            srcL = Oscillator::wavefold (srcL, v.foldDriveSmoothed);        // pre-filter, like SynthVoice
+            const float outL = v.filt.process (srcL, filtMode) * vgain;     // LP / BP / HP per the Mode param
+            float outR;
+            if (unisonOn) {
+                // Right channel gets its own filter so the detune becomes a
+                // true stereo image (plugin's filterR), sharing coefficients.
+                v.filtR.setCutoff (v.cutoffSmoothed);
+                srcR = Oscillator::wavefold (srcR, v.foldDriveSmoothed);
+                outR = v.filtR.process (srcR, filtMode) * vgain;
+            } else {
+                outR = outL;
+            }
+            renderBuf[s]  += outL;
+            renderBufR[s] += outR;
 
             if (! v.active) break;
         }
@@ -913,15 +1063,20 @@ void vane_render (int n) {
     // once per block; process() per sample (pass-through when disabled → amount 0).
     // vOpen = base + the sounding voice's VowelPos mod (dest 12), so Breath→Vowel
     // gives the talkbox sweep.
-    gFormant.setMode (gVowelMode ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel);
     const float vOpen = clamp01 (pVowelPos + gVowelPosMod);
-    gFormant.setParams (vOpen, pVowFront, pVowRound, gVowelEn ? pVowAmt : 0.0f, pVowBite, pVowMove);
+    for (auto* f : { &gFormantL, &gFormantR }) {
+        f->setMode (gVowelMode ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel);
+        f->setParams (vOpen, pVowFront, pVowRound, gVowelEn ? pVowAmt : 0.0f, pVowBite, pVowMove);
+    }
 
     for (int s = 0; s < n; ++s) {
         gPolyGain += (polyTarget - gPolyGain) * gPolyCoeff;
-        float x = renderBuf[s] * pOutput * gPolyGain;
-        x = gFormant.process (x);
-        renderBuf[s] = masterLimit (x);
+        float xl = renderBuf[s]  * pOutput * gPolyGain;
+        float xr = renderBufR[s] * pOutput * gPolyGain;
+        xl = gFormantL.process (xl);
+        xr = gFormantR.process (xr);
+        masterLimit (xl, xr);
+        renderBuf[s] = xl; renderBufR[s] = xr;
     }
 }
 

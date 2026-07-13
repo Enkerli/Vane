@@ -589,5 +589,69 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         `${base.toFixed(1)} -> ${detuned.toFixed(1)} Hz (${cents.toFixed(1)}c)`);
 }
 
+// ── 17. Stereo unison: width decorrelates channels; level stays normalised;
+//      chord mode sounds the captured interval; waveguide unison renders. ──
+{
+  const renderLR = (e, n) => { e.vane_render(n); return [
+    new Float32Array(e.memory.buffer, e.vane_buffer(), n).slice(),
+    new Float32Array(e.memory.buffer, e.vane_buffer_r(), n).slice()]; };
+  const rmsStereo = (e, blocks) => { let sl = 0, sr = 0, n = 0;
+    for (let i = 0; i < blocks; i++) { const [L, R] = renderLR(e, 128);
+      for (let k = 0; k < 128; k++) { sl += L[k]*L[k]; sr += R[k]*R[k]; ++n; } }
+    return [Math.sqrt(sl/n), Math.sqrt(sr/n)]; };
+  const corr = (e, blocks) => { let sxy = 0, sx = 0, sy = 0;
+    for (let i = 0; i < blocks; i++) { const [L, R] = renderLR(e, 128);
+      for (let k = 0; k < 128; k++) { sxy += L[k]*R[k]; sx += L[k]*L[k]; sy += R[k]*R[k]; } }
+    return sxy / Math.sqrt(sx*sy + 1e-12); };
+  async function boot(setup) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_cc(2, 0.9);
+    if (setup) setup(e);
+    e.vane_note_on(60, 100, 2);
+    for (let i = 0; i < 60; i++) e.vane_render(128);
+    return e;
+  }
+  // Mono voice (no unison): L must EQUAL R (centre image, backward-compat).
+  const eMono = await boot();
+  const cMono = corr(eMono, 12);
+  check("stereo: single voice is a centre image (L == R)", cMono > 0.999, `corr=${cMono.toFixed(4)}`);
+  // Unison 4 + full width + detune: channels must decorrelate.
+  const eUni = await boot((e) => { e.vane_set_param(39, 3); e.vane_set_param(40, 30); e.vane_set_param(41, 1.0); });
+  const cUni = corr(eUni, 12);
+  check("stereo: unison 4 @ width 1 decorrelates the channels", cUni < 0.9, `corr=${cUni.toFixed(3)}`);
+  // Power normalisation: engaging unison shouldn't blow up or collapse level.
+  // Measure across ~2 s: freshly-prepared oscillators start phase-ALIGNED, so
+  // detuned voices beat through coherent peaks and cancellations (slowest beat
+  // here ~3 Hz) — a short window lands anywhere in that cycle; a long average
+  // converges to the normalised power the plugin's math guarantees.
+  const eM2 = await boot(); rmsStereo(eM2, 200);            // settle past the attack
+  const [mL] = rmsStereo(eM2, 800);
+  rmsStereo(eUni, 200);
+  const [uL, uR] = rmsStereo(eUni, 800);
+  const ratio = ((uL + uR) / 2) / mL;
+  check("stereo: unison level stays within ~4 dB of a single voice", ratio > 0.6 && ratio < 1.6,
+        `avg unison rms = ${ratio.toFixed(2)}x single (2 s average)`);
+  // Chord mode: 2 voices, sequence "4" (one step) → harmony a major third up.
+  const eCh = await boot((e) => {
+    e.vane_set_param(39, 1);         // 2 voices
+    e.vane_set_param(42, 1);         // Chord mode
+    for (let j = 0; j < 5; j++) e.vane_set_chord_len(j, 0);
+    e.vane_set_chord(0, 0, 4); e.vane_set_chord_len(0, 1);
+  });
+  const samples = [];
+  for (let i = 0; i < 120; i++) { const [L, R] = renderLR(eCh, 128); for (let k = 0; k < 128; k++) samples.push(L[k] + R[k]); }
+  const goert = (hz) => { let re = 0, im = 0;
+    for (let i = 0; i < samples.length; i++) { const w = 2*Math.PI*hz*i/48000; re += samples[i]*Math.cos(w); im += samples[i]*Math.sin(w); }
+    return Math.hypot(re, im); };
+  const f0 = 261.63, e3rd = goert(f0 * Math.pow(2, 4/12)), eTri = goert(f0 * Math.pow(2, 3/12));
+  check("chord mode: harmony voice sounds the +4 semitone interval", e3rd > eTri * 3,
+        `E4 energy=${e3rd.toFixed(1)} vs Eb4=${eTri.toFixed(1)}`);
+  // Waveguide + unison: renders sound on both channels without NaN.
+  const eWg = await boot((e) => { e.vane_set_param(30, 1); e.vane_set_param(39, 1); e.vane_set_param(41, 1.0); });
+  const [wl, wr] = rmsStereo(eWg, 16);
+  check("waveguide + unison: both channels sound and stay finite",
+        wl > 0.02 && wr > 0.02 && isFinite(wl) && isFinite(wr), `L=${wl.toFixed(3)} R=${wr.toFixed(3)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
