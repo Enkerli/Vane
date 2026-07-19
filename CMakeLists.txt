@@ -246,6 +246,20 @@ target_include_directories(Vane PRIVATE Source MiniSax/Source)
 set(VANE_WEBUI_DIR "${CMAKE_SOURCE_DIR}/../music-suite/apps/vane"
     CACHE PATH "Path to the Vane WebUI source (music-suite/apps/vane)")
 include("${CMAKE_CURRENT_SOURCE_DIR}/webui.local.cmake" OPTIONAL)
+# The default above assumes music-suite is a SIBLING checkout. Before failing,
+# probe the other supported layouts: this repo nested INSIDE the monorepo
+# (…/music-suite/Vane), and a MUSIC_SUITE environment variable pointing at
+# the monorepo checkout. webui.local.cmake still wins when present.
+if(NOT EXISTS "${VANE_WEBUI_DIR}/index.html")
+    foreach(_webui_cand "${CMAKE_SOURCE_DIR}/../apps/vane" "$ENV{MUSIC_SUITE}/apps/vane")
+        if(EXISTS "${_webui_cand}/index.html")
+            set(VANE_WEBUI_DIR "${_webui_cand}" CACHE PATH
+                "Path to the Vane WebUI source (music-suite/apps/vane)" FORCE)
+            message(STATUS "Vane WebUI: found at ${_webui_cand}")
+            break()
+        endif()
+    endforeach()
+endif()
 if(NOT EXISTS "${VANE_WEBUI_DIR}/index.html")
     message(FATAL_ERROR
         "Vane WebUI source not found at ${VANE_WEBUI_DIR}. It now lives in the "
