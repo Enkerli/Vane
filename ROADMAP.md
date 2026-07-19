@@ -251,6 +251,40 @@ documented but the integration is non-trivial.
 
 ---
 
+## Field notes — 2026-07-19 (Alex, queued; not scheduled)
+
+### "Breathless" mode
+A mode for velocity-only input (keyboards, pads — no breath/CC2 stream):
+synthesize simple envelopes from note-on velocity so Vane is playable
+without a wind controller. Today, no breath = silence by design (factory
+routes put VCA on breath/expression/pressure; VelVCA defaults to 0).
+Breathless mode would flip that stance per-patch: velocity shapes an
+internally generated envelope (attack/decay derived from velocity, not a
+generic ADSR panel) feeding the same slewed mod-source path breath uses —
+the existing amplitude model stays the single truth, breathless just
+feeds it a synthetic curve.
+
+### Waveguide PhysMod — lab experiments
+The nonlinear param interactions need a place to be explored
+systematically rather than by slider luck. Known repro: certain **bore
+damping** settings kill the sound entirely, and it only returns after a
+significant rest (state in the waveguide loop decays past re-excitation?
+needs instrumentation). Wanted: a lab/probe harness (the
+`Tools/wasm/regression-test.mjs` pattern — fresh instance per case,
+scripted param sweeps, rendered-output assertions) that can map stable vs
+dead regions of the param space and pin the bore-damping kill as a
+regression test.
+
+### PhysMod param modulation (very small ranges, event-driven curves)
+Experience so far: a tiny slider movement goes a long way, so modulation
+must operate in **very narrow ranges** around the patch value. Idea:
+route existing mod sources (note-on, breath/pressure/expression) through
+**curves** into selected PhysMod params, with per-route depth measured in
+fractions of the usable range (the ModMatrix + Slewer machinery is the
+natural carrier — same slew/curve discipline as VCA/cutoff routes).
+Start with one or two params after the lab work identifies which are
+stable enough to move under modulation.
+
 ## Deferred / research
 
 - Spectral / granular processing
