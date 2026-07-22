@@ -6,6 +6,9 @@
 #include <BinaryDataLibrary.h>
 #include <cmath>    // std::log2 / std::isnan (chord-interval ratio parsing)
 #include <limits>
+#include <map>      // process-wide wavetable cache (hash -> built table)
+#include <mutex>    // guards that cache
+#include <memory>   // std::shared_ptr for shared, immutable cached tables
 
 VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
@@ -480,19 +483,49 @@ static juce::String hashBytes (const void* data, size_t n)
     return juce::String::toHexString ((juce::int64) h).paddedLeft ('0', 16);
 }
 
+// Process-wide cache of built (band-limited, mip-mapped) wavetables.  Building a
+// table runs an FFT mip-map pass per frame (Wavetable::build — 12 FFTs/frame);
+// the same table recurs across plugin instances and every preset switch, so we
+// build each exactly once — keyed by content hash + phase-align mode — and hand
+// out the immutable, shared result.  Shared ownership also collapses N instances'
+// copies of the same table to a single one in memory.  The built Wavetable is
+// read-only after construction, so sharing it across instances and audio threads
+// is safe.
+static std::shared_ptr<const Wavetable> buildOrGetCachedWavetable (
+        const juce::MemoryBlock& mb, bool phaseAlign, const juce::String& hash)
+{
+    static std::mutex cacheMutex;
+    static std::map<juce::String, std::shared_ptr<const Wavetable>> cache;
+
+    const juce::String key = hash + (phaseAlign ? "#pa" : "#raw");   // build differs by mode
+    {
+        const std::scoped_lock lock (cacheMutex);
+        if (auto it = cache.find (key); it != cache.end()) return it->second;
+    }
+
+    // Build outside the lock (the FFT pass is the expensive part).  If two threads
+    // race the same key they both build; emplace keeps whichever lands first and
+    // the loser's copy is discarded — cheap and correct.
+    auto built = std::make_shared<const Wavetable> (
+        Wavetable::loadFromMemory (mb.getData(), mb.getSize(), Wavetable::kTableSize, phaseAlign));
+    if (! built->isValid()) return nullptr;
+
+    const std::scoped_lock lock (cacheMutex);
+    return cache.emplace (key, std::move (built)).first->second;
+}
+
 bool VaneProcessor::setWavetableFromData (const juce::MemoryBlock& mb)
 {
-    auto wt = std::make_unique<Wavetable> (
-        Wavetable::loadFromMemory (mb.getData(), mb.getSize(), Wavetable::kTableSize, wtPhaseAlign));
-    if (! wt->isValid()) return false;
+    const auto hash   = hashBytes (mb.getData(), mb.getSize());
+    auto       shared = buildOrGetCachedWavetable (mb, wtPhaseAlign, hash);   // built once, then cached
+    if (shared == nullptr) return false;
 
-    activeWtFrames  = wt->numFrames();
-    activeWavetable = wt.get();          // raw ptr handed to voices; pool keeps it alive
-    wavetablePool.push_back (std::move (wt));
-    lastWtData      = mb;                // keep for phase-align rebuilds
+    activeWavetableHold = shared;            // keep the active table alive for this instance
+    activeWavetable     = shared.get();      // raw ptr handed to voices
+    activeWtFrames      = shared->numFrames();
+    lastWtData          = mb;                // keep for phase-align rebuilds
 
-    // Store once in the library (dedup) and record the reference.
-    const auto hash = hashBytes (mb.getData(), mb.getSize());
+    // Store once in the on-disk library (dedup) and record the reference.
     auto libFile = wavetableLibraryDir().getChildFile (hash + ".wav");
     if (! libFile.existsAsFile()) libFile.replaceWithData (mb.getData(), mb.getSize());
 

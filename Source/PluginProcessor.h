@@ -292,6 +292,7 @@ public:
     // Revert to the built-in Harmonic Stack (drops any loaded table).
     void useBuiltInWavetable() {
         activeWavetable = &Wavetable::builtInDefault();
+        activeWavetableHold.reset();   // release our reference to any loaded table
         activeWtName    = "Harmonic Stack (built-in)";
         activeWtFrames  = activeWavetable->numFrames();
         lastWtData.reset();
@@ -314,7 +315,10 @@ public:
 private:
     juce::Array<LibraryEntry>               library;          // parsed once at construction
     void parseLibraryManifest();
-    std::vector<std::unique_ptr<Wavetable>> wavetablePool;   // keep-alive
+    // Active loaded table: shared_ptr keeps this instance's table alive; the
+    // build itself is shared process-wide (see buildOrGetCachedWavetable).  Null
+    // when the built-in default is active (that one is a static singleton).
+    std::shared_ptr<const Wavetable>        activeWavetableHold;
     const Wavetable* activeWavetable { &Wavetable::builtInDefault() };
     juce::String activeWtName { "Harmonic Stack (built-in)" };
     int          activeWtFrames { 16 };
