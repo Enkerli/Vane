@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
+#include <chrono>
 
 static void bareOscillatorTest (double sr, const Wavetable* wt, const char* label)
 {
@@ -29,6 +30,41 @@ int main()
 {
     const double sr = 48000.0;
     const int    bs = 512;
+
+    // Env-gated instantiation micro-benchmark (BENCH=1): isolate the JUCE-side
+    // cost of building the parameter layout, constructing the processor, and
+    // prepareToPlay — so we can tell how much of the AU "open time" is our code
+    // vs Apple's AUParameterTree build (which happens in the AU wrapper, not here).
+    if (std::getenv("BENCH")) {
+        using clk = std::chrono::high_resolution_clock;
+        auto ms = [](auto d){ return std::chrono::duration<double,std::milli>(d).count(); };
+        const int N = 20;
+        // Time the process-wide one-time costs in isolation, before any ctor.
+        auto tb0 = clk::now(); (void) Wavetable::builtInDefault();
+        const double tBuiltIn = ms(clk::now() - tb0);
+        auto tt0 = clk::now(); { TransientLibrary lib; (void) lib; }
+        const double tTransientFirst = ms(clk::now() - tt0);
+        auto tt1 = clk::now(); { TransientLibrary lib; (void) lib; }
+        const double tTransientWarm = ms(clk::now() - tt1);
+        // Isolate: a lone AudioFormatManager + registerBasicFormats, no decode.
+        auto tf0 = clk::now(); { juce::AudioFormatManager fm; fm.registerBasicFormats(); }
+        const double tFmtMgr = ms(clk::now() - tf0);
+        std::printf ("[bench] one-time: builtInWavetable=%.2fms  transientLib(first)=%.2fms  transientLib(warm)=%.2fms  freshFormatMgr=%.2fms\n",
+                     tBuiltIn, tTransientFirst, tTransientWarm, tFmtMgr);
+        double tCtor = 0, tCtorFirst = 0;
+        for (int i = 0; i < N; ++i) {
+            auto t0 = clk::now(); auto* p = new VaneProcessor();
+            const double e = ms(clk::now() - t0);
+            if (i == 0) tCtorFirst = e; else tCtor += e;
+            delete p;
+        }
+        VaneProcessor p3;
+        auto t0 = clk::now(); p3.setRateAndBufferSizeDetails (sr, bs); p3.prepareToPlay (sr, bs);
+        const double tPrep = ms(clk::now() - t0);
+        std::printf ("[bench] paramCount=%d  ctor(first)=%.2fms  ctor(warm avg)=%.2fms  prepareToPlay=%.2fms  (N=%d)\n",
+                     p3.getParameters().size(), tCtorFirst, tCtor / (N - 1), tPrep, N);
+        return 0;
+    }
 
     bareOscillatorTest (sr, nullptr, "analytic");
     bareOscillatorTest (sr, &Wavetable::builtInDefault(), "builtin-WT");

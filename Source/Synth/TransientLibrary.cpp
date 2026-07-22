@@ -1,6 +1,86 @@
 #include "TransientLibrary.h"
-#include <juce_audio_formats/juce_audio_formats.h>
 #include <BinaryDataTransients.h>
+#include <cstring>
+#include <cstdint>
+
+// Minimal canonical-PCM .wav decoder for the BUNDLED transient assets (all mono
+// Int16 RIFF/WAVE). Deliberately NOT juce::AudioFormatManager: the very first
+// decode through JUCE's format machinery faults in a ~460ms one-time cost, and
+// TransientLibrary is a by-value member of VaneProcessor — so that hit landed on
+// the first plugin instantiation of every process (every auval run; first
+// instance of a DAW session). The default patch decodes no wavetable, so once
+// the transients bypass AudioFormatManager the AU opens with ~zero decode cost.
+// Supports PCM int 8/16/24/32 and IEEE float 32, any channel count (mixed to
+// mono). Returns false (sample skipped) on anything it doesn't recognise.
+namespace {
+    inline uint32_t rdU32 (const uint8_t* p) { return (uint32_t) p[0] | ((uint32_t) p[1] << 8) | ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24); }
+    inline uint16_t rdU16 (const uint8_t* p) { return (uint16_t) ((uint16_t) p[0] | ((uint16_t) p[1] << 8)); }
+
+    struct DecodedWav { juce::AudioBuffer<float> mono; double sampleRate = 44100.0; };
+
+    bool decodePcmWavToMono (const void* data, int size, DecodedWav& out)
+    {
+        const auto* p = static_cast<const uint8_t*> (data);
+        if (data == nullptr || size < 44) return false;
+        if (std::memcmp (p, "RIFF", 4) != 0 || std::memcmp (p + 8, "WAVE", 4) != 0) return false;
+
+        uint16_t fmt = 0, channels = 0, bits = 0;
+        uint32_t sampleRate = 0;
+        const uint8_t* pcm = nullptr; uint32_t pcmBytes = 0;
+
+        // Walk the chunk list (fmt/data can be preceded by fact/LIST/etc.).
+        size_t off = 12;
+        while (off + 8 <= (size_t) size) {
+            const uint8_t* ch = p + off;
+            const uint32_t clen = rdU32 (ch + 4);
+            const uint8_t* body = ch + 8;
+            if (std::memcmp (ch, "fmt ", 4) == 0 && clen >= 16 && off + 8 + 16 <= (size_t) size) {
+                fmt = rdU16 (body); channels = rdU16 (body + 2);
+                sampleRate = rdU32 (body + 4); bits = rdU16 (body + 14);
+                if (fmt == 0xFFFE && clen >= 40 && off + 8 + 26 <= (size_t) size)
+                    fmt = rdU16 (body + 24);   // WAVE_FORMAT_EXTENSIBLE → real subformat tag
+            } else if (std::memcmp (ch, "data", 4) == 0) {
+                pcm = body;
+                pcmBytes = (uint32_t) juce::jmin ((uint64_t) clen, (uint64_t) (size - (int) (off + 8)));
+            }
+            off += 8 + clen + (clen & 1u);   // chunks are word-aligned
+        }
+
+        if (pcm == nullptr || channels == 0 || sampleRate == 0) return false;
+        const int bytesPerSample = bits / 8;
+        if (bytesPerSample <= 0) return false;
+        const bool isFloat = (fmt == 3);
+        const bool isPcmInt = (fmt == 1);
+        if (! isFloat && ! isPcmInt) return false;
+
+        const int frameBytes = bytesPerSample * channels;
+        const int numFrames = (int) (pcmBytes / (uint32_t) frameBytes);
+        if (numFrames < 1) return false;
+
+        out.sampleRate = (double) sampleRate;
+        out.mono.setSize (1, numFrames, false, true, false);
+        float* dst = out.mono.getWritePointer (0);
+        const float chScale = 1.0f / (float) channels;
+
+        auto readOne = [&] (const uint8_t* s) -> float {
+            if (isFloat) { float f; std::memcpy (&f, s, sizeof f); return f; }
+            if (bits == 16) return (float) (int16_t) rdU16 (s) * (1.0f / 32768.0f);
+            if (bits == 24) { int32_t v = (int32_t) ((uint32_t) s[0] | ((uint32_t) s[1] << 8) | ((uint32_t) s[2] << 16));
+                              if (v & 0x800000) v |= (int32_t) 0xFF000000; return (float) v * (1.0f / 8388608.0f); }
+            if (bits == 32) return (float) (int32_t) rdU32 (s) * (1.0f / 2147483648.0f);
+            if (bits == 8)  return ((float) s[0] - 128.0f) * (1.0f / 128.0f);   // 8-bit WAV is unsigned
+            return 0.0f;
+        };
+
+        for (int f = 0; f < numFrames; ++f) {
+            const uint8_t* frame = pcm + (size_t) f * (size_t) frameBytes;
+            float acc = 0.0f;
+            for (int c = 0; c < channels; ++c) acc += readOne (frame + c * bytesPerSample);
+            dst[f] = acc * chScale;
+        }
+        return true;
+    }
+}
 
 TransientLibrary::TransientLibrary()
 {
@@ -71,37 +151,16 @@ const TransientSample* TransientLibrary::getSample(int index) const noexcept
 void TransientLibrary::loadFromMemory(const char* data, int size,
                                        const char* name, float nativeHz, bool pitched)
 {
-    juce::AudioFormatManager fmt;
-    fmt.registerBasicFormats();
-
-    std::unique_ptr<juce::AudioFormatReader> reader (
-        fmt.createReaderFor(
-            std::make_unique<juce::MemoryInputStream>(data, (size_t) size, false)));
-    if (reader == nullptr) return;
-
-    const int numSamples = static_cast<int>(reader->lengthInSamples);
-    if (numSamples < 2) return;
+    DecodedWav dec;
+    if (! decodePcmWavToMono(data, size, dec)) return;   // unrecognised → skip this sample
+    if (dec.mono.getNumSamples() < 2) return;
 
     TransientSample ts;
     ts.name       = name;
-    ts.sampleRate = reader->sampleRate;
+    ts.sampleRate = dec.sampleRate;
     ts.nativeHz   = nativeHz;
     ts.pitched    = pitched;
-    ts.buffer.setSize(1, numSamples, false, true, false);
-
-    // Read all channels into a temp buffer and mix down to mono.
-    juce::AudioBuffer<float> tmp(static_cast<int>(reader->numChannels), numSamples);
-    reader->read(&tmp, 0, numSamples, 0, true, true);
-
-    auto*       dest  = ts.buffer.getWritePointer(0);
-    const float scale = 1.0f / static_cast<float>(tmp.getNumChannels());
-    for (int c = 0; c < tmp.getNumChannels(); ++c) {
-        const auto* src = tmp.getReadPointer(c);
-        if (c == 0)
-            for (int i = 0; i < numSamples; ++i) dest[i]  = src[i] * scale;
-        else
-            for (int i = 0; i < numSamples; ++i) dest[i] += src[i] * scale;
-    }
+    ts.buffer     = std::move(dec.mono);   // already mono float, mixed on decode
 
     entryNames.add(name);
     entries.push_back(std::move(ts));
