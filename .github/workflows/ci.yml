@@ -1,6 +1,7 @@
 # Cross-platform build matrix via the shared enkerli-juce reusable workflow.
 # Vane predates the archetype (inline CMake) but joins the same CI: macOS
-# AU/VST3/CLAP, Windows VST3/CLAP, Linux LV2/CLAP (headless) + Standalone.
+# AU/VST3/CLAP, Windows VST3/CLAP, Linux LV2/VST3/CLAP + Standalone (the
+# default desktop WebView build; the headless MODEP LV2 is -DVANE_LINUX_HEADLESS=ON).
 name: build
 on:
   push:

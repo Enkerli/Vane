@@ -125,17 +125,24 @@ elseif(IS_MACOS)
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
     )
 elseif(IS_LINUX)
-    # Two Linux personalities, selected by VANE_LINUX_WEBVIEW (default OFF):
-    #   OFF → headless LV2 (+ Standalone) for MODEP: no WebView, no WebKitGTK.
-    #   ON  → WebView Standalone for desktop/VNC use (needs libwebkit2gtk dev)
-    #         with JACK audio.  No LV2 here — a WebView LV2 is useless to MODEP.
-    # Build the two into separate dirs (e.g. build/ and build-app/).
-    option(VANE_LINUX_WEBVIEW
-        "Linux: build the WebView Standalone (+JACK) for desktop/VNC instead of the headless MODEP LV2" OFF)
-    if(VANE_LINUX_WEBVIEW)
-        set(_vane_linux_formats Standalone)
-    else()
+    # Two Linux personalities, selected by VANE_LINUX_HEADLESS (default OFF →
+    # the desktop DAW build):
+    #   OFF (default) → desktop build: WebView UI (needs libwebkit2gtk dev) +
+    #                   JACK, formats LV2 + VST3 + Standalone. This is the normal
+    #                   Linux desktop DAW target (miniPC / Ubuntu Studio / any
+    #                   distro): Ardour/Qtractor load the LV2, Reaper/Bitwig the
+    #                   VST3, the Standalone patches into JACK.
+    #   ON  → headless LV2 (+ Standalone), no WebView / WebKitGTK / VST3, for
+    #         MODEP on PatchboxOS / Raspberry Pi specifically — MODEP renders
+    #         controls from the LV2 ports and never shows a native GUI, so the
+    #         WebView (and its heavy WebKitGTK dep) is dropped.
+    # Build the two into separate dirs (e.g. build-linux/ and build-headless/).
+    option(VANE_LINUX_HEADLESS
+        "Linux: build the headless MODEP LV2 (Raspberry Pi / PatchboxOS) instead of the default desktop WebView build" OFF)
+    if(VANE_LINUX_HEADLESS)
         set(_vane_linux_formats LV2 Standalone)
+    else()
+        set(_vane_linux_formats LV2 VST3 Standalone)
     endif()
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
@@ -173,7 +180,8 @@ endif()
 # Linux WebView/WebKitGTK linkage below). CLAP is not an iOS format, so skip it
 # there. CLAP_ID reuses the bundle id (stable — hosts key off it). Same integration
 # the suite's enkerli-juce helper uses; Vane predates that helper so it's inline.
-# On a Linux desktop DAW you want the GUI, so configure with -DVANE_LINUX_WEBVIEW=ON.
+# On Linux the default build already includes the WebView GUI (desktop); only the
+# headless MODEP/Pi build (-DVANE_LINUX_HEADLESS=ON) drops it.
 if(NOT IS_IOS)
     if(NOT TARGET clap_juce_extensions)
         set(CLAP_JUCE_PATH "${CMAKE_SOURCE_DIR}/clap-juce-extensions" CACHE PATH "Path to clap-juce-extensions")
@@ -315,12 +323,14 @@ juce_add_binary_data(VaneTransients
         Assets/transients/gen_tick.wav)
 target_link_libraries(Vane PRIVATE VaneTransients)
 
-# On Linux (RPi / MODEP) build HEADLESS: MODEP renders plugin controls from the
-# LV2 ports and never shows a plugin's native GUI, so the WebView UI is dropped —
-# which also removes the heavy WebKitGTK + GTK3 build dependency.
-if(IS_LINUX AND NOT VANE_LINUX_WEBVIEW)
+# On Linux, the opt-in headless MODEP/Pi build (-DVANE_LINUX_HEADLESS=ON) drops
+# the WebView UI: MODEP renders plugin controls from the LV2 ports and never
+# shows a plugin's native GUI, so the WebView is unnecessary — and dropping it
+# removes the heavy WebKitGTK + GTK3 build dependency. The default desktop build
+# keeps the WebView (and builds VST3).
+if(IS_LINUX AND VANE_LINUX_HEADLESS)
     target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
-    message(STATUS "Linux build is HEADLESS (no WebView UI; no WebKitGTK dependency)")
+    message(STATUS "Linux build is HEADLESS (MODEP/Pi: no WebView UI, no WebKitGTK, no VST3)")
 else()
     target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple / WebKitGTK on Linux
     if(IS_LINUX)

@@ -1,22 +1,25 @@
 # Vane on Raspberry Pi (MODEP + standalone)
 
 Vane has two Linux personalities, chosen at configure time by
-`VANE_LINUX_WEBVIEW` (default **OFF**). Build each into its **own** build dir.
+`VANE_LINUX_HEADLESS` (default **OFF** → the desktop build). Build each into
+its **own** build dir. The desktop build is the default everywhere (including
+here); the headless MODEP build is the Pi-specific opt-in.
 
-| Use case            | `VANE_LINUX_WEBVIEW` | Formats         | UI               | Audio        |
-|---------------------|----------------------|-----------------|------------------|--------------|
-| MODEP plugin        | OFF (default)        | LV2, Standalone | none (headless)  | host (JACK)  |
-| Desktop / VNC synth | ON                   | Standalone      | WebView (Vane UI)| JACK         |
+| Use case            | `VANE_LINUX_HEADLESS` | Formats               | UI               | Audio        |
+|---------------------|-----------------------|-----------------------|------------------|--------------|
+| Desktop / VNC synth | OFF (default)         | LV2, VST3, Standalone | WebView (Vane UI)| JACK         |
+| MODEP plugin        | ON                    | LV2, Standalone       | none (headless)  | host (JACK)  |
 
 ---
 
-## 1. MODEP (headless LV2) — the default
+## 1. MODEP (headless LV2) — the Pi opt-in
 
-No WebView, so no WebKitGTK/GTK3 dependency.
+No WebView, so no WebKitGTK/GTK3 dependency. **Pass `-DVANE_LINUX_HEADLESS=ON`**
+— the default build is now the desktop WebView one (§2), so MODEP is explicit.
 
 ```bash
 cd ~/Vane
-cmake -B build                       # VANE_LINUX_WEBVIEW defaults OFF
+cmake -B build -DVANE_LINUX_HEADLESS=ON   # headless: LV2 + Standalone, no WebView
 cmake --build build --target Vane_LV2 -j2
 sudo cp -r build/Vane_artefacts/Release/LV2/Vane.lv2 /var/modep/lv2/
 sudo systemctl restart modep-mod-ui modep-mod-host
@@ -34,10 +37,12 @@ The custom modgui is shelved on MODEP — see `Tools/modgui/README.md`.
 
 ---
 
-## 2. Standalone (WebView UI + JACK) — for use outside MODEP
+## 2. Standalone (WebView UI + JACK) — the default build, for use outside MODEP
 
 A normal JACK client with the full Vane UI, drivable over VNC. Runs alongside
 or instead of MODEP (it's a separate build dir; the MODEP LV2 is untouched).
+This is the **default** Linux build now (no flag needed) and it also produces
+the desktop plugin formats (LV2 + VST3) for a Linux DAW, not just the Standalone.
 
 ### Dependencies (one-time)
 ```bash
@@ -50,9 +55,10 @@ If `libwebkit2gtk-4.1-dev` isn't found, try `libwebkit2gtk-4.0-dev`.
 ### Build
 ```bash
 cd ~/Vane
-cmake -B build-app -DVANE_LINUX_WEBVIEW=ON -DCMAKE_BUILD_TYPE=Release
+cmake -B build-app -DCMAKE_BUILD_TYPE=Release   # desktop WebView is the default
 cmake --build build-app --target Vane_Standalone -j2
 # binary: build-app/Vane_artefacts/Release/Standalone/Vane
+# (this build dir also has Vane_VST3 and Vane_LV2 targets for a Linux DAW)
 ```
 **Set `-DCMAKE_BUILD_TYPE=Release`** — without it CMake builds `-O0` (no
 optimisation): much higher CPU and audible glitches. If your artefacts land in
