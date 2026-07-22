@@ -431,9 +431,24 @@ WebVaneEditor::WebVaneEditor (VaneProcessor& p)
     : AudioProcessorEditor (p), proc (p), webView (buildOptions (this))
 {
     addAndMakeVisible (webView);
+#if JUCE_IOS
+    // On iOS the editor is shown at (standalone) or scaled to (AUv3) the device
+    // screen — it is NOT freely resized like a desktop window. The desktop 640px
+    // minimum width would force the view wider than an iPhone (402pt) and clip the
+    // right edge; the WebUI is responsive down to narrow phone widths, so let it.
+    // Fill the screen for the standalone; the AUv3 host will size us as it sees fit
+    // (resizable so the host can, but no draggable corner on a touch screen).
+    setResizable (true, false);
+    setResizeLimits (320, 380, 2200, 1600);
+    if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        setSize (d->userArea.getWidth(), d->userArea.getHeight());
+    else
+        setSize (402, 800);
+#else
     setResizable (true, true);
     setResizeLimits (640, 420, 2200, 1600);
     setSize (920, 600);
+#endif
 
     for (auto* param : proc.apvts.processor.getParameters())
         if (auto* pwid = dynamic_cast<juce::AudioProcessorParameterWithID*> (param)) {
