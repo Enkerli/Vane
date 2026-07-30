@@ -74,6 +74,15 @@ else()
 endif()
 
 # ── Plugin ────────────────────────────────────────────────────────────────────
+# ── Installing built plugins ──────────────────────────────────────────────────
+# Mirrors enkerli-juce/cmake/EnkerliPlugin.cmake, which Vane reimplements inline
+# (it resolves JUCE independently). Desktop builds hardcoded TRUE, so
+# suite-build --no-install silently did nothing here and a Vane branch build
+# would still have taken over the installed plugin — the exact hazard that flag
+# exists to prevent. iOS stays FALSE below regardless: a cross-compile has no
+# install location on the build host.
+option(ENKERLI_INSTALL_PLUGINS "Copy built plugins into the user plug-in folders" ON)
+
 set(PLUGIN_BASE_PROPS
     COMPANY_NAME                "Enkerli"
     COMPANY_WEBSITE             "https://enkerli.com"
@@ -92,7 +101,8 @@ set(PLUGIN_BASE_PROPS
     ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-1024.png"
     ICON_SMALL                  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-128.png"
     # COPY_PLUGIN_AFTER_BUILD is set per-platform below — it must be FALSE for
-    # iOS cross-compiles (there is no plugin install location on the build host).
+    # iOS cross-compiles (there is no plugin install location on the build host),
+    # and follows ENKERLI_INSTALL_PLUGINS on the desktop platforms.
 )
 
 # Apple Developer Team ID — used for iOS signing.
@@ -121,7 +131,7 @@ elseif(IS_MACOS)
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
         FORMATS                     AU AUv3 VST3 Standalone
-        COPY_PLUGIN_AFTER_BUILD     TRUE
+        COPY_PLUGIN_AFTER_BUILD     ${ENKERLI_INSTALL_PLUGINS}
         # JUCE unconditionally writes "network.client" and
         # "temporary-exception.files.all.read-write" into the AU's
         # Info.plist resourceUsage block.  Logic Pro (and GarageBand) treat
@@ -157,7 +167,7 @@ elseif(IS_LINUX)
         ${PLUGIN_BASE_PROPS}
         FORMATS                     ${_vane_linux_formats}
         LV2_URI                     "https://enkerli.com/plugins/vane"
-        COPY_PLUGIN_AFTER_BUILD     TRUE
+        COPY_PLUGIN_AFTER_BUILD     ${ENKERLI_INSTALL_PLUGINS}
     )
 else()
     # Windows (and any other desktop): VST3 is the plugin format there, and the
