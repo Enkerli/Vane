@@ -86,6 +86,46 @@ WebVaneEditor::provideResource (const juce::String& path)
 }
 
 // ── Options builder (bridge listeners) ──────────────────────────────────────────
+// ── Build stamp ───────────────────────────────────────────────────────────────
+/**
+ * JS run before the page loads: the binary's build time, plus a small badge.
+ *
+ * Vane is the one plugin with no bundling step — apps/vane/index.html is
+ * embedded verbatim as BinaryData — so there is no bundle to stamp separately
+ * and no esbuild --inject point. The binary's own time is therefore the whole
+ * answer here: the HTML inside it is whatever was embedded at link time.
+ *
+ * Same purpose as the other six: knowing WHICH build is running should not need
+ * detective work. On 2026-07-29 a two-day-old WebUI rode inside a fresh Serpe
+ * binary and its UI rejected a string the engine parsed; nothing on screen said
+ * so, and it cost hours.
+ */
+static juce::String buildStampScript()
+{
+    const auto self = juce::File::getSpecialLocation (juce::File::currentApplicationFile);
+    const auto when = self.exists()
+        ? self.getLastModificationTime().formatted ("%Y-%m-%d %H:%M")
+        : juce::String ("unknown");
+    const auto tag = juce::JSON::toString (when);
+    return "window.__CPP_BUILD_TAG__ = " + tag
+         + "; window.__CPP_COMPILED__ = "
+         + juce::JSON::toString (juce::String (__DATE__ " " __TIME__)) + ";"
+           "(() => { const show = () => {"
+           "  if (!document.body || document.getElementById('es-build-tag')) return;"
+           "  const el = document.createElement('div'); el.id = 'es-build-tag';"
+           "  el.textContent = 'bin ' + window.__CPP_BUILD_TAG__;"
+           "  el.title = 'Binary produced ' + window.__CPP_BUILD_TAG__"
+           "    + '\\nThis TU compiled ' + window.__CPP_COMPILED__"
+           "    + '\\n\\nVane embeds its UI verbatim, so there is no separate bundle stamp.';"
+           "  el.style.cssText = 'position:fixed;right:6px;bottom:4px;z-index:2147483000;"
+           "font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;"
+           "color:var(--es-fg-muted,#8a8a8a);opacity:.55;pointer-events:none;"
+           "user-select:none;font-variant-numeric:tabular-nums;';"
+           "  document.body.appendChild(el); };"
+           "  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show);"
+           "  else show(); })();";
+}
+
 juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* owner)
 {
     using juce::WebBrowserComponent;
@@ -102,6 +142,7 @@ juce::WebBrowserComponent::Options WebVaneEditor::buildOptions (WebVaneEditor* o
         .withResourceProvider ([] (const juce::String& path)
             { return WebVaneEditor::provideResource (path); },
             WebBrowserComponent::getResourceProviderRoot())
+        .withUserScript (buildStampScript())
         .withNativeIntegrationEnabled()
        #if JUCE_MAC
         .withKeepPageLoadedWhenBrowserIsHidden()
