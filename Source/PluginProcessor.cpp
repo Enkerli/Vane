@@ -93,6 +93,11 @@ VaneProcessor::VaneProcessor()
         auto* pWgConical = apvts.getRawParameterValue("waveguideConical");
         auto* pWgNoise   = apvts.getRawParameterValue("waveguideBreathNoise");
         auto* pWgGrowl   = apvts.getRawParameterValue("waveguideGrowl");
+        auto* pSbMode    = apvts.getRawParameterValue("synthBreathMode");
+        auto* pSbAtk     = apvts.getRawParameterValue("synthBreathAttack");
+        auto* pSbDec     = apvts.getRawParameterValue("synthBreathDecay");
+        auto* pSbSus     = apvts.getRawParameterValue("synthBreathSustain");
+        auto* pSbRel     = apvts.getRawParameterValue("synthBreathRelease");
         for (auto* v : voicePtrs) {
             if (v) {
                 v->setTransientLibrary(&transientLib);
@@ -100,6 +105,7 @@ VaneProcessor::VaneProcessor()
                                       pTrReso, pTrDamp, pTrMorph);
                 v->setWaveguideParams(pWgOn, pWgEmb, pWgStiff, pWgAper, pWgDamp,
                                       pWgBell, pWgConical, pWgNoise, pWgGrowl);
+                v->setSynthBreathParams(pSbMode, pSbAtk, pSbDec, pSbSus, pSbRel, &sawRealExpression);
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setWaveguideHandoff(&lastWaveguideVoice);
@@ -588,6 +594,19 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         if (msg.isController()) {
             const int cc = msg.getControllerNumber();
             if (modOK) modMatrix.setCCValue(cc, static_cast<float>(msg.getControllerValue()) / 127.0f);
+            // Has a real wind controller ever spoken on this instance? Only the
+            // breath and expression CCs count — CC74 streams from any MPE
+            // keyboard whether or not the player is blowing, so counting it
+            // would switch synthetic breath off for exactly the keyboard
+            // players it exists for. Latching, never cleared: a controller that
+            // goes quiet mid-session has not stopped existing, and flipping
+            // back would make the reed speak by itself between phrases.
+            {
+                const int bCC = pMacroBreathCC ? (int) std::lround(pMacroBreathCC->load()) : 2;
+                const int eCC = pMacroExprCC   ? (int) std::lround(pMacroExprCC->load())   : 11;
+                if (cc == bCC || cc == eCC)
+                    sawRealExpression.store(true, std::memory_order_relaxed);
+            }
             // MIDI-learn: capture the first CC seen while armed — but EXCLUDE the
             // CCs already used by the fixed sources (CC74 = MPE timbre/slide, and
             // the breath/expression CCs), so just playing a note (which streams
@@ -603,6 +622,9 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         }
         else if (msg.isChannelPressure()) {
             if (modOK) modMatrix.setAftertouch(static_cast<float>(msg.getChannelPressureValue()) / 127.0f);
+            // Pressure counts too — an MPE controller IS an expression source.
+            if (msg.getChannelPressureValue() > 0)
+                sawRealExpression.store(true, std::memory_order_relaxed);
         }
         else if (msg.isNoteOn())
             meterVelocity.store (msg.getFloatVelocity(), std::memory_order_relaxed);  // held until next note
@@ -1441,6 +1463,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // Display names are plain ASCII (see CLAUDE.md).
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"waveguideOn", 1}, "Waveguide Mode", false));
+
+    // ── Synthetic breath ───────────────────────────────────────────────────
+    // Stands in for a wind controller when the input is only notes+velocity
+    // (a sequencer, a piano roll, most keyboards). Without it the waveguide is
+    // SILENT from that input — measured, docs/sequencer-playability.md.
+    //
+    // Default AUTO, and that is safe rather than bold: Auto engages only when
+    // no breath/expression/pressure message has EVER arrived on this instance,
+    // so a real controller — even one sitting at zero — keeps the reed's own
+    // speaking threshold and its subtone. Nothing an existing player does
+    // changes; only the case that currently makes no sound at all.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"synthBreathMode", 1}, "Synthetic Breath",
+        juce::StringArray{"Off", "Auto", "Always"}, 1));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"synthBreathAttack", 1}, "Synth Breath Attack",
+        juce::NormalisableRange<float>(1.0f, 500.0f, 0.0f, 0.4f), 35.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"synthBreathDecay", 1}, "Synth Breath Decay",
+        juce::NormalisableRange<float>(1.0f, 1000.0f, 0.0f, 0.4f), 120.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"synthBreathSustain", 1}, "Synth Breath Sustain",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.80f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"synthBreathRelease", 1}, "Synth Breath Release",
+        juce::NormalisableRange<float>(1.0f, 2000.0f, 0.0f, 0.4f), 180.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"waveguideEmbouchure", 1}, "Waveguide Embouchure",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));

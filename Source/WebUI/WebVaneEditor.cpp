@@ -40,6 +40,11 @@ const ParamPair kParamMap[] = {
     { "WgReedAperture", "waveguideReedAperture" }, { "WgBoreDamping", "waveguideBoreDamping" },
     { "WgBellBright", "waveguideBellBrightness" }, { "WgConical", "waveguideConical" },
     { "WgBreathNoise", "waveguideBreathNoise" }, { "WgGrowl", "waveguideGrowl" },
+    // Synthetic breath — the stand-in wind source when the input is only notes
+    // and velocity (a sequencer, a piano roll, most keyboards).
+    { "SbMode", "synthBreathMode" }, { "SbAtk", "synthBreathAttack" },
+    { "SbDec",  "synthBreathDecay" }, { "SbSus", "synthBreathSustain" },
+    { "SbRel",  "synthBreathRelease" },
 };
 juce::String uiToApvts (const juce::String& ui) {
     for (auto& p : kParamMap) if (ui == p.ui) return p.apvts;

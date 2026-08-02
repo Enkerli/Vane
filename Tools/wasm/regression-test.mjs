@@ -551,6 +551,66 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         dip > 0.6, `trough=${(dip*100).toFixed(0)}% of steady`);
 }
 
+// ── 14b. Synthetic breath: the sequencer case. A plain note — no breath CC, no
+//      expression, no pressure — used to produce SILENCE (peak 0.00000, measured
+//      in docs/sequencer-playability.md). The envelope stands in for the wind
+//      source. Off must still be silent (the old behaviour stays reachable), and
+//      Auto must stand down the moment a real controller speaks. Mirrors the
+//      plugin's SYNTHBREATH RenderProbe scenario. ──
+{
+  const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };
+  async function seqNote(mode, { realBreath = false } = {}) {
+    const e = await fresh();
+    e.vane_init(48000); e.vane_set_param(8, 0.8); e.vane_set_mono(1);
+    for (let s = 0; s < 24; s++) e.vane_set_slot(s, 0, 0, 0, 0, 0);   // no routes at all
+    e.vane_set_param(30, 1);          // WaveguideOn
+    e.vane_set_param(55, mode);       // 0 Off, 1 Auto, 2 Always
+    if (realBreath) e.vane_set_cc(2, 0.8);
+    e.vane_note_on(60, 100, 2);       // and NOTHING else — this is all a sequencer sends
+    for (let i = 0; i < 60; i++) render(e, 128);
+    return e;
+  }
+  const off    = rmsOf(await seqNote(0), 20);
+  const auto   = rmsOf(await seqNote(1), 20);
+  const always = rmsOf(await seqNote(2), 20);
+  check("synthetic breath: Off leaves the sequencer case silent (old behaviour reachable)",
+        off < 1e-6, `rms=${off.toFixed(6)}`);
+  check("synthetic breath: Auto makes a plain note speak (was peak 0.00000)",
+        auto > 0.05, `rms=${auto.toFixed(4)}`);
+  check("synthetic breath: Always matches Auto when no controller is present",
+        Math.abs(always - auto) < auto * 0.05, `always=${always.toFixed(4)} auto=${auto.toFixed(4)}`);
+  // Auto must YIELD, not stack: with a real breath CC it should land on the
+  // same level Off does, not louder.
+  const offReal  = rmsOf(await seqNote(0, { realBreath: true }), 20);
+  const autoReal = rmsOf(await seqNote(1, { realBreath: true }), 20);
+  check("synthetic breath: Auto stands down for a real controller (yields, does not stack)",
+        Math.abs(autoReal - offReal) < offReal * 0.05,
+        `auto+real=${autoReal.toFixed(4)} vs off+real=${offReal.toFixed(4)}`);
+  // Melisma: slur without ever releasing. One breath, several pitches.
+  const e = await seqNote(1);
+  const steady = rmsOf(e, 16);
+  const env = [];
+  e.vane_note_on(64, 100, 2);        // slur up a third, still no controller
+  for (let i = 0; i < 40; i++) env.push(rmsOf(e, 1));
+  const dip = Math.min(...env) / steady;
+  check("synthetic breath: a slur keeps ONE breath across notes (melisma)",
+        dip > 0.6, `trough=${(dip*100).toFixed(0)}% of steady`);
+  // Negative control, so the check above cannot pass on a ringing bore alone.
+  // The gap must exceed the 100 ms mono legato-hold bridge — a shorter release
+  // is still legato by design, and a first version of this control used 80 ms
+  // and dutifully reported no difference.
+  const d = await seqNote(1);
+  const dSteady = rmsOf(d, 16);
+  d.vane_note_off(60, 2);
+  for (let i = 0; i < 94; i++) render(d, 128);     // 250 ms of real silence
+  const dEnv = [];
+  d.vane_note_on(64, 100, 2);
+  for (let i = 0; i < 40; i++) dEnv.push(rmsOf(d, 1));
+  const dDip = Math.min(...dEnv) / dSteady;
+  check("synthetic breath: a DETACHED note does re-attack (the melisma check bites)",
+        dDip < 0.2, `trough=${(dDip*100).toFixed(0)}% of steady, vs ${(dip*100).toFixed(0)}% slurred`);
+}
+
 // ── 15. Noise blend: type shapes the spectrum, blend is VCA-gated silence-safe. ──
 {
   const rmsOf = (e, blocks) => { const b = []; for (let i = 0; i < blocks; i++) b.push(...render(e, 128)); let s = 0; for (const v of b) s += v*v; return Math.sqrt(s/b.length); };

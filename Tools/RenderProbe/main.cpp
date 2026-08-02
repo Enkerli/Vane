@@ -220,6 +220,83 @@ int main()
         return 0;
     }
 
+    // Synthetic breath: the measurement that FOUND the silence, re-run against
+    // the wired envelope. Waveguide on, and deliberately NOT one breath,
+    // expression or pressure message — a plain note from a sequencer, which is
+    // what Serpe, `msuite play` and a DAW piano roll send.
+    //
+    //   Before wiring:  peak 0.00000  rms 0.00000   (docs/sequencer-playability.md)
+    //
+    // MODE=0|1|2 exercises Off / Auto / Always. Off must still be silent — that
+    // is the check that the envelope is genuinely opt-out and the old behaviour
+    // is still reachable. REAL=1 sends a real breath CC first, so Auto must
+    // step aside and behave exactly as Off did.
+    // MELISMA=1 slurs three notes and reports the worst dip between them: one
+    // breath across several pitches, not three attacks.
+    if (std::getenv("SYNTHBREATH")) {
+        auto setNorm=[&](const char* id,float v){ if(auto* p=proc.apvts.getParameter(id)) p->setValueNotifyingHost(v); };
+        setNorm("waveguideOn", 1.0f);
+        setNorm("monoMode", 1.0f);
+        const int mode = std::getenv("MODE") ? atoi(std::getenv("MODE")) : 1;
+        setNorm("synthBreathMode", mode / 2.0f);        // choice index → normalised
+        const bool real    = std::getenv("REAL") != nullptr;
+        const bool melisma  = std::getenv("MELISMA") != nullptr;
+        const bool detached = std::getenv("DETACHED") != nullptr;
+
+        std::vector<float> o; std::vector<double> blockRms;
+        const int nBlocks = (int)(sr*2.0/bs);
+        for (int b=0;b<nBlocks;++b){ buf.clear(); juce::MidiBuffer m;
+            // A real expression source, if we are testing that Auto yields to it.
+            if (real) m.addEvent(juce::MidiMessage::controllerEvent(1,2,100),0);
+            if (b==2) m.addEvent(juce::MidiMessage::noteOn(chan,note,vel),0);
+            if (melisma) {
+                // Slur up without ever releasing — mono legato, so the synth
+                // allocates a fresh voice each time and the envelope must be
+                // handed across it.
+                //
+                // DETACHED=1 is the negative control: release before each new
+                // note, so these are three separate breaths. It must dip where
+                // the slur does not — otherwise this probe is measuring nothing
+                // and would pass just as happily against a broken handoff.
+                // The release must come with a real GAP before the next note.
+                // A note-off in the same block as the next note-on is not a
+                // detached articulation: the voice still reads a live level and
+                // legato fires anyway. First version of this control did that
+                // and dutifully reported no dip — measuring nothing.
+                const int gap = (int)(sr*0.08/bs);
+                if (detached && b==(int)(sr*0.5/bs)-gap) m.addEvent(juce::MidiMessage::noteOff(chan,note),0);
+                if (b==(int)(sr*0.5/bs)) m.addEvent(juce::MidiMessage::noteOn(chan,note+4,vel),0);
+                if (detached && b==(int)(sr*1.0/bs)-gap) m.addEvent(juce::MidiMessage::noteOff(chan,note+4),0);
+                if (b==(int)(sr*1.0/bs)) m.addEvent(juce::MidiMessage::noteOn(chan,note+7,vel),0);
+            }
+            proc.processBlock(buf,m);
+            double sq=0; const float* rd=buf.getReadPointer(0);
+            for(int i=0;i<bs;++i){ o.push_back(rd[i]); sq+=(double)rd[i]*rd[i]; }
+            blockRms.push_back(std::sqrt(sq/bs)); }
+
+        double sq=0, peak=0; for(float x:o){ sq+=(double)x*x; peak=std::max(peak,(double)std::abs(x)); }
+        std::printf("[synthbreath] mode=%s%s%s note=%d peak=%.5f rms=%.5f\n",
+                    mode==0?"Off":mode==1?"Auto":"Always",
+                    real?" (real expression present)":"",
+                    melisma?(detached?" DETACHED (negative control)":" MELISMA"):"",
+                    note, peak, std::sqrt(sq/(double)std::max<size_t>(1,o.size())));
+
+        if (melisma) {
+            // Worst dip across the two slur boundaries, against the level the
+            // phrase was holding just before each. A re-attack shows up here as
+            // a deep dip; one continuous breath does not.
+            auto at=[&](double t){
+                return blockRms[std::min(blockRms.size()-1, (size_t)(t*sr/bs))]; };
+            for (double t : { 0.5, 1.0 }) {
+                double before = at(t-0.12), after = 1e9;   // before the gap opens
+                for (double u=t; u<t+0.12; u+=0.02) after = std::min(after, at(u));
+                std::printf("               slur at %.1fs: held %.4f → dipped to %.4f (%.0f%% retained)\n",
+                            t, before, after, before>0 ? 100.0*after/before : 0.0);
+            }
+        }
+        return 0;
+    }
+
     // Legato-continuity test: mono mode, sustained breath, slur note A→B; measure
     // the worst sample-to-sample jump at the boundary vs the steady-state slope.
     // A clean handoff → boundary jump ≈ steady slope (ratio ~1); a click → ratio≫1.

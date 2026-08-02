@@ -48,6 +48,18 @@ int main(){
   ck(reattack < mid,      "a non-legato note DOES re-attack — drops below its sustain");
   ck(reattack < justAfter, "and it lands lower than the legato case at the same moment");
 
+  // The synth allocates a FRESH voice for a mono legato note, so the melisma
+  // above only holds within one voice. Across the handoff the envelope starts
+  // Idle and needs the level the previous voice was publishing — same shared
+  // value the bore and VCA hand off on.
+  BreathEnvelope fresh; fresh.prepare(SR);
+  fresh.noteOn(0.7f, true, mid);              // new voice, mid-phrase
+  float handed = fresh.advance(BLK,p);
+  ck(handed > mid*0.9f, "a fresh voice inheriting the breath does NOT re-attack");
+  BreathEnvelope cold; cold.prepare(SR);
+  cold.noteOn(0.7f, true, 0.0f);              // legato claimed, nothing in the air
+  ck(cold.advance(BLK,p) < handed, "legato with no inherited breath still attacks");
+
   printf("\nrelease\n");
   BreathEnvelope d; d.prepare(SR); d.noteOn(0.9f,false); run(d,40); d.noteOff();
   float mid_r = run(d,8); ck(mid_r>0.0f && mid_r<0.9f, "decays after note-off, not instant");

@@ -66,6 +66,7 @@ SynthVoice::SynthVoice(ModMatrix& matrix, TuningClient& t,
 
 void SynthVoice::prepare(double sr, int blockSize)
 {
+    synthBreath.prepare(sr);
     sampleRate = sr;
     osc.prepare(sr);
     for (auto& o : unisonOscs) o.prepare(sr);
@@ -226,6 +227,14 @@ void SynthVoice::noteStarted()
     // TODO: test whether this threshold needs to be different for non-breath-controller
     // players (keyboards with sustain pedal) where VCA doesn't track air pressure.
     bool  isLegato = (initVCA > 0.02f);
+
+    // Synthetic breath follows the SAME legato decision as the bore and the
+    // VCA, which is what makes several notes share one breath (melisma). Note
+    // the standing TODO just above about this threshold for non-breath players
+    // — that question and this feature are the same question, and the answer
+    // here is that a keyboard player's legato is exactly when the envelope must
+    // NOT re-attack.
+    synthBreath.noteOn(velocity, isLegato && isMono, initVCA);
     smoothedVCA.setCurrentAndTargetValue(initVCA);
 
     // Waveguide: clear every unison slot's bore only on non-legato attacks.
@@ -574,6 +583,7 @@ void SynthVoice::noteStarted()
 
 void SynthVoice::noteStopped(bool allowTailOff)
 {
+    synthBreath.noteOff();
     if (allowTailOff) {
         isTailingOff = true;
     } else {
@@ -775,8 +785,34 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         // Block-rate is fine — the engine smooths breath internally (20 ms).
         const float breathM = modMatrix.macroValueForVoice(0, voiceVals);   // MacroBreath
         const float exprM   = modMatrix.macroValueForVoice(1, voiceVals);   // MacroExpr
+        // Synthetic breath: a stand-in wind source when the input is only
+        // notes and velocity. It joins the SAME max() as everything else, so
+        // it can only ever add a floor-with-a-shape and never overrides a
+        // player who is actually blowing.
+        //
+        // Auto steps aside the moment a real breath/expression/pressure
+        // message has been seen on this instance — that latch, not the current
+        // VALUE, is the test: a controller resting at zero is a player choosing
+        // silence, and the reed's own speaking threshold should give it.
+        float synth = 0.0f;
+        if (paramSbMode != nullptr)
+        {
+            const int mode = (int) std::lround(paramSbMode->load());   // 0 Off, 1 Auto, 2 Always
+            const bool sawReal = sharedSawRealExpression != nullptr
+                              && sharedSawRealExpression->load(std::memory_order_relaxed);
+            if (mode == 2 || (mode == 1 && !sawReal))
+            {
+                BreathEnvelope::Params bp;
+                if (paramSbAttack)  bp.attackMs  = paramSbAttack->load();
+                if (paramSbDecay)   bp.decayMs   = paramSbDecay->load();
+                if (paramSbSustain) bp.sustain   = paramSbSustain->load();
+                if (paramSbRelease) bp.releaseMs = paramSbRelease->load();
+                synth = synthBreath.advance(numSamples, bp);
+            }
+            else synthBreath.reset();
+        }
         wgBreath = clamp01(std::max({ breathM, exprM, pressure,
-                                      veloMix * std::sqrt(velocity) }));
+                                      veloMix * std::sqrt(velocity), synth }));
         wgIn.params.breath = wgBreath;
     }
 

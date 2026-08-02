@@ -1,4 +1,5 @@
 #pragma once
+#include "BreathEnvelope.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <array>
 #include <atomic>
@@ -147,6 +148,22 @@ public:
     // sound source; everything downstream (noise blend, fold, SVF, vowel,
     // transients, VCA) is unchanged.  All pointers may be null — the mode
     // gracefully disables.  Follows the setTransientParams() wiring pattern.
+    /** Synthetic breath — the stand-in wind source for note-only input.
+        `sawRealExpression` is the processor's latch: Auto mode steps aside
+        once a real breath/expression/pressure message has arrived, so this
+        never competes with a controller that exists. All pointers may be null;
+        the feature disables. */
+    void setSynthBreathParams(std::atomic<float>* mode,
+                              std::atomic<float>* attackMs,
+                              std::atomic<float>* decayMs,
+                              std::atomic<float>* sustain,
+                              std::atomic<float>* releaseMs,
+                              std::atomic<bool>*  sawRealExpression) noexcept {
+        paramSbMode = mode; paramSbAttack = attackMs; paramSbDecay = decayMs;
+        paramSbSustain = sustain; paramSbRelease = releaseMs;
+        sharedSawRealExpression = sawRealExpression;
+    }
+
     void setWaveguideParams(std::atomic<float>* on,
                             std::atomic<float>* embouchure,
                             std::atomic<float>* reedStiffness,
@@ -406,6 +423,17 @@ private:
     const TransientLibrary* transientLib = nullptr;
     SamplePlayer            transientPlayer;
     float                   transientEnvLevel = 0.0f;   // current decay envelope (0..1)
+
+    // Synthetic breath (BreathEnvelope.h). Per voice, but inherited across a
+    // mono legato transition like the bore and the VCA — that inheritance IS
+    // the melisma behaviour: several notes inside one breath.
+    BreathEnvelope          synthBreath;
+    std::atomic<float>*     paramSbMode = nullptr;
+    std::atomic<float>*     paramSbAttack = nullptr;
+    std::atomic<float>*     paramSbDecay = nullptr;
+    std::atomic<float>*     paramSbSustain = nullptr;
+    std::atomic<float>*     paramSbRelease = nullptr;
+    std::atomic<bool>*      sharedSawRealExpression = nullptr;
     std::vector<float>      transientScratch;            // mono render scratch, sized in prepare()
     float                   transientGainMul  = 1.0f;   // per-trigger gain jitter (round-robin)
     SVFilter                transientFilter;             // shares the voice filter's coeffs when routed

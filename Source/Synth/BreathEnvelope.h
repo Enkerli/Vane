@@ -55,15 +55,24 @@ public:
     float current() const  { return level; }
 
     /**
-     * @param velocity 0..1
-     * @param legato   true when this note continues a phrase already sounding.
-     *                 The envelope then keeps its level and only re-aims — one
-     *                 breath across several notes.
+     * @param velocity    0..1
+     * @param legato      true when this note continues a phrase already
+     *                    sounding. The envelope then keeps its level and only
+     *                    re-aims — one breath across several notes.
+     * @param resumeLevel the breath already in the air, for the case where the
+     *                    synth allocates a FRESH VOICE for a legato note (which
+     *                    JUCE mono legato does). This envelope is per-voice, so
+     *                    without a handoff every slur would land on an Idle
+     *                    envelope and re-attack — the exact artefact legato
+     *                    exists to avoid. The voice passes the same shared
+     *                    level it uses to hand off the bore and the VCA.
      */
-    void noteOn (float velocity, bool legato)
+    void noteOn (float velocity, bool legato, float resumeLevel = 0.0f)
     {
         peak = std::clamp (velocity, 0.0f, 1.0f);
-        if (legato && stage != Stage::Idle)
+        if (legato && stage == Stage::Idle && resumeLevel > 0.0f)
+            level = std::clamp (resumeLevel, 0.0f, 1.0f);   // inherited breath
+        if (legato && (stage != Stage::Idle || level > 0.0f))
         {
             // Mid-phrase: no new attack. Go straight to the sustain segment at
             // whatever level we are already at, so a louder note swells rather

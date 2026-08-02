@@ -42,6 +42,7 @@
 #include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
 #include "MiniSaxVoice.h"       // the REAL waveguide reed/bore engine (MiniSax — std-lib only)
+#include "Synth/BreathEnvelope.h" // synthetic breath for note-only input (shared header, std-lib only)
 #include "Synth/SamplePlayer.h" // one-shot PCM transient player (pure std, no JUCE)
 #include "Synth/CombResonator.h"// Karplus-Strong pitch resonator (pure std)
 #include <algorithm>
@@ -164,6 +165,15 @@ bool  gWgOn = false;       // [id 30]
 float pWgEmbouchure = 0.5f, pWgReedStiff = 0.5f, pWgAperture = 0.5f;   // [31..33]
 float pWgDamping = 0.2f, pWgBell = 0.7f, pWgConical = 0.62f;           // [34..36]
 float pWgNoise = 0.05f, pWgGrowl = 0.0f;                               // [37..38]
+
+// Synthetic breath [55..59] — the stand-in wind source for note-only input.
+// Mirrors SynthVoice; the envelope itself is the SHARED header, not a second
+// copy, because this file already reimplements enough of the voice glue.
+int   pSbMode = 1;                                                     // [55] 0 Off, 1 Auto, 2 Always
+float pSbAtk = 35.0f, pSbDec = 120.0f, pSbSus = 0.80f, pSbRel = 180.0f;// [56..59]
+// Latched once a real breath/expression/pressure message arrives, never
+// cleared: a controller resting at zero is a player choosing silence.
+bool  gSawRealExpression = false;
 constexpr float kWgMakeupGain = 2.5f;   // engine peaks ~0.4 at full breath — same constant as SynthVoice
 
 // ── Stereo unison / rotating chords (SynthVoice parity) ──────────────────────
@@ -407,6 +417,10 @@ struct Voice {
     float    noisePinkB[7] = {};
     float    noiseBrownAcc = 0.0f;
 
+    // Synthetic breath — per voice, handed across a mono legato transition
+    // exactly like the bore below (see startNote).
+    BreathEnvelope synthBreath;
+
     // Waveguide (MiniSax) engine — one bore per voice. Reset on non-legato
     // attacks only; mono legato REUSES this voice slot, so the bore keeps
     // ringing across a slur for free (the plugin needs an explicit cross-voice
@@ -551,6 +565,7 @@ void vane_init (double sampleRate) {
         // breath noise across voices — same intent as SynthVoice's seeds).
         v.wgSeed = minisax::NoiseGenerator::defaultSeed ^ (uint32_t) (vi * 0x9E3779B1u);
         v.wg.prepare (sampleRate, v.wgSeed);
+        v.synthBreath.prepare (sampleRate);
         v.noiseWhiteState = 0x9E3779B97F4A7C15ULL ^ (uint64_t) vi;
         for (auto& b : v.noisePinkB) b = 0.0f;
         v.noiseBrownAcc = 0.0f;
@@ -624,6 +639,10 @@ void vane_set_mono (int isMono) {
 void vane_set_cc (int cc, float v01) {
     if (cc == 2)  ccBreathRaw = v01;
     else if (cc == 11) ccExprRaw = v01;
+    // Breath and expression only — deliberately NOT CC74, which streams from
+    // any MPE keyboard and would make Auto stand down for a player who has no
+    // wind controller at all. Plugin parity.
+    if ((cc == 2 || cc == 11) && v01 > 0.0f) gSawRealExpression = true;
 }
 
 // Triggers (or, in mono, retargets) the sounding voice for `note`. Shared by a
@@ -653,6 +672,12 @@ void startNote (int note, int vel, int channel) {
     v.active = true; v.note = note; v.channel = channel; v.vel = vel / 127.0f;
     v.keytrack = ((float) note - 60.0f) / 48.0f;              // bipolar around C4, ±4 oct → ±1
     if (v.keytrack > 1.0f) v.keytrack = 1.0f; else if (v.keytrack < -1.0f) v.keytrack = -1.0f;
+    // Synthetic breath takes the SAME legato decision as the bore and the VCA
+    // below — that is what puts several notes inside one breath (melisma).
+    // monoLastVCA is the resume level: mono here reuses the voice slot so the
+    // envelope is already running, but the plugin allocates a fresh voice, and
+    // passing it keeps the two implementations honest.
+    v.synthBreath.noteOn (v.vel, legato && gMono, monoLastVCA);
     // VCA/tail and expression: legato CONTINUES the current state so a phrase
     // sounds like one gesture, not a string of re-triggers. A fresh attack
     // resets everything and lets the breath-driven VCA open the voice.
@@ -825,12 +850,17 @@ void vane_note_off (int note, int channel) {
             } else {
                 v.releasing = true;                  // poly: each note releases at once (matches per-note behaviour)
             }
+            // The breath dies either way. If a next note arrives inside the mono
+            // bridge window it re-aims through the legato path above, so a trill
+            // does not get chopped by this.
+            v.synthBreath.noteOff();
         }
 }
 
 // Per-MPE-channel expression update (applies to the sounding voice on that channel).
 void vane_set_expr (int channel, float bend, float slide, float pressure) {
     if (channel >= 1 && channel <= 16) gChPress[channel] = pressure;   // for the mono max-pressure driver
+    if (pressure > 0.0f) gSawRealExpression = true;
     for (auto& v : voices)
         if (v.active && v.channel == channel) { v.bend = bend; v.slide = slide; v.pressure = pressure; }
 }
@@ -887,6 +917,11 @@ void vane_set_param (int id, float val) {
         case 52: pTrMorph   = val; break;
         case 53: pGlideMode  = (int) (val + 0.5f); break;
         case 54: pGlideCurve = (int) (val + 0.5f); break;
+        case 55: pSbMode = (int) (val + 0.5f); if (pSbMode < 0) pSbMode = 0; else if (pSbMode > 2) pSbMode = 2; break;
+        case 56: pSbAtk  = val; break;   // ms
+        case 57: pSbDec  = val; break;   // ms
+        case 58: pSbSus  = val; break;   // 0..1
+        case 59: pSbRel  = val; break;   // ms
         default: break;
     }
 }
@@ -1150,8 +1185,22 @@ void vane_render (int n) {
             wgIn.params.vibratoAirAmount   = 0.0f;
             wgIn.params.vibratoPitchAmount = 0.0f;
             wgIn.params.outputGain         = 1.0f;
+            // Synthetic breath joins the SAME max(), so it can only add a
+            // floor-with-a-shape and never overrides a player who is blowing.
+            // Auto stands down once a real expression message has been seen —
+            // the LATCH, not the current value.
+            float synth = 0.0f;
+            if (pSbMode == 2 || (pSbMode == 1 && ! gSawRealExpression)) {
+                BreathEnvelope::Params bp;
+                bp.attackMs = pSbAtk; bp.decayMs = pSbDec;
+                bp.sustain  = pSbSus; bp.releaseMs = pSbRel;
+                synth = v.synthBreath.advance (n, bp);
+            } else {
+                v.synthBreath.reset();
+            }
             wgIn.params.breath = clamp01 (std::max (std::max (breathS, exprS),
-                                                    std::max (pressS, pVelVCA * std::sqrt (v.vel))));
+                                                    std::max (std::max (pressS, synth),
+                                                              pVelVCA * std::sqrt (v.vel))));
         }
 
         // ── Stereo unison — SynthVoice's block-rate computation verbatim ────────
