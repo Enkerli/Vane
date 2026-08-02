@@ -62,7 +62,53 @@ breath source has been seen for N seconds, surface it in the UI — one line, no
 a modal. *Cost:* does not make Vane sequencer-playable by itself, but it turns
 an undiagnosable silence into a fixable one, and it composes with A or B.
 
-**Recommendation: C plus A.** C is unambiguously right — the current behaviour
+### Decided 2026-08-02: a synthetic breath ENVELOPE, not a flat floor
+
+Alex: *"apply the equivalent of an ADSR envelope (or at least an AD one) when
+the incoming MIDI messages only send notes with velocity."*
+
+That is a better answer than any of A/B/C, and it dissolves the objection to B.
+A flat velocity floor could not tell "no controller" from "breath deliberately
+down" — but an envelope is not a floor. It has a shape, a beginning and an end,
+so it behaves like a source rather than a bias, and a patch built around real
+breath is unaffected because the envelope only ever contributes through the
+same `max()` the other sources already go through.
+
+`Source/Synth/BreathEnvelope.h` — deliberately NOT a generic ADSR:
+
+- **Attack is slow (35 ms default).** A reed does not snap; an instant attack is
+  what makes synthetic wind sound synthetic.
+- **Velocity scales the peak AND shortens the attack.** Blowing harder is both
+  louder and sooner — one gesture, two consequences.
+- **Legato does not retrigger.** The melisma case: several notes inside one
+  breath. A legato note re-aims the target and leaves the level alone, so a
+  slurred line keeps its shape. It mirrors what the voice already does with the
+  bore and the VCA across a mono legato transition, and it is why the class
+  takes `legato` rather than inferring it.
+
+Ten checks in `BreathEnvelope.test.cpp` (standalone, no CMake target), including
+both halves of the melisma contrast: a slur holds its level, a re-articulation
+drops below the sustain it was holding.
+
+**Toward qurves.** Alex wants these shapes recorded as DrawnQurve "qurves"
+eventually. `levelFor` is written as a pure function of a phase and the segment
+times precisely so a curve lookup can replace the ramp arithmetic without moving
+anything else around it.
+
+### Still to wire
+
+The class exists and is tested; it is not yet connected. Remaining: a
+`setSynthBreathParams` group on `SynthVoice` (following `setWaveguideParams`,
+the later and better pattern than the 24-atomic constructor), the envelope
+joining the `wgBreath` `max()`, an Off/Auto/Always mode, and a RenderProbe
+scenario measuring that a plain note now sounds — the same measurement that
+found the silence.
+
+---
+
+## The original three options, kept as the record
+
+**Recommendation was: C plus A.** C is unambiguously right — the current behaviour
 is unexplainable from inside the app, and that is worth fixing on its own terms.
 A is the smaller of the two audio changes and only affects new instances, but it
 does change the instrument's out-of-box dynamics, which is Alex's call and not
