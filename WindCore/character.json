@@ -1,0 +1,480 @@
+{
+ "about": "The character controls of WindCore: what a player would call them, the model setting each one moves, and what was measured when it moves. Every control runs 0 to 1. An interface can be generated from this file.",
+ "groups": [
+  {
+   "id": "player",
+   "label": "Player",
+   "hint": "What the person does: mouth shape, embouchure, air."
+  },
+  {
+   "id": "mouthpiece",
+   "label": "Mouthpiece and reed",
+   "hint": "What is in the mouth: reed, chamber, baffle."
+  },
+  {
+   "id": "horn",
+   "label": "Horn",
+   "hint": "The tube: cone, tone holes, bell."
+  },
+  {
+   "id": "hands",
+   "label": "Fingers and tongue",
+   "hint": "How notes begin and change."
+  },
+  {
+   "id": "life",
+   "label": "Life",
+   "hint": "What the player's body does to a held note. All at zero is a perfectly still player."
+  }
+ ],
+ "controls": [
+  {
+   "id": "mouth",
+   "label": "Mouth shape",
+   "group": "player",
+   "param": "vowel",
+   "lo": 0,
+   "hi": 1,
+   "scale": "lin",
+   "default": 0.5,
+   "ends": [
+    "oo",
+    "ee"
+   ],
+   "unit": "",
+   "display": "two resonance markers on a spectrum, fixed in Hz, sliding as the vowel changes",
+   "says": "The vowel the mouth makes, heard as two resonances that stay at the same frequencies whatever the note: oo at one end, ah in the middle, ee at the other. It can be played while holding a note.",
+   "basis": "A filter on the radiated sound, not a tract model: the physical tract upstream of the reed made no formant in this model. Li, Chen, Smith, Wolfe 2015 report 5-10 dB near a tuned tract resonance.",
+   "trim": false
+  },
+  {
+   "id": "mouthDepth",
+   "label": "Mouth strength",
+   "group": "player",
+   "param": "vowelDepth",
+   "lo": 0,
+   "hi": 10,
+   "scale": "lin",
+   "default": 3.0,
+   "ends": [
+    "open throat",
+    "strong vowel"
+   ],
+   "unit": "dB",
+   "display": "height of the same markers",
+   "says": "How strongly that vowel colours the sound, up to 10 dB at its upper resonance. At 0 the mouth is neutral. It does not change tuning.",
+   "basis": "Li, Chen, Smith, Wolfe 2015 (several harmonics moved 5-10 dB by expert players, much less by others)",
+   "trim": false
+  },
+  {
+   "id": "bite",
+   "label": "Embouchure",
+   "group": "player",
+   "param": "aperture",
+   "lo": 0.9,
+   "hi": 1.9,
+   "scale": "lin",
+   "default": 1.3,
+   "ends": [
+    "tight",
+    "loose"
+   ],
+   "unit": "",
+   "display": "reed tip gap",
+   "says": "How open the reed tip is held. Looser is louder and brighter, tighter is smaller and darker.",
+   "basis": "Wilson, Beavers 1974; Dalmont, Gilbert, Ollivier 2003"
+  },
+  {
+   "id": "air",
+   "label": "Air",
+   "group": "player",
+   "param": "air",
+   "lo": 0,
+   "hi": 0.1,
+   "scale": "square",
+   "default": 0.05,
+   "ends": [
+    "clean",
+    "breathy"
+   ],
+   "unit": "",
+   "display": "noise floor under the harmonics",
+   "says": "Turbulence in the air stream past the reed. It rides on the flow, so it pulses with each cycle and is heard through the horn, not laid on top. It is stronger low down and cleaner up high, as measured on saxophones.",
+   "basis": "Scavone 1996 (turbulent flow at the reed)"
+  },
+  {
+   "id": "reed",
+   "label": "Reed",
+   "group": "mouthpiece",
+   "param": "lay",
+   "lo": 0.3,
+   "hi": 0.01,
+   "scale": "log",
+   "default": 0.06,
+   "ends": [
+    "soft",
+    "hard"
+   ],
+   "unit": "",
+   "display": "reed closing curve",
+   "says": "How abruptly the reed closes against the mouthpiece. A soft, gradual closing rounds the tone, an abrupt one adds edge.",
+   "basis": "Avanzini, van Walstijn 2004 (reed bending on the lay)"
+  },
+  {
+   "id": "chamber",
+   "label": "Chamber",
+   "group": "mouthpiece",
+   "param": "chamber",
+   "lo": 1.8,
+   "hi": 1.0,
+   "scale": "lin",
+   "default": 1.3,
+   "ends": [
+    "large",
+    "small"
+   ],
+   "unit": "x missing-cone volume",
+   "display": "mouthpiece cross-section",
+   "says": "The volume inside the mouthpiece, which stands in for the missing tip of the cone. Large is darker and more spread, small is tighter and more focused. Well below this range the low notes jump to their octave.",
+   "basis": "Benade 1976; Kergomard et al. 2019"
+  },
+  {
+   "id": "baffle",
+   "label": "Baffle",
+   "group": "mouthpiece",
+   "param": "baffle",
+   "lo": 8,
+   "hi": 1.5,
+   "scale": "log",
+   "default": 3,
+   "ends": [
+    "low",
+    "high"
+   ],
+   "unit": "",
+   "display": "mouthpiece cross-section",
+   "says": "How far up the spectrum the chamber keeps absorbing. A high baffle lets the upper harmonics through: more buzz and cut.",
+   "basis": "A simplification of ours: the chamber as a volume behind a resistance"
+  },
+  {
+   "id": "cone",
+   "label": "Cone",
+   "group": "horn",
+   "param": "coneBeta",
+   "lo": 0.24,
+   "hi": 0.36,
+   "scale": "lin",
+   "default": 0.3,
+   "ends": [
+    "slender",
+    "stubby"
+   ],
+   "unit": "share of the cone that is missing",
+   "display": "waveform: share of the cycle the reed is closed",
+   "says": "How much of the cone is cut off at the top. It sets how long the reed stays closed in each cycle, and so which harmonics are hollowed out: near 0.33 the third is weak, toward 0.5 the even ones go, as on a clarinet.",
+   "basis": "Dalmont, Gilbert, Kergomard 2000; Kergomard et al. 2019"
+  },
+  {
+   "id": "holes",
+   "label": "Tone holes",
+   "group": "horn",
+   "param": "cutoffK",
+   "lo": 140,
+   "hi": 320,
+   "scale": "log",
+   "default": 200,
+   "ends": [
+    "covered",
+    "open"
+   ],
+   "unit": "Hz x m",
+   "display": "cutoff line on a spectrum",
+   "says": "The frequency above which sound leaves through the open holes instead of travelling back up the horn. Higher gives more ringing upper harmonics and a little less level.",
+   "basis": "Benade 1976 (tone-hole lattice cutoff)"
+  },
+  {
+   "id": "bell",
+   "label": "Bell",
+   "group": "horn",
+   "param": "bell",
+   "lo": 0,
+   "hi": 14,
+   "scale": "lin",
+   "default": 8,
+   "ends": [
+    "dark",
+    "bright"
+   ],
+   "unit": "dB above 2 kHz",
+   "display": "tilt on a spectrum",
+   "says": "A plain tilt of the radiated sound. It changes nothing in how the horn plays.",
+   "basis": "None: an equaliser"
+  },
+  {
+   "id": "body",
+   "label": "Body",
+   "group": "horn",
+   "param": "body",
+   "lo": 0,
+   "hi": 2,
+   "scale": "lin",
+   "default": 1.0,
+   "trim": false,
+   "ends": [
+    "plain",
+    "full"
+   ],
+   "unit": "x measured",
+   "display": "fixed peaks and dips on a spectrum, staying put as notes move",
+   "says": "Peaks and dips that stay at the same frequencies whatever the note: a hump near 450 Hz, a dip near 800 Hz, humps from 1.6 to 3 kHz, less above 5 kHz. Every collected saxophone has such a pattern; without it this model had less than any of them.",
+   "basis": "Measured on the collected sources (tools/body.py); Kergomard et al. 2019 (fixed anti-formants of conical reed instruments)"
+  },
+  {
+   "id": "bodySize",
+   "label": "Body size",
+   "group": "horn",
+   "param": "bodySize",
+   "lo": 0.7,
+   "hi": 1.5,
+   "scale": "log",
+   "default": 1.0,
+   "trim": false,
+   "ends": [
+    "large",
+    "small"
+   ],
+   "unit": "x frequency",
+   "display": "the same pattern sliding down or up",
+   "says": "Slides the whole body pattern down (a larger body) or up (a smaller one). It already moves with the range: lower for baritone notes, higher for alto and soprano notes.",
+   "basis": "Kergomard et al. 2019 (the pattern scales with the missing cone's length)"
+  },
+  {
+   "id": "fingers",
+   "label": "Fingers",
+   "group": "hands",
+   "param": "keyTime",
+   "lo": 0.003,
+   "hi": 0.03,
+   "scale": "log",
+   "default": 0.01,
+   "trim": false,
+   "ends": [
+    "snappy",
+    "lazy"
+   ],
+   "unit": "s",
+   "display": "two bore lengths crossfading",
+   "says": "How long a key takes to open or close in a slur. During that time the horn has two lengths at once, as with a half-open hole.",
+   "basis": "Hofmann, Goebl 2014 (finger actions dominate timing)"
+  },
+  {
+   "id": "tongue",
+   "label": "Tongue",
+   "group": "hands",
+   "param": "tongueTime",
+   "lo": 0.002,
+   "hi": 0.02,
+   "scale": "log",
+   "default": 0.005,
+   "trim": false,
+   "ends": [
+    "hard",
+    "soft"
+   ],
+   "unit": "s",
+   "display": "attack envelope",
+   "says": "How fast the tongue leaves the reed at the start of a tongued note.",
+   "basis": "Li, Almeida, Smith, Wolfe 2016; Pamies-Vila et al. 2019"
+  },
+  {
+   "id": "chiff",
+   "label": "Chiff",
+   "group": "hands",
+   "param": "chiff",
+   "lo": 0,
+   "hi": 3.0,
+   "scale": "lin",
+   "default": 0.8,
+   "trim": false,
+   "ends": [
+    "clean",
+    "breathy"
+   ],
+   "unit": "",
+   "display": "onset noise envelope",
+   "says": "A rush of air when a note starts after the tongue or a rest. Its colour is set by Chiff colour; at the top of the range the start is blurred but louder than the note.",
+   "basis": "Scavone 1996 (tongued attacks: a pressure burst and turbulent flow); measured on the collected sources"
+  },
+  {
+   "id": "chiffColor",
+   "label": "Chiff colour",
+   "group": "hands",
+   "param": "chiffColor",
+   "lo": 0,
+   "hi": 1,
+   "scale": "lin",
+   "default": 0.0,
+   "trim": false,
+   "ends": [
+    "reed",
+    "air"
+   ],
+   "unit": "",
+   "display": "onset noise spectrum",
+   "says": "What the onset air sounds like. Reed: darker, rougher noise, mostly through the horn, as a saxophone or clarinet starts. Air: a bright hiss heard directly, as a flute starts.",
+   "basis": "Measured on the collected saxophones: their first 30 ms is no brighter than the settled note"
+  },
+  {
+   "id": "bloom",
+   "label": "Bloom",
+   "group": "hands",
+   "param": "bloom",
+   "lo": 0,
+   "hi": 0.2,
+   "scale": "lin",
+   "default": 0.09,
+   "trim": false,
+   "ends": [
+    "instant",
+    "slow"
+   ],
+   "unit": "s",
+   "display": "brightness over the first tenth of a second",
+   "says": "After a tongued start the sound opens from dark to full over this time, as a saxophone's upper harmonics arrive after its fundamental. At instant, all harmonics start together.",
+   "basis": "Measured on modelled and recorded saxophone attacks (upper harmonics tens of ms after the first); our soprano notes"
+  },
+  {
+   "id": "keyNoise",
+   "label": "Key noise",
+   "group": "hands",
+   "param": "keyNoise",
+   "lo": 0,
+   "hi": 1,
+   "scale": "lin",
+   "default": 0.3,
+   "trim": false,
+   "ends": [
+    "silent",
+    "noisy"
+   ],
+   "unit": "",
+   "display": "onset noise envelope at a slur",
+   "says": "A smaller rush of air when the fingers move in a slur, as the air finds the new note.",
+   "basis": ""
+  },
+  {
+   "id": "wobble",
+   "label": "Wobble",
+   "group": "life",
+   "param": "wobble",
+   "lo": 0,
+   "hi": 3,
+   "scale": "lin",
+   "default": 0.5,
+   "trim": false,
+   "ends": [
+    "steady",
+    "restless"
+   ],
+   "unit": "dB",
+   "display": "level trace of a held note",
+   "says": "Slow random movement of the breath, so a held note's level never sits still. The collected saxophones move about 1.4 dB within a note; this model moved 0.2.",
+   "basis": "Measured on the collected sources; Ramirez et al. 2007 (amplitude deviations identify players)"
+  },
+  {
+   "id": "shimmer",
+   "label": "Shimmer",
+   "group": "life",
+   "param": "shimmer",
+   "lo": 0,
+   "hi": 0.25,
+   "scale": "lin",
+   "default": 0.04,
+   "trim": false,
+   "ends": [
+    "fixed",
+    "shifting"
+   ],
+   "unit": "",
+   "display": "harmonics of a held note over time",
+   "says": "Slow random movement of the embouchure, so the balance of harmonics shifts a little on its own, apart from loudness.",
+   "basis": "Measured on the collected sources"
+  },
+  {
+   "id": "drift",
+   "label": "Pitch drift",
+   "group": "life",
+   "param": "drift",
+   "lo": 0,
+   "hi": 10,
+   "scale": "lin",
+   "default": 2,
+   "trim": false,
+   "ends": [
+    "locked",
+    "loose"
+   ],
+   "unit": "cents",
+   "display": "pitch trace of a held note",
+   "says": "Slow random movement of pitch, a few cents either way.",
+   "basis": "Abesser et al. 2015 (intonation within 25 cents, personal)"
+  },
+  {
+   "id": "vibrato",
+   "label": "Vibrato",
+   "group": "life",
+   "param": "vibDepth",
+   "lo": 0,
+   "hi": 35,
+   "scale": "lin",
+   "default": 0,
+   "trim": false,
+   "ends": [
+    "none",
+    "wide"
+   ],
+   "unit": "cents",
+   "display": "pitch trace of a held note",
+   "says": "Vibrato that grows in after a note has been held a quarter of a second. Turn it off if you play your own.",
+   "basis": "Abesser et al. 2015 (about 25 cents, up to 35-50 for some players); Gilbert, Simon, Terroir 2005"
+  },
+  {
+   "id": "vibRate",
+   "label": "Vibrato rate",
+   "group": "life",
+   "param": "vibRate",
+   "lo": 3.5,
+   "hi": 7.5,
+   "scale": "lin",
+   "default": 5.2,
+   "trim": false,
+   "ends": [
+    "slow",
+    "fast"
+   ],
+   "unit": "Hz",
+   "display": "pitch trace of a held note",
+   "says": "How fast the vibrato turns. Rate is a personal trait: it does not follow pitch or tempo.",
+   "basis": "Abesser et al. 2015"
+  },
+  {
+   "id": "slur",
+   "label": "Slur",
+   "group": "life",
+   "param": "slurDip",
+   "lo": 0,
+   "hi": 0.7,
+   "scale": "lin",
+   "default": 0.25,
+   "trim": false,
+   "ends": [
+    "seamless",
+    "articulated"
+   ],
+   "unit": "",
+   "display": "level trace across a note change",
+   "says": "How much the breath gives for a moment when the fingers move in a slur. The collected saxophones dip about 4 dB at a slurred note change; this model dipped 0.2.",
+   "basis": "Measured on the collected sources; Hofmann, Goebl 2014"
+  }
+ ]
+}

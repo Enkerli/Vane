@@ -109,6 +109,8 @@ VaneProcessor::VaneProcessor()
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setWaveguideHandoff(&lastWaveguideVoice);
+                v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
+                v->setWindCore(&windCharacter);
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
@@ -119,6 +121,9 @@ VaneProcessor::VaneProcessor()
     }
 
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
+    pRoomMix        = apvts.getRawParameterValue("roomMix");
+    pRoomSize       = apvts.getRawParameterValue("roomSize");
+    pRoomTone       = apvts.getRawParameterValue("roomTone");
     pVowelEnable    = apvts.getRawParameterValue("vowelEnable");
     pVowelPos       = apvts.getRawParameterValue("vowelPos");
     pVowelFront     = apvts.getRawParameterValue("vowelFront");
@@ -187,6 +192,7 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
             v->prepare(sampleRate, samplesPerBlock);
 
     // 20 ms ramp so output-level automation never causes a zipper click.
+    room.prepare(sampleRate);
     masterGain.reset(sampleRate, 0.020);
     masterGain.setCurrentAndTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
     formantL.prepare(sampleRate);
@@ -577,6 +583,18 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
+    // WindCore: control positions to settings and tables (does nothing unless one moved).
+    if (pWaveguideModelRaw == nullptr) {
+        pWaveguideModelRaw = apvts.getRawParameterValue("waveguideModel");
+        for (int k = 0; k < windcore::Character::kNum; ++k)
+            pWindRaw[(size_t) k] = apvts.getRawParameterValue(windParamId(k));
+    }
+    if (pWaveguideModelRaw && pWaveguideModelRaw->load() > 0.5f && pWindRaw[0] != nullptr) {
+        float v[windcore::Character::kNum];
+        for (int k = 0; k < windcore::Character::kNum; ++k) v[k] = pWindRaw[(size_t) k]->load();
+        windCharacter.set(v);
+    }
+
     // Feed all incoming CCs, channel pressure, and master-channel pitchbend
     // into the mod matrix / shared state before rendering voices.
     for (const auto meta : midi) {
@@ -753,6 +771,10 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         L[i] = formantL.process(L[i] * g);
         if (R) R[i] = formantR.process(R[i] * g);
     }
+
+    // Room: the space the instrument sounds in (does nothing at mix 0).
+    room.setParams(pRoomMix ? pRoomMix->load() : 0.0f, pRoomSize ? pRoomSize->load() : 0.35f, pRoomTone ? pRoomTone->load() : 0.5f);
+    room.process(L, R, buffer.getNumSamples());
 
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
 }
@@ -941,6 +963,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"outputLevel", 1}, "Output Level",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.8f));
+
+    // ── Room ─────────────────────────────────────────────────────────────────
+    // A small space after everything else: early reflections and a short diffuse
+    // tail, as a close microphone hears an instrument in a room. Mix 0 = off.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomMix", 1}, "Room Mix", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomSize", 1}, "Room Size", juce::NormalisableRange<float>(0.0f, 1.0f), 0.35f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomTone", 1}, "Room Tone", juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // ── Filter ───────────────────────────────────────────────────────────────
     // Default 1200 Hz: slide neutral + full breath opens to ~3.5 kHz;
@@ -1463,6 +1495,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // Display names are plain ASCII (see CLAUDE.md).
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"waveguideOn", 1}, "Waveguide Mode", false));
+    // Which reed/bore model waveguide mode uses. WindCore: a reed, cone and mouth model with
+    // character controls (WindCore/README.md).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"waveguideModel", 1}, "Waveguide Model",
+        juce::StringArray{"MiniSax", "WindCore"}, 0));
+    // WindCore's character controls, each 0..1, defined in WindCore/character.json (labels, ends,
+    // what each one does). Plain ASCII names.
+    for (int k = 0; k < windcore::Character::kNum; ++k)
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{windParamId(k), 1}, juce::String("Wind ") + windcore::data::kControls[k].label,
+            juce::NormalisableRange<float>(0.0f, 1.0f), windcore::Character::defaultPosition(k)));
 
     // ── Synthetic breath ───────────────────────────────────────────────────
     // Stands in for a wind controller when the input is only notes+velocity

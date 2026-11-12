@@ -84,6 +84,8 @@ void SynthVoice::prepare(double sr, int blockSize)
                       ^ static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) >> 4)
                       ^ (static_cast<uint32_t>(j) * 0x9E3779B1u);
         waveguideVoices[(size_t) j].prepare(sr, waveguideSeeds[(size_t) j]);
+        windVoices[(size_t) j].seed = 0x12345u + static_cast<uint32_t>(j) * 0x9E3779B1u;   // fixed, so renders repeat
+        windVoices[(size_t) j].prepare(sr);
     }
 
     // Build per-voice slewers matching each route's attack/release config.
@@ -247,11 +249,17 @@ void SynthVoice::noteStarted()
     // are then read at the new delay length next block — a physical slur, not
     // a re-attack from an empty tube.
     if (!isLegato) {
-        for (int j = 0; j < kMaxUnison; ++j)
+        for (int j = 0; j < kMaxUnison; ++j) {
             waveguideVoices[(size_t) j].reset(waveguideSeeds[(size_t) j]);
+            windVoices[(size_t) j].reset();
+        }
+        windBreathPrev = 0.0f;
     } else if (auto* prev = sharedWgVoice ? sharedWgVoice->load() : nullptr) {
-        if (prev != this)
+        if (prev != this) {
             waveguideVoices = prev->waveguideVoices;
+            // WindCore: the horn moves across whole, so the new note is a key change inside it
+            if (windSelected()) { windVoices = prev->windVoices; windBreathPrev = prev->windBreathPrev; }
+        }
     }
 
     // Per-voice slewer reset for non-legato attacks.
@@ -758,6 +766,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     // The engine smooths its own breath/gate internally (20 ms / 11 ms), so
     // block-rate reads of the tone parameters are sufficient here.
     const bool wgOn = paramWgOn && paramWgOn->load() > 0.5f;
+    const bool useWind = wgOn && windSelected();
     minisax::VoiceInputs wgIn;
     float wgBreath = 0.0f;
     if (wgOn) {
@@ -814,6 +823,17 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         wgBreath = clamp01(std::max({ breathM, exprM, pressure,
                                       veloMix * std::sqrt(velocity), synth }));
         wgIn.params.breath = wgBreath;
+    }
+    // WindCore: this block's settings and tables from the shared control layer. Breath is read
+    // once per block, so it is ramped per sample from where the last block ended.
+    const float windBreathFrom = windBreathPrev;
+    const float windBreathStep = (wgBreath - windBreathPrev) / (float) std::max(1, numSamples);
+    if (useWind) {
+        for (int j = 0; j < kMaxUnison; ++j) {
+            windVoices[(size_t) j].p = windCharacter->params;
+            windVoices[(size_t) j].shared = &windCharacter->tables;
+        }
+        windBreathPrev = wgBreath;
     }
 
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
@@ -971,6 +991,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         filter.setCutoff(cutoffNow);
         float subGain = 1.0f;
         float reqHzNow = baseHz;   // resolved pitch this sample (glide × pitchbend)
+        float windPitchMult = 1.0f;   // WindCore: bend and modulation only (it slurs by itself, without Vane's glide)
         {
             float hzBase;
             if (useExpGlide) {
@@ -1007,7 +1028,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             } else {
                 hzBase = smoothedHz.getNextValue();
             }
-            const float reqHz = hzBase * smoothedPitchMult.getNextValue();
+            windPitchMult = smoothedPitchMult.getNextValue();
+            const float reqHz = hzBase * windPitchMult;
             reqHzNow = reqHz;
             osc.setFrequency(reqHz * uDetMul[0]);
             for (int j = 1; j < uN; ++j) unisonOscs[j - 1].setFrequency(reqHz * uDetMul[j]);
@@ -1042,8 +1064,31 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             // Tone params (embouchure/reed/bore/etc.) are shared across voices —
             // one instrument's physical settings, not a per-voice detune target.
             constexpr float kWaveguideMakeupGain = 2.5f;  // engine peaks ~0.4 at full breath
+            constexpr float kWindMakeupGain = 0.3f;       // WindCore is calibrated to -18 dB rms at mf; its bright low notes peak well above that
             wgIn.gate = isTailingOff ? 0.0f : 1.0f;
-            if (!unisonOn) {
+            if (useWind) {
+                // WindCore: the horn takes the TARGET pitch (a note change is a key moving, which the
+                // engine crossfades itself) with bend and modulation on top, and breath ramped across
+                // the block. Pitch is refreshed every 8 samples, the engine's own control rate.
+                const float wb = windBreathFrom + windBreathStep * (float) (i + 1);
+                const bool gateOn = ! isTailingOff;
+                const int nW = unisonOn ? uN : 1;
+                if ((i & 7) == 0) {
+                    const float bendSemis = 12.0f * std::log2(std::max(1.0e-4f, windPitchMult));
+                    for (int j = 0; j < nW; ++j) {
+                        const float hz = std::max(8.0f, baseHz * (unisonOn ? uDetMul[j] : 1.0f));
+                        windVoices[(size_t) j].setPitch(69.0f + 12.0f * std::log2(hz / 440.0f), bendSemis);
+                    }
+                }
+                waveL = waveR = 0.0f;
+                for (int j = 0; j < nW; ++j) {
+                    auto& e = windVoices[(size_t) j];
+                    e.setBreath(wb); e.setGate(gateOn);
+                    const float w = e.tickHost() * kWindMakeupGain;
+                    if (unisonOn) { waveL += w * uPanL[j]; waveR += w * uPanR[j]; }
+                    else waveL = waveR = w;
+                }
+            } else if (!unisonOn) {
                 wgIn.pitchHz = reqHzNow;
                 waveL = waveR = waveguideVoices[0].processSample(wgIn) * kWaveguideMakeupGain;
             } else {
