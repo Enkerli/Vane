@@ -17,6 +17,7 @@ def reln(h, nh):
 def decode(u): return {n: float(lo * (hi / lo) ** x if lg else lo + (hi - lo) * x) for (n, lo, hi, lg), x in zip(FREE, u)}
 def encode(p): return [float(np.clip(np.log(p.get(n, BASE[n]) / lo) / np.log(hi / lo) if lg else (p.get(n, BASE[n]) - lo) / (hi - lo), 0, 1)) for n, lo, hi, lg in FREE]
 SOFT = 0.06 * 127      # the softest breath that must still speak, at pitch
+GROWTH = lambda n: 1.45 if n <= 80 else 1.45 - 0.25 * min(1.0, (n - 80) / 12.0)   # brightness ff/p wanted (modelled saxophones, tenor range)
 def model(n, params):
     out = []
     STARTS = (dict(chiff=0.0, breathAttack=0.004), dict(chiff=1.5, breathAttack=0.004), dict(chiff=0.0, breathAttack=0.03))
@@ -48,6 +49,11 @@ def cost(u, n, target, detail=False, near=None, pull=0.0):
     if any(c is None for c in cs): tot += 60
     else: tot += 0.6 * sum(max(0.0, abs(a - b) - 15) for a, b in zip(cs, cs[1:]))
     # the same pitch however the note starts (a soft start, a hard one with the onset burst, a slow breath rise)
+    # the tone brightens with breath, as in the modelled saxophones: brightness from p to ff (breath x2.33)
+    if m[0] is not None and m[2] is not None:
+        cen = lambda h: float(np.sum(10 ** (np.maximum(h[:nh], -200) / 20) * np.arange(1, nh + 1)) / np.sum(10 ** (np.maximum(h[:nh], -200) / 20)))
+        want = cen(np.array(target[2])) / cen(np.array(target[0])) if np.all(np.array(target[0][:2]) > -150) else GROWTH(n); got = cen(m[2][1]) / cen(m[0][1])
+        tot += 12.0 * abs(np.log(got / want))
     ps = [m[k][0] for k in (6, 7, 8) if m[k] is not None]
     if len(ps) < 3: tot += 30
     else: tot += 0.6 * max(0.0, max(ps) - min(ps) - 4)

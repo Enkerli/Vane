@@ -68,6 +68,7 @@ struct Params
     float breathCurve = 1.0f;     // breath to loudness curve
     float embMin      = 0.04f;    // embouchure opening at the softest breath (full breath = 1)
     float embTrack    = 0.25f;    // how much the aperture follows the embouchure (0.5 = physical)
+    float loudOpen    = 0.0f;     // the reed opens this much more at full breath (soft notes unchanged): the tone brightens as you blow harder
     float embFloor    = 0.0f;     // share of the aperture that stays whatever the embouchure (keeps soft notes speaking)
     float breathKnee  = 0.03f;    // below this breath the pressure falls to nothing
     float breathAttack  = 0.012f; // s
@@ -542,7 +543,7 @@ private:
         // --- breath and tongue
         gamma += (gTarget > gamma ? gAtk : gRel) * (gTarget - gamma);
         pM += (pMTarget > pM ? gAtk : gRel) * (pMTarget - pM);
-        zetaE = zetaS * std::sqrt (pM) * (q.embFloor + (1.0f - q.embFloor) * std::pow (pM, q.embTrack));
+        zetaE = zetaS * std::sqrt (pM) * (q.embFloor + (1.0f - q.embFloor) * std::pow (pM, q.embTrack)) * (1.0f + p.loudOpen * pM * pM);
         if (tongueTarget > tongue) tongue = std::min (tongueTarget, tongue + tUp);
         else if (tongueTarget < tongue) tongue = std::max (tongueTarget, tongue - tDown);
         // onset: the tongue leaving the reed (or the first air after silence) starts a burst

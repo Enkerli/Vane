@@ -31,7 +31,11 @@ There are no separate instruments or zones. The horn's proportions follow the no
 ## How it was tuned
 - **The horn's curves** were fitted, note by note at three dynamics, to the median harmonic profile of about
   twenty saxophone instruments (sampled and modelled), measured from recordings of them all playing the same
-  phrases. The lowest four harmonics count three times, every note must speak at very soft breath, and pitch
+  phrases. How the profile changes from soft to loud comes from the modelled instruments only (sampled ones change
+  colour little with dynamics), and the fit requires the tone to brighten with breath as theirs does: in the tenor
+  range WindCore now brightens about 1.25 times per doubling of breath, where it was 1.12 (the modelled
+  saxophones measure 1.3 to 1.5). Opening the reed more at loud breath, or less at soft breath, broke notes beyond
+  that, so the brightness range is built into the horn's curves rather than added on top. The lowest four harmonics count three times, every note must speak at very soft breath, and pitch
   must move smoothly with breath (`tools/fit.py`, `tools/curves.py`). The target itself is not included.
 - **The Body pattern** is the shape those instruments share, measured the same way: a hump near 450 Hz, a dip
   near 800 Hz, humps from 1.6 to 3 kHz, less above 5 kHz.
