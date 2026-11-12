@@ -22,7 +22,7 @@ One header, `WindCore.h`, with no dependencies. Its parts:
 | Body | Peaks and dips fixed in Hz after the horn, sliding with the horn's size across the range | |
 | Mouth (as heard) | Two vowel resonances fixed in Hz on the radiated sound | Li, Chen, Smith and Wolfe 2015 |
 | Life | Slow random movement of breath, embouchure and pitch; a vibrato that grows in; a breath dip at slurs | |
-| Onset | A burst of turbulent air at a tongued start (and a smaller one at a slur), mostly heard directly, partly pitched by the horn | Scavone 1996 |
+| Onset | A burst of turbulent air at a tongued start (and a smaller one at a slur), from reed (dark, mostly through the horn) to air (a bright hiss heard directly), then a bloom: the sound opens from dark to full over about 90 ms | Scavone 1996; the collected saxophones' attacks are no brighter than their settled notes |
 | Breath noise | Turbulence on the flow, stronger low down and cleaner up high (0.45 dB less per semitone), as measured on the instruments the horn was fitted to | |
 
 There are no separate instruments or zones. The horn's proportions follow the note along smooth curves
@@ -48,7 +48,7 @@ description and its source. Vane's parameters are `windMouth`, `windMouthDepth` 
 | Player | Mouth shape, Mouth strength, Embouchure, Air |
 | Mouthpiece and reed | Reed, Chamber, Baffle |
 | Horn | Cone, Tone holes, Bell, Body, Body size |
-| Fingers and tongue | Fingers, Tongue, Chiff, Key noise |
+| Fingers and tongue | Fingers, Tongue, Chiff, Chiff colour, Bloom, Key noise |
 | Life | Wobble, Shimmer, Pitch drift, Vibrato, Vibrato rate, Slur |
 
 ## What is known, and what is not

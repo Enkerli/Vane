@@ -294,7 +294,7 @@
    "lo": 0,
    "hi": 3.0,
    "scale": "lin",
-   "default": 1.0,
+   "default": 0.8,
    "trim": false,
    "ends": [
     "clean",
@@ -302,8 +302,46 @@
    ],
    "unit": "",
    "display": "onset noise envelope",
-   "says": "A rush of turbulent air when a note starts after the tongue or a rest: mostly heard directly, partly pitched by the horn. Saxophones start with 8 to 16 ms of noise before the tone locks in; at 1 this is a light chiff, toward 3 the start is blurred but louder than the note.",
+   "says": "A rush of air when a note starts after the tongue or a rest. Its colour is set by Chiff colour; at the top of the range the start is blurred but louder than the note.",
    "basis": "Scavone 1996 (tongued attacks: a pressure burst and turbulent flow); measured on the collected sources"
+  },
+  {
+   "id": "chiffColor",
+   "label": "Chiff colour",
+   "group": "hands",
+   "param": "chiffColor",
+   "lo": 0,
+   "hi": 1,
+   "scale": "lin",
+   "default": 0.0,
+   "trim": false,
+   "ends": [
+    "reed",
+    "air"
+   ],
+   "unit": "",
+   "display": "onset noise spectrum",
+   "says": "What the onset air sounds like. Reed: darker, rougher noise, mostly through the horn, as a saxophone or clarinet starts. Air: a bright hiss heard directly, as a flute starts.",
+   "basis": "Measured on the collected saxophones: their first 30 ms is no brighter than the settled note"
+  },
+  {
+   "id": "bloom",
+   "label": "Bloom",
+   "group": "hands",
+   "param": "bloom",
+   "lo": 0,
+   "hi": 0.2,
+   "scale": "lin",
+   "default": 0.09,
+   "trim": false,
+   "ends": [
+    "instant",
+    "slow"
+   ],
+   "unit": "s",
+   "display": "brightness over the first tenth of a second",
+   "says": "After a tongued start the sound opens from dark to full over this time, as a saxophone's upper harmonics arrive after its fundamental. At instant, all harmonics start together.",
+   "basis": "Measured on modelled and recorded saxophone attacks (upper harmonics tens of ms after the first); our soprano notes"
   },
   {
    "id": "keyNoise",

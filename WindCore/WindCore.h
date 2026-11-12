@@ -102,7 +102,9 @@ struct Params
     float chiff       = 0.0f;     // at a tongued start or after silence
     float chiffTime   = 0.015f;   // s, the burst's rise; it lasts about six times this (0.015 gives saxophones' 8-16 ms unpitched start)
     float keyNoise    = 0.0f;     // a smaller burst when the fingers move in a slur
-    float chiffDirect = 0.8f;     // share of the burst heard directly (unpitched) rather than through the horn
+    float chiffDirect = 0.8f;     // share of the burst heard directly (unpitched) rather than through the horn, for an air chiff
+    float bloom       = 0.0f;     // s: at a tongued start the sound opens from dark to full over this time (0 = off); saxophones' upper harmonics arrive tens of ms after the fundamental
+    float chiffColor  = 1.0f;     // 0 = reed: dark noise, mostly through the horn (saxophone, clarinet); 1 = air: bright hiss, mostly heard directly (flute)
     float glide       = 0.006f;   // s, smoothing of horn and embouchure settings
     float outGain     = 1.0f;
 };
@@ -133,6 +135,7 @@ public:
     {
         fsHost = hostRate;
         fs = hostRate * kOS;
+        nzLoA = (float) (1.0 - std::exp (-2 * kPi * 700.0 / fs)); nzRA = (float) (1.0 - std::exp (-2 * kPi * 1800.0 / fs)); nzRloA = (float) (1.0 - std::exp (-2 * kPi * 150.0 / fs));
         T = 1.0 / fs;
         designDecimator();
         reset();
@@ -147,7 +150,7 @@ public:
         for (auto& t : taps) t = {};
         std::memset (dec, 0, sizeof dec); decPos = 0;
         sh1 = 0; tick = 0; held = 0; curNote = -1; curTap = -1; x1 = -1; rng = seed; bendSemis = 0;
-        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
+        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; nzLo = nzR = nzRlo = 0; bloomT = 1e9f; bl1 = bl2 = 0; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
     }
 
     Params p;                      // the settings as set; the horn's curves act on top of them
@@ -201,6 +204,18 @@ public:
         }
         const float* d = dec + decPos;
         for (int i = 0; i < kDecN; ++i) y += d[i] * decH[i];
+        // bloom: a two-pole lowpass that sweeps open from about 2.5 times the note after a tongued start
+        if (bloomT < bloomLen)
+        {
+            bloomT += (float) (1.0 / fsHost);
+            const float u = std::min (1.0f, bloomT / bloomLen);
+            const float fc = std::min (0.45f * (float) fsHost, bloomF0 * 2.5f * std::pow (9000.0f / (bloomF0 * 2.5f), u * u * (3 - 2 * u)));
+            const float a = 1.0f - std::exp (-2.0f * (float) kPi * fc / (float) fsHost);
+            bl1 += a * (y - bl1); bl2 += a * (bl1 - bl2);
+            const float mixB = u * u;                                        // hand back to the open sound at the end
+            y = bl2 + mixB * (y - bl2);
+        }
+        else { bl1 = bl2 = y; }
         // bell shelf (first-order high shelf at 2 kHz)
         const float lpv = sh1 + shA * (y - sh1); sh1 = lpv;
         y = lpv + shG * (y - lpv);
@@ -243,7 +258,8 @@ private:
     Params q;                      // settings in force at the note being played
     float noteS = -1;
     float burstT = 0, burstAmp = 0, burstTau = 0.008f; bool tongueWasLow = true;   // onset burst
-    float nzLo = 0, nzLoA = 0.045f;
+    float bloomT = 1e9f, bloomLen = 0.05f, bloomF0 = 260.0f, bl1 = 0, bl2 = 0;   // bloom state
+    float nzLo = 0, nzLoA = 0.045f, nzR = 0, nzRA = 0.11f, nzRlo = 0, nzRloA = 0.0098f;   // fixed for 96 kHz internal rate
     bool above = false;            // the current note is above topNote
     // body: five peaking filters after the horn, at the host rate
     struct Peak { float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; };
@@ -535,6 +551,7 @@ private:
         {
             tongueWasLow = false;
             if (p.chiff > 0) { burstT = 0; burstAmp = p.chiff; burstTau = std::max (0.001f, p.chiffTime); }
+            if (p.bloom > 0.001f) { bloomT = 0; bloomLen = p.bloom; bloomF0 = (float) noteHz (curNote < 0 ? 60 : curNote); }
         }
 
         // --- mouth: pressure at the reed = gamma - (tract impedance * flow)
@@ -571,9 +588,14 @@ private:
             burstT += (float) T;
             const float xb = burstT / burstTau;
             const float e = burstAmp * xb * std::exp (1.0f - xb) * std::sqrt (std::max (0.0f, gamma));   // grows with breath
-            un += (1.0f - p.chiffDirect) * e * nz * 1.5f;                    // through the horn: pitched
+            const float c = std::clamp (p.chiffColor, 0.0f, 1.0f);
+            const float share = 0.25f + c * (p.chiffDirect - 0.25f);          // reed: a quarter heard directly; air: chiffDirect
             nzLo += nzLoA * (nz - nzLo);
-            direct = p.chiffDirect * e * (nz - nzLo) * 0.35f;                // heard directly: air noise above about 700 Hz
+            nzR += nzRA * (white - nzR); nzRlo += nzRloA * (nzR - nzRlo);
+            un += (1.0f - share) * e * (c * nz + (1.0f - c) * 2.0f * nzR) * 1.5f;   // through the horn: pitched (darker for a reed)
+            const float air = (nz - nzLo) * 0.35f;                           // air: noise from about 700 Hz to 5 kHz
+            const float reed = (nzR - nzRlo) * 0.9f;                         // reed: rougher, darker noise, about 150 Hz to 1.8 kHz
+            direct = share * e * (c * air + (1.0f - c) * reed);
             if (xb > 10.0f) burstAmp = 0;
         }
 

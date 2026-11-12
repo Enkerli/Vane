@@ -20,11 +20,11 @@ start and the space they sound in:
 | Where | Setting | Why |
 |---|---|---|
 | Room | **Mix** about 25%, **Size** small to medium, **Tone** natural | Acoustic instruments are heard in a space. A little room does more than any tone control. |
-| WindCore, Fingers and tongue | **Chiff** at its default or higher | A rush of air at each tongued start. Saxophones start with 8-16 ms of noise before the tone locks in. Toward the top of its range the start is blurred but louder than the note. |
+| WindCore, Fingers and tongue | **Chiff** at its default, **Chiff colour** toward reed, **Bloom** about 90 ms | A saxophone note starts no brighter than it settles: some rough, dark air, then the upper harmonics arrive after the fundamental. Chiff colour toward air gives a flute's bright hiss instead. |
 | WindCore, Player | **Air** at its default | Breath noise that is stronger low down and cleaner up high, as on recordings. |
 | WindCore, Horn | **Body** around 1; **Body size** below 1 for a larger, darker instrument | Peaks and dips fixed in Hz, as saxophones share. |
 | WindCore, Player | **Mouth shape** and **Mouth strength** to taste | A vowel coloration, fixed in Hz. It does not change tuning, so it can be played. |
-| Transients (optional) | A chiff sample with the pitch resonator, at low gain | Another way to get a noisy start; it can stand in for Chiff. |
+| Transients (optional) | An attack sample with the pitch resonator, at low gain | Another way to colour the start. The recorder and flute chiffs sound flute-like here. |
 
 Keep **Life** low at first. Its slow movement of breath and pitch can sound like trying too hard; a player on a
 wind controller already brings their own.
@@ -48,13 +48,15 @@ Each slider in the panel names its two ends and says what it does. In short:
 | Fingers and tongue | Fingers | snappy / lazy | How long a key takes to move in a slur |
 | | Tongue | hard / soft | How fast the tongue leaves the reed |
 | | Chiff | clean / breathy | Air at a tongued start or after a rest |
+| | Chiff colour | reed / air | Dark, rough noise mostly through the horn (reed instruments), or a bright hiss heard directly (flutes) |
+| | Bloom | instant / slow | How long the sound takes to open from dark to full after a tongued start |
 | | Key noise | silent / noisy | A smaller rush of air at a slurred note change |
 | Life | Wobble, Shimmer, Pitch drift | steady / restless, fixed / shifting, locked / loose | Slow random movement of breath, embouchure and pitch |
 | | Vibrato, Vibrato rate | none / wide, slow / fast | A vibrato that grows in after a quarter of a second |
 | | Slur | seamless / articulated | A moment's dip of breath at a slurred note change |
 
 Moving a tone control detunes the horn a little; WindCore corrects that per note, to within about 12 cents for
-most settings. Body, Mouth, Bell, Chiff, Key noise and Life don't affect tuning.
+most settings. Body, Mouth, Bell, Chiff, Bloom, Key noise and Life don't affect tuning. When two tone controls are both far from their defaults (for example a large Chamber with a stubby Cone), their corrections don't add up exactly, and a few notes can land 40 cents or more off.
 
 ## Room
 **Room** is a Vane stage of its own, after everything else, so it works with any sound: early reflections and
