@@ -121,6 +121,9 @@ VaneProcessor::VaneProcessor()
     }
 
     pOutputLevel    = apvts.getRawParameterValue("outputLevel");
+    pRoomMix        = apvts.getRawParameterValue("roomMix");
+    pRoomSize       = apvts.getRawParameterValue("roomSize");
+    pRoomTone       = apvts.getRawParameterValue("roomTone");
     pVowelEnable    = apvts.getRawParameterValue("vowelEnable");
     pVowelPos       = apvts.getRawParameterValue("vowelPos");
     pVowelFront     = apvts.getRawParameterValue("vowelFront");
@@ -189,6 +192,7 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
             v->prepare(sampleRate, samplesPerBlock);
 
     // 20 ms ramp so output-level automation never causes a zipper click.
+    room.prepare(sampleRate);
     masterGain.reset(sampleRate, 0.020);
     masterGain.setCurrentAndTargetValue(pOutputLevel ? pOutputLevel->load() : 1.0f);
     formantL.prepare(sampleRate);
@@ -768,6 +772,10 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         if (R) R[i] = formantR.process(R[i] * g);
     }
 
+    // Room: the space the instrument sounds in (does nothing at mix 0).
+    room.setParams(pRoomMix ? pRoomMix->load() : 0.0f, pRoomSize ? pRoomSize->load() : 0.35f, pRoomTone ? pRoomTone->load() : 0.5f);
+    room.process(L, R, buffer.getNumSamples());
+
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
 }
 
@@ -955,6 +963,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"outputLevel", 1}, "Output Level",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.8f));
+
+    // ── Room ─────────────────────────────────────────────────────────────────
+    // A small space after everything else: early reflections and a short diffuse
+    // tail, as a close microphone hears an instrument in a room. Mix 0 = off.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomMix", 1}, "Room Mix", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomSize", 1}, "Room Size", juce::NormalisableRange<float>(0.0f, 1.0f), 0.35f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"roomTone", 1}, "Room Tone", juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // ── Filter ───────────────────────────────────────────────────────────────
     // Default 1200 Hz: slide neutral + full breath opens to ~3.5 kHz;

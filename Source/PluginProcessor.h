@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "Synth/SynthVoice.h"
 #include "Synth/FormantFilter.h"
+#include "Synth/Room.h"
 #include "Synth/TransientLibrary.h"
 #include "Modulation/ModMatrix.h"
 #include "MPE/TuningClient.h"
@@ -443,6 +444,11 @@ private:
     std::atomic<float>* pVowelMove        = nullptr;
     std::atomic<float>* pVowelMode        = nullptr;   // 0 = Vowel, 1 = Wah
     FormantFilter       formantL, formantR;
+    // Room: a small space after everything else (mix 0 = off, the default).
+    Room                room;
+    std::atomic<float>* pRoomMix = nullptr;
+    std::atomic<float>* pRoomSize = nullptr;
+    std::atomic<float>* pRoomTone = nullptr;
 
     // Macro source bindings — resolved each processBlock via setMacroSlot().
     // Breath: 0 = CC (pMacroBreathCC), 1 = Aftertouch, 2 = MPE Pressure.
