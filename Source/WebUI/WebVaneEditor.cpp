@@ -42,7 +42,8 @@ const ParamPair kParamMap[] = {
     { "WgBreathNoise", "waveguideBreathNoise" }, { "WgGrowl", "waveguideGrowl" },
     // Model choice and WindCore character controls; keys match the WindCore panel in music-suite apps/vane/index.html.
     { "WgModel", "waveguideModel" },
-    { "WindMouth", "windMouth" }, { "WindMouthDepth", "windMouthDepth" }, { "WindBite", "windBite" }, { "WindAir", "windAir" }, { "WindReed", "windReed" }, { "WindChamber", "windChamber" }, { "WindBaffle", "windBaffle" }, { "WindCone", "windCone" }, { "WindHoles", "windHoles" }, { "WindBell", "windBell" }, { "WindBody", "windBody" }, { "WindBodySize", "windBodySize" }, { "WindFingers", "windFingers" }, { "WindTongue", "windTongue" }, { "WindWobble", "windWobble" }, { "WindShimmer", "windShimmer" }, { "WindDrift", "windDrift" }, { "WindVibrato", "windVibrato" }, { "WindVibRate", "windVibRate" }, { "WindSlur", "windSlur" },
+    { "RoomMix", "roomMix" }, { "RoomSize", "roomSize" }, { "RoomTone", "roomTone" },
+    { "WindMouth", "windMouth" }, { "WindMouthDepth", "windMouthDepth" }, { "WindBite", "windBite" }, { "WindAir", "windAir" }, { "WindReed", "windReed" }, { "WindChamber", "windChamber" }, { "WindBaffle", "windBaffle" }, { "WindCone", "windCone" }, { "WindHoles", "windHoles" }, { "WindBell", "windBell" }, { "WindBody", "windBody" }, { "WindBodySize", "windBodySize" }, { "WindFingers", "windFingers" }, { "WindTongue", "windTongue" }, { "WindChiff", "windChiff" }, { "WindKeyNoise", "windKeyNoise" }, { "WindWobble", "windWobble" }, { "WindShimmer", "windShimmer" }, { "WindDrift", "windDrift" }, { "WindVibrato", "windVibrato" }, { "WindVibRate", "windVibRate" }, { "WindSlur", "windSlur" },
     // Synthetic breath — the stand-in wind source when the input is only notes
     // and velocity (a sequencer, a piano roll, most keyboards).
     { "SbMode", "synthBreathMode" }, { "SbAtk", "synthBreathAttack" },

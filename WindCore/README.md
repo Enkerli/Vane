@@ -22,6 +22,8 @@ One header, `WindCore.h`, with no dependencies. Its parts:
 | Body | Peaks and dips fixed in Hz after the horn, sliding with the horn's size across the range | |
 | Mouth (as heard) | Two vowel resonances fixed in Hz on the radiated sound | Li, Chen, Smith and Wolfe 2015 |
 | Life | Slow random movement of breath, embouchure and pitch; a vibrato that grows in; a breath dip at slurs | |
+| Onset | A burst of turbulent air at a tongued start (and a smaller one at a slur), mostly heard directly, partly pitched by the horn | Scavone 1996 |
+| Breath noise | Turbulence on the flow, stronger low down and cleaner up high (0.45 dB less per semitone), as measured on the instruments the horn was fitted to | |
 
 There are no separate instruments or zones. The horn's proportions follow the note along smooth curves
 (`curves.txt`): one continuous instrument from the bottom of the range to the top.
@@ -39,22 +41,25 @@ There are no separate instruments or zones. The horn's proportions follow the no
 
 ## Controls
 Defined in `character.json`: label, the name of each end, the model setting it moves, its range, a plain
-description and its source. Vane's parameters are `windMouth` to `windTongue`, each 0 to 1.
+description and its source. Vane's parameters are `windMouth`, `windMouthDepth` and so on (one per control), each 0 to 1. Playing and patching: [docs/windcore.md](../docs/windcore.md).
 
 | Group | Controls |
 |---|---|
 | Player | Mouth shape, Mouth strength, Embouchure, Air |
 | Mouthpiece and reed | Reed, Chamber, Baffle |
 | Horn | Cone, Tone holes, Bell, Body, Body size |
-| Fingers and tongue | Fingers, Tongue |
+| Fingers and tongue | Fingers, Tongue, Chiff, Key noise |
 | Life | Wobble, Shimmer, Pitch drift, Vibrato, Vibrato rate, Slur |
 
 ## What is known, and what is not
 - **Measured:** every note from F#1 to Eb7 speaks in its first register at ten breath levels from very soft to
-  full, in tune to within 1 cent for 95% of them. Slurs and tongued re-attacks into the top octave land on the
+  full, in tune to within 6 cents for 95% of them (with breath noise and the onset burst on). Slurs and tongued re-attacks into the top octave land on the
   right note (488 cases tested, `tools/top_regimes.py`). All notes of the test phrases are at pitch, with no
   level spikes at note changes. With the character controls set at random over 60% of their ranges, tuning
-  stays within about 11 cents for 95% of notes.
+  stays within about 12 cents for 95% of notes.
+- **Low octave:** from F#1 to E2 and around G2, how a note starts (with or without the onset burst, fast or slow
+  breath) can move its pitch by up to about 20 cents: two ways the reed can settle. Tuning is calibrated on the
+  default start (`calibrate_settings.json`).
 - **Range:** notes above Eb7 are silent. Slurring down from them could leave the top octave a semitone or two
   flat (a second way the horn can play there). For the same reason the reed's resonance sits at 2.25 times the
   note in the top octave; from 2.5 times up, that second regime appears.

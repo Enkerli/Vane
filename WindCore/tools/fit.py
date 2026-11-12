@@ -19,8 +19,10 @@ def encode(p): return [float(np.clip(np.log(p.get(n, BASE[n]) / lo) / np.log(hi 
 SOFT = 0.06 * 127      # the softest breath that must still speak, at pitch
 def model(n, params):
     out = []
-    for b in tuple(gap.BREATHS) + (SOFT, 127.0, 0.76 * 127):      # three for the sound, then soft, full and one between for playability
-        x = wc.render(wc.held(n, b / 127.0, dur=0.6), params=dict(BASE, **params), cal=False, curves=False); seg = x[int(.35*48000):int(.62*48000)]; f0 = 440*2**((n-69)/12)
+    STARTS = (dict(chiff=0.0, breathAttack=0.004), dict(chiff=1.5, breathAttack=0.004), dict(chiff=0.0, breathAttack=0.03))
+    for i, b in enumerate(tuple(gap.BREATHS) + (SOFT, 127.0, 0.76 * 127) + (0.8 * 127,) * 3):      # three for the sound, soft, full, one between, then three starts
+        start = {} if i < 6 else STARTS[i - 6]
+        x = wc.render(wc.held(n, b / 127.0, dur=0.6), params=dict(BASE, **params, **start), cal=False, curves=False); seg = x[int(.35*48000):int(.62*48000)]; f0 = 440*2**((n-69)/12)
         r = np.sqrt(np.mean(seg**2))
         if r < 2e-4: out.append(None); continue
         f = wc.f0_of(seg, 48000, f0)
@@ -45,6 +47,10 @@ def cost(u, n, target, detail=False, near=None, pull=0.0):
     cs = [m[i][0] if m[i] is not None else None for i in (3, 0, 1, 5, 2, 4)]     # soft to full
     if any(c is None for c in cs): tot += 60
     else: tot += 0.6 * sum(max(0.0, abs(a - b) - 15) for a, b in zip(cs, cs[1:]))
+    # the same pitch however the note starts (a soft start, a hard one with the onset burst, a slow breath rise)
+    ps = [m[k][0] for k in (6, 7, 8) if m[k] is not None]
+    if len(ps) < 3: tot += 30
+    else: tot += 0.6 * max(0.0, max(ps) - min(ps) - 4)
     if near is not None and not detail: tot += 3 * pull * float(np.mean(np.abs(np.array(u) - near)))   # stay close to the neighbours
     return (tot / 3, per, m) if detail else tot / 3
 def fit(n, target, maxiter=18, seed=1, x0=None, near=None, pull=0.0):

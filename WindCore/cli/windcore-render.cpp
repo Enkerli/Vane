@@ -23,14 +23,14 @@ static std::map<std::string, float Params::*> table()
         { "mouthFreq", &Params::mouthFreq }, { "mouthDepth", &Params::mouthDepth }, { "mouthQ", &Params::mouthQ },
         { "mouth2Ratio", &Params::mouth2Ratio }, { "mouth2Level", &Params::mouth2Level },
         { "reedFreq", &Params::reedFreq }, { "reedLift", &Params::reedLift }, { "reedDamp", &Params::reedDamp }, { "aperture", &Params::aperture },
-        { "lay", &Params::lay }, { "air", &Params::air }, { "airTone", &Params::airTone },
+        { "lay", &Params::lay }, { "air", &Params::air }, { "airTone", &Params::airTone }, { "airTilt", &Params::airTilt },
         { "coneBeta", &Params::coneBeta }, { "coneMax", &Params::coneMax }, { "hornTop", &Params::hornTop }, { "topNote", &Params::topNote }, { "chamber", &Params::chamber }, { "baffle", &Params::baffle },
         { "cutoffK", &Params::cutoffK }, { "cutoffMin", &Params::cutoffMin }, { "boreLoss", &Params::boreLoss },
         { "lossHz", &Params::lossHz }, { "lossRatio", &Params::lossRatio }, { "bell", &Params::bell },
         { "breathFloor", &Params::breathFloor }, { "breathTop", &Params::breathTop }, { "breathCurve", &Params::breathCurve }, { "embMin", &Params::embMin }, { "embTrack", &Params::embTrack }, { "embFloor", &Params::embFloor }, { "breathKnee", &Params::breathKnee },
         { "breathAttack", &Params::breathAttack }, { "breathRelease", &Params::breathRelease },
         { "keyTime", &Params::keyTime }, { "tongueTime", &Params::tongueTime }, { "tongueStop", &Params::tongueStop },
-        { "glide", &Params::glide }, { "body", &Params::body }, { "vowel", &Params::vowel }, { "vowelDepth", &Params::vowelDepth }, { "vowelQ", &Params::vowelQ }, { "bodySize", &Params::bodySize }, { "wobble", &Params::wobble }, { "shimmer", &Params::shimmer }, { "drift", &Params::drift }, { "vibDepth", &Params::vibDepth },
+        { "glide", &Params::glide }, { "body", &Params::body }, { "chiff", &Params::chiff }, { "chiffTime", &Params::chiffTime }, { "keyNoise", &Params::keyNoise }, { "chiffDirect", &Params::chiffDirect }, { "vowel", &Params::vowel }, { "vowelDepth", &Params::vowelDepth }, { "vowelQ", &Params::vowelQ }, { "bodySize", &Params::bodySize }, { "wobble", &Params::wobble }, { "shimmer", &Params::shimmer }, { "drift", &Params::drift }, { "vibDepth", &Params::vibDepth },
         { "vibRate", &Params::vibRate }, { "vibDelay", &Params::vibDelay }, { "slurDip", &Params::slurDip }, { "slurTime", &Params::slurTime }, { "reedComp", &Params::reedComp }, { "outGain", &Params::outGain },
     };
 }

@@ -90,16 +90,16 @@
    "group": "player",
    "param": "air",
    "lo": 0,
-   "hi": 0.06,
+   "hi": 0.1,
    "scale": "square",
-   "default": 0.015,
+   "default": 0.05,
    "ends": [
     "clean",
     "breathy"
    ],
    "unit": "",
    "display": "noise floor under the harmonics",
-   "says": "Turbulence in the air stream past the reed. It rides on the flow, so it pulses with each cycle and is heard through the horn, not laid on top.",
+   "says": "Turbulence in the air stream past the reed. It rides on the flow, so it pulses with each cycle and is heard through the horn, not laid on top. It is stronger low down and cleaner up high, as measured on saxophones.",
    "basis": "Scavone 1996 (turbulent flow at the reed)"
   },
   {
@@ -285,6 +285,44 @@
    "display": "attack envelope",
    "says": "How fast the tongue leaves the reed at the start of a tongued note.",
    "basis": "Li, Almeida, Smith, Wolfe 2016; Pamies-Vila et al. 2019"
+  },
+  {
+   "id": "chiff",
+   "label": "Chiff",
+   "group": "hands",
+   "param": "chiff",
+   "lo": 0,
+   "hi": 3.0,
+   "scale": "lin",
+   "default": 1.0,
+   "trim": false,
+   "ends": [
+    "clean",
+    "breathy"
+   ],
+   "unit": "",
+   "display": "onset noise envelope",
+   "says": "A rush of turbulent air when a note starts after the tongue or a rest: mostly heard directly, partly pitched by the horn. Saxophones start with 8 to 16 ms of noise before the tone locks in; at 1 this is a light chiff, toward 3 the start is blurred but louder than the note.",
+   "basis": "Scavone 1996 (tongued attacks: a pressure burst and turbulent flow); measured on the collected sources"
+  },
+  {
+   "id": "keyNoise",
+   "label": "Key noise",
+   "group": "hands",
+   "param": "keyNoise",
+   "lo": 0,
+   "hi": 1,
+   "scale": "lin",
+   "default": 0.3,
+   "trim": false,
+   "ends": [
+    "silent",
+    "noisy"
+   ],
+   "unit": "",
+   "display": "onset noise envelope at a slur",
+   "says": "A smaller rush of air when the fingers move in a slur, as the air finds the new note.",
+   "basis": ""
   },
   {
    "id": "wobble",

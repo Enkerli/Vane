@@ -46,6 +46,7 @@ struct Params
     float lay         = 0.06f;    // how gradually the reed closes on the mouthpiece lay
     float air         = 0.02f;    // turbulence: noise proportional to the flow past the reed
     float airTone     = 5000.0f;  // Hz, lowpass on that noise
+    float airTilt     = -0.45f;   // dB per semitone above C4 (negative: noisier low, cleaner high, as measured on saxophones)
 
     // --- Horn
     float coneBeta    = 0.30f;    // missing cone as a share of the full cone (reed-closed share of the cycle)
@@ -69,7 +70,7 @@ struct Params
     float embTrack    = 0.25f;    // how much the aperture follows the embouchure (0.5 = physical)
     float embFloor    = 0.0f;     // share of the aperture that stays whatever the embouchure (keeps soft notes speaking)
     float breathKnee  = 0.03f;    // below this breath the pressure falls to nothing
-    float breathAttack  = 0.004f; // s
+    float breathAttack  = 0.012f; // s
     float breathRelease = 0.012f; // s
     float keyTime     = 0.010f;   // s, a key opening or closing in a slur
     float tongueTime  = 0.005f;   // s, the tongue leaving the reed
@@ -95,6 +96,13 @@ struct Params
     float vibDelay    = 0.25f;    // s into a note before vibrato starts to grow
     float slurDip     = 0.0f;     // share of the breath given up for a moment at a slurred note change
     float slurTime    = 0.035f;   // s, length of that dip
+
+    // --- Onset: turbulent air at the start of a note, injected into the reed's flow so the horn pitches it
+    // (Scavone 1996: releasing the tongue gives a rush of pressure and turbulent flow). 0 = none.
+    float chiff       = 0.0f;     // at a tongued start or after silence
+    float chiffTime   = 0.015f;   // s, the burst's rise; it lasts about six times this (0.015 gives saxophones' 8-16 ms unpitched start)
+    float keyNoise    = 0.0f;     // a smaller burst when the fingers move in a slur
+    float chiffDirect = 0.8f;     // share of the burst heard directly (unpitched) rather than through the horn
     float glide       = 0.006f;   // s, smoothing of horn and embouchure settings
     float outGain     = 1.0f;
 };
@@ -139,7 +147,7 @@ public:
         for (auto& t : taps) t = {};
         std::memset (dec, 0, sizeof dec); decPos = 0;
         sh1 = 0; tick = 0; held = 0; curNote = -1; curTap = -1; x1 = -1; rng = seed; bendSemis = 0;
-        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
+        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
     }
 
     Params p;                      // the settings as set; the horn's curves act on top of them
@@ -234,6 +242,8 @@ private:
     float sh1 = 0, shA = 0, shG = 1, outG = 1;
     Params q;                      // settings in force at the note being played
     float noteS = -1;
+    float burstT = 0, burstAmp = 0, burstTau = 0.008f; bool tongueWasLow = true;   // onset burst
+    float nzLo = 0, nzLoA = 0.045f;
     bool above = false;            // the current note is above topNote
     // body: five peaking filters after the horn, at the host rate
     struct Peak { float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; };
@@ -394,7 +404,7 @@ private:
         }
 
         if (zetaS < 0) { zetaS = q.aperture; layS = q.lay; airS = p.air; }
-        zetaS += sm * (q.aperture * lifeEmb - zetaS); layS += sm * (q.lay - layS); airS += sm * (p.air - airS);
+        zetaS += sm * (q.aperture * lifeEmb - zetaS); layS += sm * (q.lay - layS); airS += sm * (p.air * std::pow (10.0f, p.airTilt * (noteS - 60.0f) / 20.0f) - airS);
         wr = (float) (2 * kPi * std::min (0.2 * fs, std::max ((double) p.reedFreq, p.reedLift * q.coneBeta * kC / (2 * x1))) * T); qr = p.reedDamp;
         nzA = (float) (1.0 - std::exp (-2 * kPi * p.airTone * T));
 
@@ -462,6 +472,7 @@ private:
             for (int i = 1; i < kTaps; ++i) if (taps[i].g < taps[best].g) best = i;
             for (auto& t : taps) t.target = 0;
             if (tongue > 0.5f) slurPhase = 0;      // a slur: the breath gives for a moment
+            if (tongue > 0.5f && p.keyNoise > 0) { burstT = 0; burstAmp = p.keyNoise; burstTau = 0.6f * p.chiffTime; }
         }
         taps[best].note = note; taps[best].target = 1; taps[best].d = -1;
         curTap = best; noteAge = 0;
@@ -518,6 +529,13 @@ private:
         zetaE = zetaS * std::sqrt (pM) * (q.embFloor + (1.0f - q.embFloor) * std::pow (pM, q.embTrack));
         if (tongueTarget > tongue) tongue = std::min (tongueTarget, tongue + tUp);
         else if (tongueTarget < tongue) tongue = std::max (tongueTarget, tongue - tDown);
+        // onset: the tongue leaving the reed (or the first air after silence) starts a burst
+        if (tongue < 0.02f) tongueWasLow = true;
+        else if (tongueWasLow && tongue > 0.05f)
+        {
+            tongueWasLow = false;
+            if (p.chiff > 0) { burstT = 0; burstAmp = p.chiff; burstTau = std::max (0.001f, p.chiffTime); }
+        }
 
         // --- mouth: pressure at the reed = gamma - (tract impedance * flow)
         float Sm = 0, Bm = 0;
@@ -546,7 +564,18 @@ private:
         rng = rng * 1664525u + 1013904223u;
         const float white = (float) (int32_t) rng * (1.0f / 2147483648.0f);
         nz += nzA * (white - nz);
-        const float un = airS * std::abs (u) * nz * 8.0f;
+        float un = airS * std::abs (u) * nz * 8.0f;
+        float direct = 0;
+        if (burstAmp > 0)
+        {
+            burstT += (float) T;
+            const float xb = burstT / burstTau;
+            const float e = burstAmp * xb * std::exp (1.0f - xb) * std::sqrt (std::max (0.0f, gamma));   // grows with breath
+            un += (1.0f - p.chiffDirect) * e * nz * 1.5f;                    // through the horn: pitched
+            nzLo += nzLoA * (nz - nzLo);
+            direct = p.chiffDirect * e * (nz - nzLo) * 0.35f;                // heard directly: air noise above about 700 Hz
+            if (xb > 10.0f) burstAmp = 0;
+        }
 
         const float pr = V + W * (u + un);
 
@@ -573,7 +602,7 @@ private:
         if (rx < -1.5f) { rx = -1.5f; rv = 0; }
 
         lastPressure = pr; lastFlow = u; lastOpen = open;
-        return radiated;
+        return radiated + direct;
     }
 };
 
