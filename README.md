@@ -42,14 +42,22 @@ which reflows to one pane at a time on a narrow iPad/AUv3 window.
   the note's spectral space), breath **dynamics** (so it never overpowers a soft
   attack), a tuned **pitch resonator** (Karplus-Strong — the noise acquires the
   note's pitch), and a **noise→tone morph**.
+- **Room** — a small space after everything else: early reflections and a short
+  diffuse tail, as a close microphone hears an instrument in a room (off by default).
 - **Cytomic TPT state-variable filter** — LP / BP / HP, per-sample-smoothed cutoff.
-- **Waveguide mode (MiniSax)** — a reed/bore physical model (developed in the
-  `MiniSax/` instrument lab, tuned against a Silverwood Tenor Sax reference)
-  that replaces the wavetable oscillator: breath blows the reed, so body and
-  brightness track air physically. Embouchure, reed stiffness/aperture, bore
-  damping, bell brightness, conical (even-harmonic) amount, breath noise, and
-  growl are all plugin parameters; noise blend, wavefold, the SVF, vowel stage,
-  and transients still apply downstream.
+- **Waveguide mode** — a reed/bore physical model replaces the wavetable oscillator:
+  breath blows the reed, so body and brightness track air physically. Noise blend,
+  wavefold, the SVF, vowel stage, and transients still apply downstream. Two models:
+  - **MiniSax** — developed in the `MiniSax/` instrument lab, tuned against a
+    Silverwood Tenor Sax reference. Embouchure, reed
+    stiffness/aperture, bore damping, bell brightness, conical (even-harmonic) amount,
+    breath noise, and growl are plugin parameters.
+  - **WindCore** — a reed, cone and mouth model written from the published acoustics,
+    one continuous horn from F#1 to Eb7, tuned note by note over breath. Twenty
+    character controls (mouth, embouchure, reed, chamber, baffle, cone, tone holes,
+    bell, body, fingers, tongue, and a player's movement), each with its two ends
+    named, plus a breath-driven onset chiff. See [docs/windcore.md](docs/windcore.md) for playing
+    and patching it, and [WindCore/README.md](WindCore/README.md) for how it works.
 
 ## Expression & control
 
