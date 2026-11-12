@@ -458,6 +458,55 @@ target_link_libraries(VaneRenderProbe PRIVATE
     juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+# ── Performance renderer (plays a MIDI or text performance through the processor, on demand) ──
+# VanePerfRender perf.mid|perf.txt out.wav [sampleRate] [seconds]; VANE_SET / VANE_STATE as in its source.
+juce_add_console_app(VanePerfRender PRODUCT_NAME VanePerfRender)
+set_target_properties(VanePerfRender PROPERTIES EXCLUDE_FROM_ALL TRUE)  # build on demand only
+target_sources(VanePerfRender PRIVATE
+    Tools/PerfRender/main.cpp
+    Source/PluginProcessor.cpp
+    Source/Synth/Oscillator.cpp
+    Source/Synth/Wavetable.cpp
+    Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp
+    Source/Synth/SamplePlayer.cpp
+    Source/Synth/TransientLibrary.cpp
+    Source/Modulation/ModMatrix.cpp
+    Source/MPE/TuningClient.cpp
+    Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
+    Source/Profile/ProfileManager.cpp
+    Source/WebUI/WebVaneEditor.cpp
+    Source/Tests/ModMatrixTests.cpp
+    Source/Tests/StringSafetyTests.cpp
+    Source/Tests/TuningTests.cpp
+    Source/Tests/TransientTests.cpp
+    Source/Tests/WavetableTests.cpp
+    Source/Tests/ChordTests.cpp
+)
+target_include_directories(VanePerfRender PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(VanePerfRender PUBLIC
+    JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JucePlugin_Name="Vane")
+# Headless on Linux, mirroring the main plugin and VanePresetExport: the raw
+# JUCE_WEB_BROWSER=1 define misses JUCE's WebKitGTK pkg-config plumbing there.
+if(IS_LINUX)
+    target_compile_definitions(VanePerfRender PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+else()
+    target_compile_definitions(VanePerfRender PUBLIC JUCE_WEB_BROWSER=1)
+endif()
+add_dependencies(VanePerfRender Vane_GenBuildStamp)
+if(VANE_HAS_MTS)
+    target_compile_definitions(VanePerfRender PUBLIC VANE_HAS_MTS=1)
+    target_link_libraries(VanePerfRender PRIVATE VaneMTS)
+endif()
+target_link_libraries(VanePerfRender PRIVATE
+    VaneWebUI VaneLibrary VaneTransients
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_processors juce::juce_audio_utils juce::juce_core
+    juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
 # ── Preset generator (writes the playing-test presets, on demand) ─────────────
 juce_add_console_app(VanePresetGen PRODUCT_NAME VanePresetGen)
 set_target_properties(VanePresetGen PROPERTIES EXCLUDE_FROM_ALL TRUE)
