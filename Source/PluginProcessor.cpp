@@ -109,6 +109,8 @@ VaneProcessor::VaneProcessor()
                 v->setUnisonParams(pUniV, pUniD, pUniW);
                 v->setUnisonHandoff(lastUnisonPhase.data(), &lastFilterRS1, &lastFilterRS2);
                 v->setWaveguideHandoff(&lastWaveguideVoice);
+                v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
+                v->setWindCore(&windCharacter);
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
@@ -576,6 +578,18 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+
+    // WindCore: control positions to settings and tables (does nothing unless one moved).
+    if (pWaveguideModelRaw == nullptr) {
+        pWaveguideModelRaw = apvts.getRawParameterValue("waveguideModel");
+        for (int k = 0; k < windcore::Character::kNum; ++k)
+            pWindRaw[(size_t) k] = apvts.getRawParameterValue(windParamId(k));
+    }
+    if (pWaveguideModelRaw && pWaveguideModelRaw->load() > 0.5f && pWindRaw[0] != nullptr) {
+        float v[windcore::Character::kNum];
+        for (int k = 0; k < windcore::Character::kNum; ++k) v[k] = pWindRaw[(size_t) k]->load();
+        windCharacter.set(v);
+    }
 
     // Feed all incoming CCs, channel pressure, and master-channel pitchbend
     // into the mod matrix / shared state before rendering voices.
@@ -1463,6 +1477,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // Display names are plain ASCII (see CLAUDE.md).
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"waveguideOn", 1}, "Waveguide Mode", false));
+    // Which reed/bore model waveguide mode uses. WindCore: a reed, cone and mouth model with
+    // character controls (WindCore/README.md).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"waveguideModel", 1}, "Waveguide Model",
+        juce::StringArray{"MiniSax", "WindCore"}, 0));
+    // WindCore's character controls, each 0..1, defined in WindCore/character.json (labels, ends,
+    // what each one does). Plain ASCII names.
+    for (int k = 0; k < windcore::Character::kNum; ++k)
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{windParamId(k), 1}, juce::String("Wind ") + windcore::data::kControls[k].label,
+            juce::NormalisableRange<float>(0.0f, 1.0f), windcore::Character::defaultPosition(k)));
 
     // ── Synthetic breath ───────────────────────────────────────────────────
     // Stands in for a wind controller when the input is only notes+velocity

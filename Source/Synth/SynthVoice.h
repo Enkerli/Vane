@@ -12,6 +12,7 @@
 #include "Synth/CombResonator.h"
 #include "Synth/TransientLibrary.h"
 #include "MiniSaxVoice.h"   // MiniSax waveguide engine (MiniSax/Source, no JUCE deps)
+#include "WindCharacter.h"  // WindCore reed/cone/mouth engine and its control layer (WindCore/, no JUCE deps)
 
 // One MPE voice.  Signal path per sample:
 //   wavetable-morph oscillator (+ PD pulse-width, √2-FM inharmonicity, hard-sync)
@@ -162,6 +163,16 @@ public:
         paramSbMode = mode; paramSbAttack = attackMs; paramSbDecay = decayMs;
         paramSbSustain = sustain; paramSbRelease = releaseMs;
         sharedSawRealExpression = sawRealExpression;
+    }
+
+    /** Which reed/bore model waveguide mode uses: the waveguideModel choice (0 MiniSax, 1 WindCore). */
+    void setWaveguideModel(std::atomic<float>* model) noexcept { paramWgModel = model; }
+    /** WindCore model: one engine per unison slot in each voice, like MiniSax. `character` is the
+        processor's control layer: its settings and calibration tables are shared by every engine,
+        and it is only rewritten between blocks. */
+    void setWindCore(const windcore::Character* character) noexcept { windCharacter = character; }
+    bool windSelected() const noexcept {
+        return windCharacter != nullptr && paramWgModel != nullptr && paramWgModel->load() > 0.5f;
     }
 
     void setWaveguideParams(std::atomic<float>* on,
@@ -457,6 +468,11 @@ private:
     // like unison-of-clones.
     std::array<minisax::MiniSaxVoice, kMaxUnison> waveguideVoices;
     std::array<uint32_t, kMaxUnison>              waveguideSeeds {};   // per-voice, derived in prepare()
+    // WindCore: the same arrangement (one horn per unison slot, copied across on a mono slur).
+    std::array<windcore::Engine, kMaxUnison>      windVoices;
+    const windcore::Character*                    windCharacter = nullptr;
+    float                                         windBreathPrev = 0.0f;   // breath at the end of the last block (ramped per sample)
+    std::atomic<float>*                           paramWgModel = nullptr;  // 0 MiniSax, 1 WindCore
     std::atomic<SynthVoice*>* sharedWgVoice = nullptr;  // last waveguide-rendering voice (bore handoff)
     std::atomic<float>* paramWgOn         = nullptr;  // > 0.5 = waveguide replaces the oscillator
     std::atomic<float>* paramWgEmbouchure = nullptr;  // 0..1

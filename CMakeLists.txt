@@ -268,7 +268,7 @@ target_sources(Vane PRIVATE
     Source/Tests/ChordTests.cpp
 )
 
-target_include_directories(Vane PRIVATE Source MiniSax/Source)
+target_include_directories(Vane PRIVATE Source MiniSax/Source WindCore)
 
 # ── WebUI bundle ──────────────────────────────────────────────────────────────
 # The UI source (index.html) lives in the music-suite monorepo (apps/vane) —
@@ -433,7 +433,7 @@ target_sources(VaneRenderProbe PRIVATE
     Source/Tests/WavetableTests.cpp
     Source/Tests/ChordTests.cpp
 )
-target_include_directories(VaneRenderProbe PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VaneRenderProbe PRIVATE Source MiniSax/Source WindCore "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneRenderProbe PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1
@@ -482,7 +482,7 @@ target_sources(VanePerfRender PRIVATE
     Source/Tests/WavetableTests.cpp
     Source/Tests/ChordTests.cpp
 )
-target_include_directories(VanePerfRender PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VanePerfRender PRIVATE Source MiniSax/Source WindCore "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePerfRender PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1
@@ -518,7 +518,7 @@ target_sources(VanePresetGen PRIVATE
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
-target_include_directories(VanePresetGen PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VanePresetGen PRIVATE Source MiniSax/Source WindCore "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePresetGen PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
@@ -552,7 +552,7 @@ target_sources(VanePresetExport PRIVATE
     Source/Synth/SynthVoice.cpp MiniSax/Source/MiniSaxVoice.cpp Source/Synth/SamplePlayer.cpp Source/Synth/TransientLibrary.cpp
     Source/Modulation/ModMatrix.cpp Source/MPE/TuningClient.cpp Source/Preset/PresetManager.cpp Source/Preset/ChordConfigStore.cpp
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp)
-target_include_directories(VanePresetExport PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VanePresetExport PRIVATE Source MiniSax/Source WindCore "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VanePresetExport PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")
@@ -591,7 +591,7 @@ target_sources(VaneSelfTest PRIVATE
     Source/Profile/ProfileManager.cpp Source/WebUI/WebVaneEditor.cpp
     Source/Tests/ModMatrixTests.cpp Source/Tests/StringSafetyTests.cpp Source/Tests/TuningTests.cpp
     Source/Tests/TransientTests.cpp Source/Tests/WavetableTests.cpp Source/Tests/ChordTests.cpp)
-target_include_directories(VaneSelfTest PRIVATE Source MiniSax/Source "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(VaneSelfTest PRIVATE Source MiniSax/Source WindCore "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(VaneSelfTest PUBLIC
     JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Vane")

@@ -383,6 +383,11 @@ private:
     // Waveguide bore handoff: the last voice that rendered waveguide audio.
     // A mono-legato successor copies its bores at noteStarted (audio thread only).
     std::atomic<SynthVoice*> lastWaveguideVoice { nullptr };
+    // WindCore (waveguideModel 1): its character controls, turned into settings and tables once
+    // per block on the audio thread and shared by every voice's engines.
+    windcore::Character windCharacter;
+    std::atomic<float>* pWaveguideModelRaw = nullptr;
+    std::array<std::atomic<float>*, windcore::Character::kNum> pWindRaw {};
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.
     std::array<float, ModRoute::kCurveLUT> glideLUT {};
     // Rotating-chord sequences (fixed-capacity so audio-thread reads are realloc-safe).
@@ -396,6 +401,11 @@ private:
     std::array<std::atomic<float>, ModDestID::NumDests> modOut {};
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    /** Parameter id of WindCore character control k: "wind" + its id capitalised (windMouth, windMouthDepth, ...). */
+    static juce::String windParamId(int k) {
+        const juce::String id (windcore::data::kControls[k].id);
+        return "wind" + id.substring(0, 1).toUpperCase() + id.substring(1);
+    }
 
     // Reconstruct generic mod slots from a pre-slot preset's legacy route params.
     void migrateLegacyRoutingToSlots(const juce::XmlElement& loadedState);
