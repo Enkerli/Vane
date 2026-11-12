@@ -27,6 +27,8 @@
 namespace windcore
 {
 
+inline constexpr double kPi = 3.14159265358979323846;   // M_PI is not standard (MSVC leaves it undefined)
+
 struct Params
 {
     // --- Mouth (vocal tract), fixed in Hz
@@ -249,8 +251,8 @@ private:
         for (int i = 0; i < kDecN; ++i)
         {
             const double n = i - (kDecN - 1) / 2.0, fc = 0.225;
-            const double s = std::abs (n) < 1e-9 ? 2 * fc : std::sin (2 * M_PI * fc * n) / (M_PI * n);
-            const double win = 0.42 - 0.5 * std::cos (2 * M_PI * i / (kDecN - 1)) + 0.08 * std::cos (4 * M_PI * i / (kDecN - 1));
+            const double s = std::abs (n) < 1e-9 ? 2 * fc : std::sin (2 * kPi * fc * n) / (kPi * n);
+            const double win = 0.42 - 0.5 * std::cos (2 * kPi * i / (kDecN - 1)) + 0.08 * std::cos (4 * kPi * i / (kDecN - 1));
             decH[i] = (float) (s * win); sum += decH[i];
         }
         for (auto& h : decH) h = (float) (h / sum);
@@ -270,9 +272,9 @@ private:
     // Round-trip delay (samples) that puts the bore's first resonance at f.
     double delayFor (double f) const
     {
-        const double wn = 2 * M_PI * f * T;
+        const double wn = 2 * kPi * f * T;
         const double wc = wn * bCh, X = 0.5 * aIn / std::tan (0.5 * wn) - wc / (1.0 + wc * rCh * wc * rCh);
-        const double theta = X > 1e-9 ? M_PI - std::atan (1.0 / X) : 0.5 * M_PI;
+        const double theta = X > 1e-9 ? kPi - std::atan (1.0 / X) : 0.5 * kPi;
         // the reed answers late; that lag would flatten the note
         const double rr = wn / std::max (1e-6, (double) wr), reedLag = std::atan2 (qr * rr, 1.0 - rr * rr);
         return std::max (2.0, (2 * theta - filterLag (wn) - p.reedComp * reedLag) / wn);
@@ -384,24 +386,24 @@ private:
         // Tone-hole cutoff: 2nd-order lowpass, gain boreLoss.
         {
             const double fc = std::clamp ((double) q.cutoffK / x1, (double) p.cutoffMin, 0.35 * fs);
-            const double K = std::tan (M_PI * fc * T), qf = 0.7071, n = 1.0 / (1 + K / qf + K * K);
+            const double K = std::tan (kPi * fc * T), qf = 0.7071, n = 1.0 / (1 + K / qf + K * K);
             b0 = (float) (K * K * n * q.boreLoss); b1 = 2 * b0; b2 = b0;
             a1 = (float) (2 * (K * K - 1) * n); a2 = (float) ((1 - K / qf + K * K) * n);
             const double fl = std::min ({ (double) p.lossHz, 0.45 * fs, q.lossRatio * q.coneBeta * kC / (2 * x1) / 0.3 });
-            lpA = (float) (1.0 - std::exp (-2 * M_PI * fl * T));
+            lpA = (float) (1.0 - std::exp (-2 * kPi * fl * T));
         }
 
         if (zetaS < 0) { zetaS = q.aperture; layS = q.lay; airS = p.air; }
         zetaS += sm * (q.aperture * lifeEmb - zetaS); layS += sm * (q.lay - layS); airS += sm * (p.air - airS);
-        wr = (float) (2 * M_PI * std::min (0.2 * fs, std::max ((double) p.reedFreq, p.reedLift * q.coneBeta * kC / (2 * x1))) * T); qr = p.reedDamp;
-        nzA = (float) (1.0 - std::exp (-2 * M_PI * p.airTone * T));
+        wr = (float) (2 * kPi * std::min (0.2 * fs, std::max ((double) p.reedFreq, p.reedLift * q.coneBeta * kC / (2 * x1))) * T); qr = p.reedDamp;
+        nzA = (float) (1.0 - std::exp (-2 * kPi * p.airTone * T));
 
         // Mouth resonances (state-variable band-passes with a known instantaneous part).
         for (int i = 0; i < 2; ++i)
         {
             auto& m = mouth[i];
             const double f = std::min (0.4 * fs, (double) p.mouthFreq * (i == 0 ? 1.0 : p.mouth2Ratio));
-            const float g = (float) std::tan (M_PI * f * T), k = 1.0f / std::max (0.5f, p.mouthQ);
+            const float g = (float) std::tan (kPi * f * T), k = 1.0f / std::max (0.5f, p.mouthQ);
             const float A = p.mouthDepth * (i == 0 ? 1.0f : p.mouth2Level);
             m.g = g; m.k = k; m.den = 1.0f / (1 + k * g + g * g);
             m.A += sm * (A - m.A);
@@ -438,7 +440,7 @@ private:
         const int ni = std::clamp (curNote, 0, 127);
         const float og = p.outGain * std::pow (10.0f, tb.gainDb[ni] / 20.0f);
         outG = first ? og : outG + key * (og - outG);
-        shA = (float) (1.0 - std::exp (-2 * M_PI * 2000.0 / fsHost)); shG = std::pow (10.0f, q.bell / 20.0f);
+        shA = (float) (1.0 - std::exp (-2 * kPi * 2000.0 / fsHost)); shG = std::pow (10.0f, q.bell / 20.0f);
         first = false;
     }
 
