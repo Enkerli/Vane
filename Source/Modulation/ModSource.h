@@ -102,7 +102,22 @@ struct ModDestID {
     static constexpr int WgBreathNoise  = 20;
     static constexpr int WgGrowl        = 21;
 
-    static constexpr int NumDests = 22;
+    // ── WindCore character destinations ─────────────────────────────────────────
+    // Added to the control layer's settings per voice, each block. Only settings that act on
+    // the sound after the horn (or on noise and vibrato), so modulating them cannot detune it.
+    //   WindMouth: vowel position, +-1 = the whole oo..ee range.   WindMouthStrength: +-1 = 10 dB.
+    //   WindBodySize: +-1 = an octave smaller / larger body.       WindResponse: +-1 = the whole range.
+    //   WindAir: +1 = the control's full breath noise.              WindBell: +-1 = 12 dB.
+    //   WindVibrato: +1 = 35 cents.
+    static constexpr int WindMouth         = 22;
+    static constexpr int WindMouthStrength = 23;
+    static constexpr int WindBodySize      = 24;
+    static constexpr int WindResponse      = 25;
+    static constexpr int WindAir           = 26;
+    static constexpr int WindBell          = 27;
+    static constexpr int WindVibrato       = 28;
+
+    static constexpr int NumDests = 29;
 };
 
 // ── Generic mod-slot model ──────────────────────────────────────────────────────
@@ -144,9 +159,10 @@ namespace ModSlots {
         "VCA", "Cutoff", "Reso", "Pitch", "Morph", "PW", "Fold", "Noise", "Inharm", "Sync",
         "Transient", "Uni Detune", "Vowel",
         "Wg Embouchure", "Wg Reed Stiff", "Wg Aperture", "Wg Damping", "Wg Bell",
-        "Wg Conical", "Wg Breath Noise", "Wg Growl"
+        "Wg Conical", "Wg Breath Noise", "Wg Growl",
+        "Wind Mouth", "Wind Mouth Strength", "Wind Body Size", "Wind Response", "Wind Air", "Wind Bell", "Wind Vibrato"
     };
-    static constexpr int NumDestChoices = 21;
+    static constexpr int NumDestChoices = 28;
 
     // Curve choice list (matches ModRoute::CurveShape integer order).
     inline const char* const kCurveNames[] = { "Lin", "Exp", "S" };
@@ -190,6 +206,13 @@ namespace ModSlots {
             case 18: return ModDestID::WgConical;
             case 19: return ModDestID::WgBreathNoise;
             case 20: return ModDestID::WgGrowl;
+            case 21: return ModDestID::WindMouth;
+            case 22: return ModDestID::WindMouthStrength;
+            case 23: return ModDestID::WindBodySize;
+            case 24: return ModDestID::WindResponse;
+            case 25: return ModDestID::WindAir;
+            case 26: return ModDestID::WindBell;
+            case 27: return ModDestID::WindVibrato;
             default: return -1;
         }
     }

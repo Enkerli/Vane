@@ -830,8 +830,17 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     const float windBreathStep = (wgBreath - windBreathPrev) / (float) std::max(1, numSamples);
     if (useWind) {
         for (int j = 0; j < kMaxUnison; ++j) {
-            windVoices[(size_t) j].p = windCharacter->params;
+            auto& wp = windVoices[(size_t) j].p;
+            wp = windCharacter->params;
             windVoices[(size_t) j].shared = &windCharacter->tables;
+            // modulation (ModDestID::Wind*): only settings that cannot detune the horn
+            wp.vowel      = std::clamp(wp.vowel + mods[ModDestID::WindMouth], 0.0f, 1.0f);
+            wp.vowelDepth = std::clamp(wp.vowelDepth + 10.0f * mods[ModDestID::WindMouthStrength], 0.0f, 20.0f);
+            wp.bodySize   = std::clamp(wp.bodySize * std::exp2(mods[ModDestID::WindBodySize]), 0.35f, 3.0f);
+            wp.respond    = std::clamp(wp.respond + 1.4f * mods[ModDestID::WindResponse], 0.0f, 1.4f);
+            wp.air        = std::clamp(wp.air + 0.1f * mods[ModDestID::WindAir], 0.0f, 0.1f);
+            wp.bell       = std::clamp(wp.bell + 12.0f * mods[ModDestID::WindBell], -6.0f, 20.0f);
+            wp.vibDepth   = std::clamp(wp.vibDepth + 35.0f * mods[ModDestID::WindVibrato], 0.0f, 60.0f);
         }
         windBreathPrev = wgBreath;
     }

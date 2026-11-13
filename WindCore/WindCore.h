@@ -104,7 +104,10 @@ struct Params
     float chiffTime   = 0.015f;   // s, the burst's rise; it lasts about six times this (0.015 gives saxophones' 8-16 ms unpitched start)
     float keyNoise    = 0.0f;     // a smaller burst when the fingers move in a slur
     float chiffDirect = 0.8f;     // share of the burst heard directly (unpitched) rather than through the horn, for an air chiff
-    float bloom       = 0.0f;     // s: at a tongued start the sound opens from dark to full over this time (0 = off); saxophones' upper harmonics arrive tens of ms after the fundamental
+    float bloom       = 0.0f;     // s: how long brightness takes to follow breath (90% of a change); needs respond > 0
+    float weight      = 0.0f;     // s added to the breath attack and release: how heavy the air column feels
+    float respond     = 0.0f;     // 0..1: how much the tone darkens below full breath (0 = same colour at every level). Brightness lags breath by `bloom`.
+    float scoop       = 0.0f;     // cents: pitch offset at a tongued start, gone in about 60 ms (negative = starts flat, as reeds do)
     float chiffColor  = 1.0f;     // 0 = reed: dark noise, mostly through the horn (saxophone, clarinet); 1 = air: bright hiss, mostly heard directly (flute)
     float glide       = 0.006f;   // s, smoothing of horn and embouchure settings
     float outGain     = 1.0f;
@@ -151,7 +154,7 @@ public:
         for (auto& t : taps) t = {};
         std::memset (dec, 0, sizeof dec); decPos = 0;
         sh1 = 0; tick = 0; held = 0; curNote = -1; curTap = -1; x1 = -1; rng = seed; bendSemis = 0;
-        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; nzLo = nzR = nzRlo = 0; bloomT = 1e9f; bl1 = bl2 = 0; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
+        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; nzLo = nzR = nzRlo = 0; bl1 = bl2 = 0; respS = 0; respA = 1; respMix = 1; scoopNow = 0; respTick = 0; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
     }
 
     Params p;                      // the settings as set; the horn's curves act on top of them
@@ -205,18 +208,24 @@ public:
         }
         const float* d = dec + decPos;
         for (int i = 0; i < kDecN; ++i) y += d[i] * decH[i];
-        // bloom: a two-pole lowpass that sweeps open from about 2.5 times the note after a tongued start
-        if (bloomT < bloomLen)
+        // response: the tone opens with breath. A two-pole lowpass whose cutoff rises from just above the note
+        // to fully open as breath goes from nothing to full; breath is followed with a lag (bloom), so the upper
+        // harmonics arrive after the fundamental at a start and trail a crescendo, as on a saxophone.
+        if (p.respond > 0.001f)
         {
-            bloomT += (float) (1.0 / fsHost);
-            const float u = std::min (1.0f, bloomT / bloomLen);
-            const float fc = std::min (0.45f * (float) fsHost, bloomF0 * 2.5f * std::pow (9000.0f / (bloomF0 * 2.5f), u * u * (3 - 2 * u)));
-            const float a = 1.0f - std::exp (-2.0f * (float) kPi * fc / (float) fsHost);
-            bl1 += a * (y - bl1); bl2 += a * (bl1 - bl2);
-            const float mixB = u * u;                                        // hand back to the open sound at the end
-            y = bl2 + mixB * (y - bl2);
+            if ((respTick++ & 15) == 0)
+            {
+                const float tau = std::max (0.002f, p.bloom / 2.3f);
+                respS += (1.0f - std::exp (-16.0f / ((float) fsHost * tau))) * (breath - respS);
+                const float w = std::clamp (1.0f - p.respond * (1.0f - respS), 0.0f, 1.0f);
+                const float f0 = (float) noteHz (curNote < 0 ? 60 : curNote) * 1.2f;
+                const float fc = std::min (0.45f * (float) fsHost, f0 * std::pow (std::max (1.0f, 12000.0f / f0), w * std::sqrt (w)));
+                respA = 1.0f - std::exp (-2.0f * (float) kPi * fc / (float) fsHost); respMix = w * w * w;
+            }
+            bl1 += respA * (y - bl1); bl2 += respA * (bl1 - bl2);
+            y = bl2 + respMix * (y - bl2);
         }
-        else { bl1 = bl2 = y; }
+        else { bl1 = bl2 = y; respS = breath; }
         // bell shelf (first-order high shelf at 2 kHz)
         const float lpv = sh1 + shA * (y - sh1); sh1 = lpv;
         y = lpv + shG * (y - lpv);
@@ -259,7 +268,7 @@ private:
     Params q;                      // settings in force at the note being played
     float noteS = -1;
     float burstT = 0, burstAmp = 0, burstTau = 0.008f; bool tongueWasLow = true;   // onset burst
-    float bloomT = 1e9f, bloomLen = 0.05f, bloomF0 = 260.0f, bl1 = 0, bl2 = 0;   // bloom state
+    float bl1 = 0, bl2 = 0, respS = 0, respA = 1, respMix = 1, scoopNow = 0; unsigned respTick = 0;   // response and scoop state
     float nzLo = 0, nzLoA = 0.045f, nzR = 0, nzRA = 0.11f, nzRlo = 0, nzRloA = 0.0098f;   // fixed for 96 kHz internal rate
     bool above = false;            // the current note is above topNote
     // body: five peaking filters after the horn, at the host rate
@@ -447,8 +456,9 @@ private:
             pMTarget *= lifeBreath;
             gTarget = share * pMTarget;
         }
-        gAtk = (float) (1.0 - std::exp (-T / std::max (1e-4f, p.breathAttack)));
-        gRel = (float) (1.0 - std::exp (-T / std::max (1e-4f, p.breathRelease)));
+        scoopNow *= (float) std::exp (-kCtl * T / 0.045);
+        gAtk = (float) (1.0 - std::exp (-T / std::max (1e-4f, p.breathAttack + p.weight)));
+        gRel = (float) (1.0 - std::exp (-T / std::max (1e-4f, p.breathRelease + 0.5f * p.weight)));
         tUp = (float) (T / std::max (1e-4f, p.tongueTime)); tDown = (float) (T / std::max (1e-4f, p.tongueStop));
         keyRate = (float) (T / std::max (1e-4f, p.keyTime));
 
@@ -459,7 +469,7 @@ private:
         {
             if (t.note < 0) continue;
             const int ni = std::clamp ((int) std::lround (t.note), 0, 127);
-            const double f = noteHz (t.note + bendSemis + 0.01f * lifeCents + (tb.tuneCents[ni] + (tb.tuneLoud[ni] + tb.tuneBend[ni] * embS) * embS) * 0.01);
+            const double f = noteHz (t.note + bendSemis + 0.01f * (lifeCents + scoopNow) + (tb.tuneCents[ni] + (tb.tuneLoud[ni] + tb.tuneBend[ni] * embS) * embS) * 0.01);
             const double D = std::min ((double) kBuf - 8, delayFor (f));
             if (t.d < 0) { t.d = D; t.dInc = 0; } else t.dInc = (D - t.d) / kCtl;
         }
@@ -552,7 +562,7 @@ private:
         {
             tongueWasLow = false;
             if (p.chiff > 0) { burstT = 0; burstAmp = p.chiff; burstTau = std::max (0.001f, p.chiffTime); }
-            if (p.bloom > 0.001f) { bloomT = 0; bloomLen = p.bloom; bloomF0 = (float) noteHz (curNote < 0 ? 60 : curNote); }
+            scoopNow = p.scoop;
         }
 
         // --- mouth: pressure at the reed = gamma - (tract impedance * flow)
