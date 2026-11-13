@@ -37,6 +37,8 @@ Each slider in the panel names its two ends and says what it does. In short:
 | Player | Mouth shape | oo / ee | Two vowel resonances on the sound, fixed in Hz |
 | | Mouth strength | open throat / strong vowel | How strongly that vowel colours the sound (up to 10 dB) |
 | | Embouchure | tight / loose | How open the reed tip is held: smaller and darker, or louder and brighter |
+| | Response | even / growing | How much the tone darkens when you play softly and opens as you push. At even, soft and loud differ only in level, which can sound like a recorder |
+| | Air weight | quick / heavy | How fast loudness follows your breath: at once, or like an air column that takes a moment to fill |
 | | Air | clean / breathy | Turbulence in the air stream, riding on the flow |
 | Mouthpiece and reed | Reed | soft / hard | How abruptly the reed closes on the mouthpiece |
 | | Chamber | large / small | The mouthpiece volume: darker and spread, or tighter and focused |
@@ -49,7 +51,8 @@ Each slider in the panel names its two ends and says what it does. In short:
 | | Tongue | hard / soft | How fast the tongue leaves the reed |
 | | Chiff | clean / breathy | Air at a tongued start or after a rest |
 | | Chiff colour | reed / air | Dark, rough noise mostly through the horn (reed instruments), or a bright hiss heard directly (flutes) |
-| | Bloom | instant / slow | How long the sound takes to open from dark to full after a tongued start |
+| | Bloom | instant / slow | How long the tone's colour takes to follow your breath: upper harmonics arrive this much after the fundamental at a start, and trail a crescendo (needs Response above even) |
+| | Scoop | from below / from above | Where the pitch starts at a tongued note; it reaches the note in about 60 ms. Reeds start slightly flat |
 | | Key noise | silent / noisy | A smaller rush of air at a slurred note change |
 | Life | Wobble, Shimmer, Pitch drift | steady / restless, fixed / shifting, locked / loose | Slow random movement of breath, embouchure and pitch |
 | | Vibrato, Vibrato rate | none / wide, slow / fast | A vibrato that grows in after a quarter of a second |
@@ -57,6 +60,19 @@ Each slider in the panel names its two ends and says what it does. In short:
 
 Moving a tone control detunes the horn a little; WindCore corrects that per note, to within about 12 cents for
 most settings. Body, Mouth, Bell, Chiff, Bloom, Key noise and Life don't affect tuning. When two tone controls are both far from their defaults (for example a large Chamber with a stubby Cone), their corrections don't add up exactly, and a few notes can land 40 cents or more off.
+
+## Moving the character while you play
+The modulation matrix has seven WindCore destinations: **Wind Mouth**, **Wind Mouth Strength**, **Wind Body
+Size**, **Wind Response**, **Wind Air**, **Wind Bell** and **Wind Vibrato**. Route breath, pressure, slide or any
+controller to them. They only touch what happens after the horn (or noise and vibrato), so they never detune
+it, and they reach further than the sliders: a body an octave smaller or larger, a vowel twice as strong.
+
+| Idea | Settings |
+|---|---|
+| A horn that talks | Mouth near oo, Mouth strength high, Breath to Wind Mouth +0.9 |
+| A body that shrinks as you blow | Body full, Body size large, Breath to Wind Body Size +0.9 |
+| From a sine to brass | Response at growing, Bloom slow, Breath to Wind Bell +0.6 |
+| Falling into each note | Scoop from below, Bloom slow, Breath to Wind Vibrato +0.5 |
 
 ## Room
 **Room** is a Vane stage of its own, after everything else, so it works with any sound: early reflections and

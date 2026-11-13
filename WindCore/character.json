@@ -85,6 +85,44 @@
    "basis": "Wilson, Beavers 1974; Dalmont, Gilbert, Ollivier 2003"
   },
   {
+   "id": "response",
+   "label": "Response",
+   "group": "player",
+   "param": "respond",
+   "lo": 0,
+   "hi": 1.4,
+   "scale": "lin",
+   "default": 0.8,
+   "trim": false,
+   "ends": [
+    "even",
+    "growing"
+   ],
+   "unit": "",
+   "display": "brightness against breath",
+   "says": "How much the tone darkens when you play softly and opens as you push. At even, soft and loud notes have the same colour, only louder, which can sound like a recorder. Bloom sets how quickly the colour follows.",
+   "basis": "Harmonics grow faster than the fundamental as a reed is blown harder (Worman 1971; Benade 1976); measured on modelled saxophones: about 1.5 times brighter per doubling of breath"
+  },
+  {
+   "id": "weight",
+   "label": "Air weight",
+   "group": "player",
+   "param": "weight",
+   "lo": 0,
+   "hi": 0.08,
+   "scale": "lin",
+   "default": 0.02,
+   "trim": false,
+   "ends": [
+    "quick",
+    "heavy"
+   ],
+   "unit": "s",
+   "display": "how fast loudness follows breath",
+   "says": "How quickly the sound follows your breath. Quick: every flick of air is heard at once. Heavy: the air column takes a moment to fill and empty, which smooths the line.",
+   "basis": "Measured on modelled saxophones: level follows a breath step in 60 to 90 ms"
+  },
+  {
    "id": "air",
    "label": "Air",
    "group": "player",
@@ -92,7 +130,7 @@
    "lo": 0,
    "hi": 0.1,
    "scale": "square",
-   "default": 0.05,
+   "default": 0.004,
    "ends": [
     "clean",
     "breathy"
@@ -294,7 +332,7 @@
    "lo": 0,
    "hi": 3.0,
    "scale": "lin",
-   "default": 0.8,
+   "default": 0.3,
    "trim": false,
    "ends": [
     "clean",
@@ -339,9 +377,28 @@
     "slow"
    ],
    "unit": "s",
-   "display": "brightness over the first tenth of a second",
-   "says": "After a tongued start the sound opens from dark to full over this time, as a saxophone's upper harmonics arrive after its fundamental. At instant, all harmonics start together.",
+   "display": "time for brightness to follow breath",
+   "says": "How long the tone's colour takes to follow your breath. At a tongued start the upper harmonics arrive this much after the fundamental, and they trail a crescendo. Needs Response above even.",
    "basis": "Measured on modelled and recorded saxophone attacks (upper harmonics tens of ms after the first); our soprano notes"
+  },
+  {
+   "id": "scoop",
+   "label": "Scoop",
+   "group": "hands",
+   "param": "scoop",
+   "lo": -120,
+   "hi": 60,
+   "scale": "lin",
+   "default": -50,
+   "trim": false,
+   "ends": [
+    "from below",
+    "from above"
+   ],
+   "unit": "cents",
+   "display": "pitch at a tongued start",
+   "says": "Where the pitch starts when you tongue a note; it reaches the note in about 60 ms. From below: a slightly flat start, as reed instruments have. From above: a sharp, pinched start.",
+   "basis": "Measured: modelled saxophones start 5 to 10 cents flat; without this WindCore starts 17 cents sharp"
   },
   {
    "id": "keyNoise",
@@ -351,7 +408,7 @@
    "lo": 0,
    "hi": 1,
    "scale": "lin",
-   "default": 0.3,
+   "default": 0.2,
    "trim": false,
    "ends": [
     "silent",
