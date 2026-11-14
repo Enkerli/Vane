@@ -74,6 +74,18 @@ These voices are clean and their consonants are ideal. Expect real speech to be 
 ("b", "d", "g") dip less than 18 dB, room sound fills closures, formants of high voices are pulled toward
 the harmonics, and a voice of a different size sits off the vowel line (`v.size` scales for that).
 
+### On real recordings (2026-11-14)
+First real voice: a low male voice (pitch 70 to 90 Hz). Findings:
+- Voicing and pitch missed it below 80 Hz (voiced 26% of a steadily sung vowel). Voicing now has its own 40 ms
+  window and reaches 50 Hz: 97% voiced, at 70 Hz (67 to 74). The renders do not use voicing, so they are unchanged.
+- Whispering is called voiced for 39% of the time, at about 390 Hz (a resonance of the hiss). Harmless today;
+  matters if pitch is ever followed.
+- Formants follow the sung vowels over time (oo near 280/990, ee near 217/2170). The sung "ah" came out as
+  about 790/2500 whatever the analysis order or rate, so either that vowel is fronted or the middle resonance
+  is missed; not settled without knowing what was sung.
+- Consonants: 23 onsets in "ta ka pa" and 26 in the phrase; nobody has yet checked these against the
+  recordings by hand.
+
 ## The renderer
 `windcore-render` takes `--voice voice.wav` beside the events, which still give the notes and the breath.
 

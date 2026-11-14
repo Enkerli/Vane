@@ -67,6 +67,7 @@ public:
         }
         for (int i = 0; i < nTap; ++i) taps[i] = (float) (taps[i] / sum);
         nFrame = std::clamp ((int) std::lround (0.025 * fsA), 64, kMaxFrame);
+        nRing = std::clamp ((int) std::lround (0.040 * fsA), nFrame, kMaxFrame);      // voicing looks further back: two periods of a 50 Hz voice
         nHop = std::max (1, (int) std::lround (0.005 * fsA));
         for (int i = 0; i < nFrame; ++i) window[i] = (float) (0.54 - 0.46 * std::cos (2 * 3.14159265358979 * i / (nFrame - 1)));
         reset();
@@ -120,7 +121,7 @@ public:
         {
             decCount = 0; float v = 0;
             for (int i = 0; i < nTap; ++i) v += taps[i] * in[(ii + i) % nTap];
-            frame[fi] = v; fi = (fi + 1) % nFrame;
+            frame[fi] = v; fi = (fi + 1) % nRing;
             if (++hopCount >= nHop) { hopCount = 0; analyse(); frameReady = true; }
         }
 
@@ -155,7 +156,7 @@ private:
     static constexpr int kMaxWin = 4096, kMaxTap = 257, kMaxFrame = 512, kMins = 50, kOrder = 12;
 
     double fs = 48000, fsA = 12000, sumP = 0, sumH = 0, sinceOnset = 1e9;
-    int nWin = 576, D = 4, nTap = 33, nFrame = 300, nHop = 60, msEvery = 48;
+    int nWin = 576, D = 4, nTap = 33, nFrame = 300, nRing = 480, nHop = 60, msEvery = 48;
     int wi = 0, ii = 0, fi = 0, mi = 0, msCount = 0, decCount = 0, hopCount = 0; long samples = 0;
     float hp = 0.99f, hfA = 0.3f, x1 = 0, y1 = 0, hfLp = 0; bool pendingLevel = false;
     float pw[kMaxWin], ph[kMaxWin], in[kMaxTap], taps[kMaxTap], frame[kMaxFrame], window[kMaxFrame], mins[kMins], med1[3], med2[3];
@@ -164,17 +165,19 @@ private:
 
     void analyse()
     {
-        float s[kMaxFrame];
-        for (int i = 0; i < nFrame; ++i) s[i] = frame[(fi + i) % nFrame];
+        float v[kMaxFrame], s[kMaxFrame];       // v: the last 40 ms, s: the last 25 ms (the formant analysis)
+        for (int i = 0; i < nRing; ++i) v[i] = frame[(fi + i) % nRing];
+        for (int i = 0; i < nFrame; ++i) s[i] = v[nRing - nFrame + i];
 
-        // voiced? the strongest repeat between 70 and 500 Hz
+        // voiced? the strongest repeat between 50 and 500 Hz
         {
-            const int lo = std::max (2, (int) (fsA / 500.0)), hi = std::min (nFrame / 2, (int) (fsA / 70.0));
+            const int lo = std::max (2, (int) (fsA / 500.0)), hi = std::min (nRing / 2, (int) (fsA / 50.0));
+            double sq[kMaxFrame + 1]; sq[0] = 0; for (int i = 0; i < nRing; ++i) sq[i + 1] = sq[i] + (double) v[i] * v[i];
             double bestR = 0; int bestL = 0;
             for (int L = lo; L <= hi; ++L)
             {
-                double r = 0, ea = 1e-12, eb = 1e-12;
-                for (int i = 0; i + L < nFrame; ++i) { r += (double) s[i] * s[i + L]; ea += (double) s[i] * s[i]; eb += (double) s[i + L] * s[i + L]; }
+                double r = 0; const double ea = 1e-12 + sq[nRing - L], eb = 1e-12 + sq[nRing] - sq[L];
+                for (int i = 0; i + L < nRing; ++i) r += (double) v[i] * v[i + L];
                 const double c = r / std::sqrt (ea * eb);
                 if (c > bestR + 0.03) { bestR = c; bestL = L; }       // the shortest repeat wins unless a longer one is clearly better
             }
