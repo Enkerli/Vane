@@ -116,7 +116,7 @@ struct Params
     // --- Voice in the mouth: a signal given with setMouthInput (a sung or spoken voice, about +-1).
     // Both 0 = none, and the engine is exactly as without it.
     float voiceSing   = 0.0f;     // the signal as a share of the mouth pressure: singing into the horn (the reed's flow carries it, the horn pitches it)
-    float voiceAir    = 0.0f;     // the signal as the turbulence the flow carries, in place of noise: a whisper becomes the breath noise
+    float voiceAir    = 0.0f;     // the signal as turbulence the flow carries, beside the noise: a whisper becomes the breath noise (0..4)
     float outGain     = 1.0f;
 };
 
@@ -616,7 +616,7 @@ private:
         rng = rng * 1664525u + 1013904223u;
         const float white = (float) (int32_t) rng * (1.0f / 2147483648.0f);
         nz += nzA * (white - nz);
-        float un = airS * std::abs (u) * nz * 8.0f + p.voiceAir * std::abs (u) * voiceNow;
+        float un = airS * std::abs (u) * nz * 8.0f + std::clamp (p.voiceAir, 0.0f, 4.0f) * std::abs (u) * voiceNow;   // above about 4 the horn stops playing its note
         float direct = 0;
         if (burstAmp > 0)
         {

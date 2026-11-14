@@ -36,7 +36,7 @@ public:
     enum State { kClosed, kBurst, kVoiced, kNoise };
 
     // --- results (level path: current; vowel path: as of the last 5 ms frame)
-    float levelDb = -120, peakDb = -40;      // level, and the loudest recent level (falls 3 dB a second)
+    float levelDb = -120, peakDb = -20;      // level, and the loudest recent level (falls 3 dB a second)
     bool  open = false;
     State state = kClosed;
     float onsetBright = 0;                   // 0..1 at the last onset: share of its power above 3 kHz
@@ -77,7 +77,7 @@ public:
         std::fill (pw, pw + kMaxWin, 0.0f); std::fill (ph, ph + kMaxWin, 0.0f); std::fill (in, in + kMaxTap, 0.0f);
         std::fill (frame, frame + kMaxFrame, 0.0f); std::fill (mins, mins + kMins, -120.0f); std::fill (med1, med1 + 3, 500.0f); std::fill (med2, med2 + 3, 1500.0f);
         wi = ii = fi = mi = 0; sumP = sumH = 0; x1 = y1 = hfLp = 0; msCount = decCount = hopCount = 0;
-        sinceOnset = 1e9; levelDb = -120; peakDb = -40; open = false; state = kClosed; onsetBright = onsetLevel = 0;
+        sinceOnset = 1e9; levelDb = -120; peakDb = -20; open = false; state = kClosed; onsetBright = onsetLevel = 0;
         f1 = 500; f2 = 1500; vowel = 0.5f; vowelFit = 0; voiced = 0; pitchHz = 0; frameReady = false; pendingLevel = false; samples = 0;
     }
 
@@ -92,7 +92,7 @@ public:
         sumP += (double) p2 - (double) pw[wi]; sumH += (double) h2 - (double) ph[wi]; pw[wi] = p2; ph[wi] = h2; wi = (wi + 1) % nWin;
         if (wi == 0) { sumP = 0; sumH = 0; for (int i = 0; i < nWin; ++i) { sumP += pw[i]; sumH += ph[i]; } }   // no drift
         levelDb = 10.0f * std::log10 ((float) std::max (0.0, sumP) / (float) nWin + 1e-12f);
-        peakDb = std::max ({ levelDb, peakDb - 3.0f / (float) fs, floorDb + 20.0f });
+        peakDb = std::max ({ levelDb, peakDb - 3.0f / (float) fs, floorDb - openDb + 6.0f });   // room noise just above the floor never opens the mouth
         const float rel = levelDb - peakDb;
         if (! open && rel > openDb && levelDb > floorDb) open = true;
         else if (open && (rel < closeDb || levelDb < floorDb)) open = false;

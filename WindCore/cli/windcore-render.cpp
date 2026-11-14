@@ -110,6 +110,7 @@ int main (int argc, char** argv)
     if (argc < 3) { std::cerr << "usage: windcore-render events.txt out.wav [--rate N] [--cal f] [--probe f] [name=value ...]\n"; return 2; }
     const auto tab = table();
     Engine e; int rate = 48000; std::string cal, probe, curves, voicePath, voiceLog; static Character ch; bool useCh = false;
+    std::vector<std::pair<float Params::*, float>> named;
     std::map<std::string, float> vo { { "vowel", 0 }, { "formants", 0 }, { "tongue", 0 }, { "chiff", 0 }, { "breath", 0 }, { "gain", 1 },
                                       { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 } };
     for (int i = 3; i < argc; ++i)
@@ -146,6 +147,7 @@ int main (int argc, char** argv)
             auto it = tab.find (a.substr (0, eq));
             if (it == tab.end()) { std::cerr << "unknown parameter " << a << "\n"; return 2; }
             e.p.*(it->second) = std::strtof (a.c_str() + eq + 1, nullptr);
+            named.push_back ({ it->second, e.p.*(it->second) });
         }
         else { std::cerr << "unknown argument " << a << "\n"; return 2; }
     }
@@ -161,7 +163,11 @@ int main (int argc, char** argv)
         }
     }
 
-    if (useCh) { e.p = ch.params; e.shared = &ch.tables; }
+    if (useCh)
+    {
+        e.p = ch.params; e.shared = &ch.tables;
+        for (auto& nv : named) e.p.*(nv.first) = nv.second;      // settings given by name stand on top of the character's
+    }
     if (std::string (argv[1]) == "--dump")
     {
         // settings and tables as the character layer made them (for checking against tools/voice.py)
@@ -260,9 +266,10 @@ int main (int argc, char** argv)
             }
             if (useVoice && vBreath > 0)
             {
-                // the voice's level as breath: 30 dB below its loudest is no breath
+                // the voice's level as breath: 30 dB below its loudest is no breath. Through a closure the breath is held
+                // behind the tongue, as a player holds it (it leaks away over half a second of silence).
                 const float lv = vt.open ? std::clamp (1.0f + (vt.levelDb - vt.peakDb) / 30.0f, 0.0f, 1.0f) : 0.0f;
-                breathS += (1.0f - std::exp (-1.0f / (0.008f * (float) rate))) * (lv - breathS);
+                breathS += (1.0f - std::exp (-1.0f / ((vt.open ? 0.008f : 0.5f) * (float) rate))) * (lv - breathS);
                 b *= 1.0 - vBreath + vBreath * breathS;
             }
             e.setBreath ((float) b);
