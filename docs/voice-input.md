@@ -121,8 +121,32 @@ through consonants and breaths, and an answer for latency: two periods of a low 
 smoothing. Chording would then be extra engines at intervals from the tracked note.
 
 ## Making it live in Vane
-Not built yet. The offline results have not been heard, and the first step changes the plugin's bus layout
-in every format, which needs testing in hosts.
+**Built (2026-11-14), steps 1 to 4 below; step 5 and the effect build are not.** A first live path:
+
+- **Voice input.** An input bus "Voice" (mono; stereo is averaged). In Standalone it is the main input and on
+  (JUCE gives Standalone only its main buses, and starts with input muted: unmute it in the Standalone
+  options); in AU, VST3 and CLAP it is an input hosts may switch on. Not on Linux/LV2. The Standalone asks for
+  microphone permission (`MICROPHONE_PERMISSION_ENABLED` in `CMakeLists.txt`, which also writes the usage text
+  to every format's Info.plist).
+- **Tracker in `processBlock`**, before the buffer is cleared; its answers are published once per block in
+  `modMatrix.voiceInput`.
+- **Mod sources** (appended to the source list, so old presets keep working): **Voice Vowel** (0 oo, 0.5 ah,
+  1 ee), **Voice Level** (0 while the mouth is closed) and **Voice Brightness** (of the last consonant).
+  For the vowel on WindCore's mouth: Mouth shape at oo (0), Voice Vowel to Wind Mouth at +1, Voice Level to
+  Wind Mouth Strength at +1 with Mouth strength as the floor.
+- **Voice Tongue** (switch) and **Voice Onset Noise** (0..3; 0 leaves Chiff as set): while on and a voice is
+  feeding the input, the reed stops when the mouth is closed (so with no voice, no sound) and re-attacks at each
+  consonant with the consonant's noise. Block-accurate: with a 256-sample block an attack can be 6 ms late.
+- **`VanePerfRender`** takes `VANE_VOICE=voice.wav` to feed a recording to the voice input.
+
+Not done: the voice in the mouth (step 5: needs the voice per sample inside each voice), the effect build
+(AUv3 on iOS), the panel (native and web: none of these controls has a widget yet; the mod slots and the two
+parameters work from the host's generic UI or by hand), Linux, and the browser version (it plays MiniSax only,
+so there is nothing there for a voice to drive yet). Untested in any host: how each one presents or enables an
+instrument's input bus, and Standalone's microphone permission when signed and notarised (it needs the
+audio-input entitlement).
+
+The plan as first written follows.
 
 **What Vane declares now.** A synth (`IS_SYNTH TRUE`, MIDI in) with one stereo output and no input
 (`BusesProperties().withOutput(...)` in `PluginProcessor.cpp`). Formats: AU, AUv3, VST3 and Standalone on

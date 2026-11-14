@@ -83,7 +83,22 @@ int main (int argc, char** argv)
         proc.setStateInformation (d + off, (int) (mb.getSize() - off));
         std::printf ("restored Vane state from %s\n", sf);
     }
-    proc.setPlayConfigDetails (0, 2, sr, bs);
+    // VANE_VOICE=voice.wav: the recording (mono mix) goes in on the voice input, as a host would send it.
+    juce::AudioBuffer<float> voice;
+    if (const char* vf = std::getenv ("VANE_VOICE")) {
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (juce::File::getCurrentWorkingDirectory().getChildFile (vf)));
+        if (! r) { std::fprintf (stderr, "cannot read voice %s\n", vf); return 1; }
+        juce::AudioBuffer<float> raw ((int) r->numChannels, (int) r->lengthInSamples);
+        r->read (&raw, 0, (int) r->lengthInSamples, 0, true, true);
+        voice.setSize (1, (int) r->lengthInSamples); voice.clear();
+        for (int c = 0; c < raw.getNumChannels(); ++c) voice.addFrom (0, 0, raw, c, 0, raw.getNumSamples(), 1.0f / raw.getNumChannels());
+        if (std::abs (r->sampleRate - sr) > 1.0) std::fprintf (stderr, "note: voice is %.0f Hz, render %.0f Hz (not resampled)\n", r->sampleRate, sr);
+        auto layout = proc.getBusesLayout();
+        if (proc.getBusCount (true) > 0) layout.inputBuses.getReference (0) = juce::AudioChannelSet::mono();
+        if (! proc.setBusesLayout (layout)) { std::fprintf (stderr, "no voice input on this build\n"); return 1; }
+    }
+    proc.setPlayConfigDetails (voice.getNumSamples() > 0 ? 1 : 0, 2, sr, bs);
     proc.prepareToPlay (sr, bs);
     juce::AudioBuffer<float> buf (2, bs);
     const int total = (int) (secs * sr);
@@ -109,6 +124,8 @@ int main (int argc, char** argv)
         }
         buf.setSize (2, n, false, false, true);
         buf.clear();
+        if (voice.getNumSamples() > 0)
+            for (int i = 0; i < n; ++i) buf.setSample (0, i, pos + i < voice.getNumSamples() ? voice.getSample (0, pos + i) : 0.0f);
         proc.processBlock (buf, midi);
         for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, buf, c, 0, n);
     }

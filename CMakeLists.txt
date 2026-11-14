@@ -96,6 +96,9 @@ set(PLUGIN_BASE_PROPS
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    # The Voice input (docs/voice-input.md): Standalone reads the microphone.
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT  "Vane follows your voice (its vowels and consonants) when the voice input is on."
     # App / plugin icon (Standalone .app, AUv3, installer).  JUCE generates the
     # platform icon sets (.icns / .ico) from these two PNGs.
     ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-1024.png"

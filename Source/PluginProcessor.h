@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include "Synth/SynthVoice.h"
+#include "VoiceTracker.h"   // WindCore/: follows a voice on the audio input (level, consonants, vowel)
 #include "Synth/FormantFilter.h"
 #include "Synth/Room.h"
 #include "Synth/TransientLibrary.h"
@@ -22,6 +23,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    bool isBusesLayoutSupported(const BusesLayout&) const override;
 
     juce::AudioProcessorEditor* createEditor() override;
 #if VANE_HEADLESS
@@ -387,6 +389,11 @@ private:
     // WindCore (waveguideModel 1): its character controls, turned into settings and tables once
     // per block on the audio thread and shared by every voice's engines.
     windcore::Character windCharacter;
+    // Voice input: a voice on the audio input drives the Voice* mod sources and, with Voice Tongue,
+    // articulates WindCore (docs/voice-input.md). Audio thread only; results are published through
+    // modMatrix.voiceInput.
+    windcore::VoiceTracker voiceTracker;
+    bool voiceWasActive = false;
     std::atomic<float>* pWaveguideModelRaw = nullptr;
     std::array<std::atomic<float>*, windcore::Character::kNum> pWindRaw {};
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.

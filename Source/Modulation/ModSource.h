@@ -38,7 +38,12 @@ struct ModSourceID {
 
     static constexpr int NumMacros = 5;
 
-    static constexpr int NumTotal  = 261;
+    // ── Voice input sources (global, from the audio input; see VoiceTracker.h) ──
+    static constexpr int VoiceVowel      = 261;   // 0 = oo, 0.5 = ah, 1 = ee (holds through closures)
+    static constexpr int VoiceLevel      = 262;   // 0..1, 0 while the mouth is closed
+    static constexpr int VoiceBrightness = 263;   // 0..1, how bright the last consonant's onset was ("t" high, "p" low)
+
+    static constexpr int NumTotal  = 264;
 };
 
 struct ModDestID {
@@ -145,12 +150,15 @@ namespace ModSlots {
     // keeps existing presets' slot sources valid (no migration).
     // Keytrack (note pitch) appended after the aux block as a per-note source.
     static constexpr int KeytrackChoice = FirstAuxChoice + NumAux;   // = 15
+    static constexpr int VoiceVowelChoice      = KeytrackChoice + 1;     // 16
+    static constexpr int VoiceLevelChoice      = KeytrackChoice + 2;     // 17
+    static constexpr int VoiceBrightnessChoice = KeytrackChoice + 3;     // 18
     inline const char* const kSourceNames[] = {
         "Off", "Breath", "Expression", "Pressure", "Slide", "Pitchbend", "Velocity",
         "Aux 1", "Aux 2", "Aux 3", "Aux 4", "Aux 5", "Aux 6", "Aux 7", "Aux 8",
-        "Keytrack"
+        "Keytrack", "Voice Vowel", "Voice Level", "Voice Brightness"
     };
-    static constexpr int NumSourceChoices = 7 + NumAux + 1;
+    static constexpr int NumSourceChoices = 7 + NumAux + 1 + 3;
 
     // Destination choice list.  Maps to ModDestID values.
     // IMPORTANT: only ever APPEND — APVTS stores the choice index, so inserting
@@ -178,6 +186,9 @@ namespace ModSlots {
             case 5: return ModSourceID::MacroPitchbend;
             case 6: return ModSourceID::Velocity;
             case KeytrackChoice: return ModSourceID::Keytrack;
+            case VoiceVowelChoice:      return ModSourceID::VoiceVowel;
+            case VoiceLevelChoice:      return ModSourceID::VoiceLevel;
+            case VoiceBrightnessChoice: return ModSourceID::VoiceBrightness;
             default: return -1;   // Off
         }
     }
@@ -224,6 +235,7 @@ namespace ModSlots {
     // (A future revision can expose per-slot atk/rel once the WebView UI is ready.)
     inline void slewRates(int sourceChoice, float& atkMs, float& relMs) {
         if (sourceChoice == KeytrackChoice) { atkMs = 0.0f; relMs = 0.0f; return; }    // per-note constant
+        if (sourceChoice >= VoiceVowelChoice) { atkMs = 3.0f; relMs = 25.0f; return; } // voice: already smoothed by the tracker
         if (sourceChoice >= FirstAuxChoice) { atkMs = 5.0f; relMs = 80.0f; return; }  // aux: smooth global
         switch (sourceChoice) {
             case 1: case 2: atkMs = 5.0f; relMs = 80.0f; break;  // Breath / Expression

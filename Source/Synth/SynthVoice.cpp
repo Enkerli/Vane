@@ -843,6 +843,24 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             wp.vibDepth   = std::clamp(wp.vibDepth + 35.0f * mods[ModDestID::WindVibrato], 0.0f, 60.0f);
         }
         windBreathPrev = wgBreath;
+        // A voice on the audio input (docs/voice-input.md): while Voice Tongue is on, the reed is
+        // stopped when the mouth is closed and re-attacked at each consonant, with the consonant's
+        // noise (loudness and brightness as heard) when Voice Onset Noise is above 0. Block-accurate.
+        voiceOpen = true;
+        const auto& vin = modMatrix.voiceInput;
+        if (paramVoiceTongue != nullptr && paramVoiceTongue->load() > 0.5f && vin.active.load(std::memory_order_relaxed)) {
+            voiceOpen = vin.open.load(std::memory_order_relaxed);
+            const float chiffAmt = paramVoiceChiff != nullptr ? paramVoiceChiff->load() : 0.0f;
+            const bool onset = vin.onsetThisBlock.load(std::memory_order_relaxed) && ! isTailingOff;
+            for (int j = 0; j < kMaxUnison; ++j) {
+                auto& e = windVoices[(size_t) j];
+                if (chiffAmt > 0.0f) {
+                    e.p.chiff      = chiffAmt * (0.4f + 0.6f * vin.onsetLevel.load(std::memory_order_relaxed));
+                    e.p.chiffColor = std::clamp(vin.brightness.load(std::memory_order_relaxed), 0.0f, 1.0f);
+                }
+                if (onset && voiceOpen) e.tongueStroke();
+            }
+        }
     }
 
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
@@ -1080,7 +1098,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 // engine crossfades itself) with bend and modulation on top, and breath ramped across
                 // the block. Pitch is refreshed every 8 samples, the engine's own control rate.
                 const float wb = windBreathFrom + windBreathStep * (float) (i + 1);
-                const bool gateOn = ! isTailingOff;
+                const bool gateOn = ! isTailingOff && voiceOpen;
                 const int nW = unisonOn ? uN : 1;
                 if ((i & 7) == 0) {
                     const float bendSemis = 12.0f * std::log2(std::max(1.0e-4f, windPitchMult));

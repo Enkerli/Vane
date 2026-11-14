@@ -121,6 +121,16 @@ public:
         return (g >= 0 && g < ModSlots::NumAux) ? auxCC[(size_t) g] : 0;
     }
 
+    // ── Voice input ───────────────────────────────────────────────────────────
+    // Written once per block by the processor from its VoiceTracker; read by the
+    // matrix (the Voice* sources) and by WindCore voices (tongue, chiff).
+    struct VoiceInput {
+        std::atomic<bool>  active { false };        // an audio input is feeding the tracker
+        std::atomic<bool>  open { false };          // the mouth is open (a sound, not a closure or silence)
+        std::atomic<bool>  onsetThisBlock { false };// a consonant or vowel began in this block
+        std::atomic<float> vowel { 0.5f }, level { 0.0f }, brightness { 0.0f }, onsetLevel { 0.0f };
+    } voiceInput;
+
     // Global (non-MPE) channel pressure / Aftertouch
     void  setAftertouch(float zeroToOne) { aftertouchValue = std::clamp(zeroToOne, 0.0f, 1.0f); }
     float getAftertouch() const { return aftertouchValue; }
