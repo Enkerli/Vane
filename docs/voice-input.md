@@ -136,7 +136,8 @@ smoothing. Chording would then be extra engines at intervals from the tracked no
   Wind Mouth Strength at +1 with Mouth strength as the floor.
 - **Voice Tongue** (switch) and **Voice Onset Noise** (0..3; 0 leaves Chiff as set): while on and a voice is
   feeding the input, the reed stops when the mouth is closed (so with no voice, no sound) and re-attacks at each
-  consonant with the consonant's noise. Block-accurate: with a 256-sample block an attack can be 6 ms late.
+  consonant with the consonant's noise (colour leaning from reed toward air for a bright consonant, but only half way:
+  fully air is a hi-hat; at 0 the Chiff control still applies at every re-attack). Block-accurate: with a 256-sample block an attack can be 6 ms late.
 - **`VanePerfRender`** takes `VANE_VOICE=voice.wav` to feed a recording to the voice input.
 
 Not done: the voice in the mouth (step 5: needs the voice per sample inside each voice), the effect build

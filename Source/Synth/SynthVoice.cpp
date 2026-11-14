@@ -856,7 +856,8 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 auto& e = windVoices[(size_t) j];
                 if (chiffAmt > 0.0f) {
                     e.p.chiff      = chiffAmt * (0.4f + 0.6f * vin.onsetLevel.load(std::memory_order_relaxed));
-                    e.p.chiffColor = std::clamp(vin.brightness.load(std::memory_order_relaxed), 0.0f, 1.0f);
+                    // a bright consonant ("t") leans toward air, but only part way: fully air is a hi-hat
+                    e.p.chiffColor = 0.5f * std::clamp(vin.brightness.load(std::memory_order_relaxed), 0.0f, 1.0f);
                 }
                 if (onset && voiceOpen) e.tongueStroke();
             }
