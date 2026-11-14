@@ -285,6 +285,43 @@ natural carrier — same slew/curve discipline as VCA/cutoff routes).
 Start with one or two params after the lab work identifies which are
 stable enough to move under modulation.
 
+## Field notes — 2026-11-13 (Alex, queued; not scheduled)
+
+### Voice into WindCore
+A sung or spoken input shaping the modelled instrument. The vowel should
+go **into the model** (the mouth the reed plays against), which is a
+different thing from a vowel filter laid over the finished sound. Steps,
+easiest first:
+
+1. **Audio-effect version.** Vane as an effect: the input's spectrum
+   drives the mouth directly, with no vowel tracking at all. Likely the
+   quickest way to hear whether the idea is worth the rest. Closer to a
+   talkbox than to a woodwind, and that is fine.
+2. **Vowel tracking.** A formant tracker on a sidechain driving the
+   mouth shape (the Wind Mouth and Wind Mouth Strength destinations are
+   already there to receive it).
+3. **Plosives.** Consonant onsets in the input firing the tongue and the
+   onset noise, so "t", "k" and "p" articulate notes.
+4. **Pitch tracking.** Notes from the voice itself, no MIDI needed. Opens
+   chording effects (generated voices around the tracked pitch).
+5. **Voice models (RVC and similar).** A separate, heavier experiment.
+
+### Time-based modulation for the Wind destinations
+The seven Wind destinations follow controllers only. An LFO or envelope
+source would let a patch move its mouth or body by itself.
+
+### Clicks and phasey slurs (track)
+Heard in WindCore renders of hard test phrases: clicks at some note
+changes and a phasey quality in some slurs. The other waveguide models
+show click-like artefacts on the same phrases, less distracting. Wanted:
+a detector in the render checks (level spikes and spectral flux at note
+changes) so each change can be scored against the last, then fixes at
+the note-change crossfade.
+
+### WindCore panel
+27 controls in one panel. Needs a design pass: what is a main control,
+what is a detail, what belongs to a patch rather than the panel.
+
 ## Deferred / research
 
 - Spectral / granular processing
