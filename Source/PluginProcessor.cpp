@@ -122,7 +122,7 @@ VaneProcessor::VaneProcessor()
                 v->setWaveguideHandoff(&lastWaveguideVoice);
                 v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
                 v->setWindCore(&windCharacter);
-                v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"));
+                v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"), apvts.getRawParameterValue("voiceVowel"));
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
@@ -1564,6 +1564,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"voiceChiff", 1}, "Voice Onset Noise",
         juce::NormalisableRange<float>(0.0f, 3.0f), 0.0f));
+    // The voice's vowel (oo, ah, ee) sets WindCore's mouth shape while the mouth is open; this is the strength
+    // of that vowel (1 = 10 dB at its upper resonance, as Mouth strength at its top). 0 = off. It replaces
+    // Mouth shape and Mouth strength while a voice is on the input, and adds to whatever the mod matrix does.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceVowel", 1}, "Voice Vowel Strength",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     // WindCore's character controls, each 0..1, defined in WindCore/character.json (labels, ends,
     // what each one does). Plain ASCII names.
     for (int k = 0; k < windcore::Character::kNum; ++k)

@@ -134,6 +134,8 @@ smoothing. Chording would then be extra engines at intervals from the tracked no
   1 ee), **Voice Level** (0 while the mouth is closed) and **Voice Brightness** (of the last consonant).
   For the vowel on WindCore's mouth: Mouth shape at oo (0), Voice Vowel to Wind Mouth at +1, Voice Level to
   Wind Mouth Strength at +1 with Mouth strength as the floor.
+- **Voice Vowel Strength** (0..1, off at 0): the voice's vowel sets WindCore's mouth shape (the filter version)
+  while the mouth is open, at up to 10 dB; it replaces Mouth shape and Mouth strength. No routing needed.
 - **Voice Tongue** (switch) and **Voice Onset Noise** (0..3; 0 leaves Chiff as set): while on and a voice is
   feeding the input, the reed stops when the mouth is closed (so with no voice, no sound) and re-attacks at each
   consonant with the consonant's noise (colour leaning from reed toward air for a bright consonant, but only half way:

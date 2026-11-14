@@ -848,6 +848,18 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         // noise (loudness and brightness as heard) when Voice Onset Noise is above 0. Block-accurate.
         voiceOpen = true;
         const auto& vin = modMatrix.voiceInput;
+        // The voice's vowel as the mouth shape: its place on the oo..ah..ee line, at full strength while the
+        // mouth is open (the engine glides the resonances over about 20 ms, so a closure fades them out).
+        const float voiceVowelAmt = paramVoiceVowel != nullptr ? paramVoiceVowel->load() : 0.0f;
+        if (voiceVowelAmt > 0.001f && vin.active.load(std::memory_order_relaxed)) {
+            const bool open = vin.open.load(std::memory_order_relaxed);
+            const float vowel = vin.vowel.load(std::memory_order_relaxed);
+            for (int j = 0; j < kMaxUnison; ++j) {
+                auto& wp = windVoices[(size_t) j].p;
+                wp.vowel = vowel;
+                wp.vowelDepth = open ? 10.0f * voiceVowelAmt : 0.0f;
+            }
+        }
         if (paramVoiceTongue != nullptr && paramVoiceTongue->load() > 0.5f && vin.active.load(std::memory_order_relaxed)) {
             voiceOpen = vin.open.load(std::memory_order_relaxed);
             const float chiffAmt = paramVoiceChiff != nullptr ? paramVoiceChiff->load() : 0.0f;
