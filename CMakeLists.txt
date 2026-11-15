@@ -113,8 +113,8 @@ set(PLUGIN_BASE_PROPS
 # insert it on an audio track (a microphone, a voice, a CV signal) and send it
 # MIDI. This is how the Voice input reaches hosts that give instruments no audio
 # (docs/voice-input.md). Same code and parameters as Vane; macOS and iOS for now.
-# An AUv3 lives inside an app, so the effect comes with its own app ("Vane FX"),
-# which is also a standalone that plays from the device's input.
+# It comes with its own app ("Vane FX"), a standalone that plays from the device's
+# input; on iOS that app also carries the AUv3.
 if(IS_MACOS OR IS_IOS)
     option(VANE_BUILD_FX "Also build Vane FX, the effect version with an audio input" ON)
 else()
@@ -209,7 +209,9 @@ elseif(IS_MACOS)
     if(VANE_BUILD_FX)
         juce_add_plugin(VaneFX
             ${PLUGIN_FX_PROPS}
-            FORMATS                     AU AUv3 VST3 Standalone
+            # No AUv3 on macOS yet: an AUv3 there takes precedence over the AU of the same identity,
+            # runs sandboxed, and its web panel stays blank (docs/voice-input.md). iOS has it.
+            FORMATS                     AU VST3 Standalone
             COPY_PLUGIN_AFTER_BUILD     ${ENKERLI_INSTALL_PLUGINS}
             SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         )

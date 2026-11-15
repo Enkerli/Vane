@@ -117,8 +117,7 @@ python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a re
 Three ways in, the first two new on 2026-11-15:
 
 - **Vane FX**, the same plugin built as an effect (AU music effect, VST3 "Fx|Instrument", CLAP audio effect;
-  and AUv3 inside its own "Vane FX" app; macOS and iOS, `-DVANE_BUILD_FX=OFF` to skip it; AUv3 needs the
-  Xcode generator, `cmake -G Xcode`, as for Vane's own). Its stereo input is on: insert it on an audio track that
+  macOS; on iOS an AUv3 inside its own "Vane FX" app; `-DVANE_BUILD_FX=OFF` to skip it). Its stereo input is on: insert it on an audio track that
   carries the voice or signal, and send it MIDI from another track. This works wherever an effect can receive
   MIDI. Presets and parameters are Vane's.
 - **Vane, the instrument, with a side chain.** The Voice input is now an aux bus in VST3 (where hosts look for a
@@ -129,6 +128,13 @@ Three ways in, the first two new on 2026-11-15:
 (-1..1), for a control voltage on a DC-coupled input: breath on one channel, bite on the other. The voice
 tracker removes everything below 70 Hz, so it cannot carry one. Checked offline: a DC ramp routed to VCA
 opens the synth in step with it. They are not yet a choice for the breath macro, which is what blows WindCore.
+
+**No AUv3 for Vane FX on macOS yet.** It was tried and taken out: on macOS an AUv3 takes precedence over the AU
+with the same type, subtype and manufacturer as soon as its app is built or copied (the system registers it by
+itself), it runs sandboxed, and its panel, a web view, stays blank, also with the network-client entitlement.
+Until that is solved a macOS build of it only hides the working AU. Vane's own macOS AUv3 is probably affected
+the same way and has not been checked. If Vane FX shows a blank window in a host, look for a stray extension
+with `pluginkit -m -v | grep -i vane` and remove it with `pluginkit -r <path to the .appex>`.
 
 Not checked in any DAW yet: which hosts show the side chain on an instrument, and how each routes MIDI to
 an effect.
