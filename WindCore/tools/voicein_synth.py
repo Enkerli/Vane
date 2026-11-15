@@ -21,6 +21,7 @@ def tract(src, F1, F2, F3):
     return _resonate(y, np.full(len(src), 3500.0), 200.0)
 
 def source(n, f0, rng, whisper=False, vib=0.0):
+    """f0: Hz, one number or one per sample. vib: vibrato depth as a share of the pitch (0 = a trace)."""
     if whisper:
         return rng.standard_normal(n) * 0.05
     t = np.arange(n) / SR
@@ -40,10 +41,12 @@ def burst(kind, rng):
     env = np.minimum(1, np.arange(n) / (0.0008 * SR)) * np.exp(-np.arange(n) / (0.45 * n))
     return 0.12 * amp * y * env
 
-def build(score, f0=120.0, whisper=False, seed=1, floor_db=-66.0):
+def build(score, f0=120.0, whisper=False, seed=1, floor_db=-66.0, vib=0.0):
     """score: list of items, each ('v', vowel, seconds [, level]) a vowel held, ('g', vowel, seconds) a glide to that vowel,
-       ('c', 't'|'k'|'p', closure seconds) a stop consonant before the next vowel, or ('r', seconds) a rest."""
+       ('c', 't'|'k'|'p', closure seconds) a stop consonant before the next vowel, ('r', seconds) a rest, or
+       ('p', midi note [, slide seconds]) the pitch from here on (it slides there over that time, 40 ms by default)."""
     rng = np.random.default_rng(seed)
+    pitch_marks = [(0.0, 12 * np.log2(f0 / 440.0) + 69, 0.0)]      # (time, note, slide seconds)
     F = [[], [], []]; amp = []; marks = []; bursts = []; t = 0.0; cur = VOWELS[score[0][1]] if score[0][0] in "vg" else VOWELS["ah"]
     def seg(dur, target, a0, a1, glide=False):
         nonlocal cur, t
@@ -54,6 +57,8 @@ def build(score, f0=120.0, whisper=False, seed=1, floor_db=-66.0):
     seg(0.1, cur, 0, 0)                                         # a moment of quiet first
     while i < len(score):
         it = score[i]
+        if it[0] == "p":
+            pitch_marks.append((t, float(it[1]), float(it[2]) if len(it) > 2 else 0.04)); i += 1; continue
         if it[0] == "r":
             if lvl > 0: seg(0.03, cur, lvl, 0); lvl = 0
             seg(it[1], cur, 0, 0)
@@ -73,13 +78,17 @@ def build(score, f0=120.0, whisper=False, seed=1, floor_db=-66.0):
     if lvl > 0: seg(0.04, cur, lvl, 0)
     seg(0.25, cur, 0, 0)
     F = [np.concatenate(f) for f in F]; amp = np.concatenate(amp); n = len(amp)
-    x = tract(source(n, f0, rng, whisper), *F) * amp
+    tt = np.arange(n) / SR; note = np.full(n, pitch_marks[0][1])
+    for tm, nt, sl in pitch_marks[1:]:
+        prev = note[min(n - 1, int(tm * SR))]; u = np.clip((tt - tm) / max(sl, 1e-4), 0, 1); note = np.where(tt >= tm, prev + (nt - prev) * (0.5 - 0.5 * np.cos(np.pi * u)), note)
+    x = tract(source(n, 440.0 * 2 ** ((note - 69) / 12), rng, whisper, vib), *F) * amp
     x /= abs(x).max() + 1e-9; x *= 0.5
     for tb, b in bursts:
         k = int(tb * SR); x[k:k + len(b)] += b
     x += rng.standard_normal(n) * 10 ** (floor_db / 20)
     hop = SR // 200; idx = np.arange(0, n, hop)
-    truth = {"hop": hop / SR, "f1": F[0][idx].round(1).tolist(), "f2": F[1][idx].round(1).tolist(), "f3": F[2][idx].round(1).tolist(), "level": amp[idx].round(3).tolist(), "marks": marks}
+    truth = {"hop": hop / SR, "f1": F[0][idx].round(1).tolist(), "f2": F[1][idx].round(1).tolist(), "f3": F[2][idx].round(1).tolist(), "level": amp[idx].round(3).tolist(), "marks": marks,
+             "note": note[idx].round(3).tolist(), "pitch_marks": [[float(a), float(b), float(c)] for a, b, c in pitch_marks]}
     return x, truth
 
 SETS = {

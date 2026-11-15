@@ -13,7 +13,7 @@ def build():
     os.makedirs(os.path.dirname(BIN), exist_ok=True)
     src = os.path.join(ROOT, "cli", "windcore-render.cpp")
     hdr = os.path.join(ROOT, "WindCore.h")
-    deps = [src, hdr] + [os.path.join(ROOT, f) for f in ("WindCharacter.h", "WindCoreData.h", "VoiceTracker.h") if os.path.exists(os.path.join(ROOT, f))]
+    deps = [src, hdr] + [os.path.join(ROOT, f) for f in ("WindCharacter.h", "WindCoreData.h", "VoiceTracker.h", "VoiceNotes.h") if os.path.exists(os.path.join(ROOT, f))]
     if os.path.exists(BIN) and os.path.getmtime(BIN) > max(os.path.getmtime(f) for f in deps):
         return
     subprocess.check_call(["clang++", "-std=c++17", "-O2", "-Wall", "-o", BIN + ".new", src])

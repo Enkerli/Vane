@@ -6,8 +6,8 @@
 //     lowest value of the last 50 ms. An onset is reported within a few milliseconds, with how bright
 //     the first sound is (a "t" is bright, a "p" dark).
 //   - Vowel (every 5 ms): the last 25 ms, brought down to about 12 kHz, gives the first two formants by
-//     linear prediction (Markel & Gray 1976), whether the sound is voiced, and its pitch (reported, not
-//     used yet). The formants give a position on WindCore's vowel line, oo .. ah .. ee.
+//     linear prediction (Markel & Gray 1976), and the last 40 ms whether the sound is voiced and its pitch
+//     (YIN). VoiceNotes.h turns that pitch into notes. The formants give a position on WindCore's vowel line, oo .. ah .. ee.
 //
 // Known limits: formants of high voices (above about 300 Hz) are pulled toward the harmonics; voiced
 // stops ("b", "d", "g") dip less than voiceless ones and need a lower `rise`.
@@ -31,6 +31,7 @@ public:
     float refractory = 0.06f;    // s, least time between onsets
     float voiceSize  = 1.0f;     // formants are divided by this before the vowel line (above 1 = a smaller head than the line's)
     float smooth     = 0.025f;   // s, smoothing of the formants
+    float pitchDip   = 0.15f;    // how deep the first dip of the pitch search must be (lower: fewer octave errors, more misses)
     float emphasis   = 0.7f;     // high-frequency emphasis before the formant analysis (more pulls a low first formant up)
 
     enum State { kClosed, kBurst, kVoiced, kNoise };
@@ -47,6 +48,8 @@ public:
     float vowelFit = 0;                      // 0..1: 1 = on the line, 0 = an octave or more from it
     float voiced = 0;                        // 0..1, periodicity
     float pitchHz = 0;                       // of the voice, 0 if unvoiced
+    float pitchNote = -1;                    // the same as a MIDI note number with its fraction (69 = 440 Hz), -1 if unvoiced
+    float periodicity = 0;                   // 0..1, how clearly the sound repeats (1 = a perfect period)
     bool  frameReady = false;                // true for the sample on which the vowel path updated
 
     void prepare (double rate)
@@ -80,7 +83,7 @@ public:
         std::fill (frame, frame + kMaxFrame, 0.0f); std::fill (mins, mins + kMins, -120.0f); std::fill (med1, med1 + 3, 500.0f); std::fill (med2, med2 + 3, 1500.0f); std::fill (med3, med3 + 3, 2500.0f); std::fill (med4, med4 + 3, 3500.0f);
         wi = ii = fi = mi = 0; sumP = sumH = 0; x1 = y1 = hfLp = 0; msCount = decCount = hopCount = 0;
         sinceOnset = 1e9; levelDb = -120; peakDb = -20; open = false; state = kClosed; onsetBright = onsetLevel = 0;
-        f1 = 500; f2 = 1500; f3 = 2500; f4 = 3500; vowel = 0.5f; vowelFit = 0; voiced = 0; pitchHz = 0; frameReady = false; pendingLevel = false; samples = 0;
+        f1 = 500; f2 = 1500; f3 = 2500; f4 = 3500; vowel = 0.5f; vowelFit = 0; voiced = 0; pitchHz = 0; pitchNote = -1; periodicity = 0; frameReady = false; pendingLevel = false; samples = 0;
     }
 
     /** One sample. Returns true on the sample where an onset is found. */
@@ -174,20 +177,33 @@ private:
         for (int i = 0; i < nRing; ++i) v[i] = frame[(fi + i) % nRing];
         for (int i = 0; i < nFrame; ++i) s[i] = v[nRing - nFrame + i];
 
-        // voiced? the strongest repeat between 50 and 500 Hz
+        // voiced, and at what pitch? The difference function of YIN (de Cheveigne & Kawahara 2002), normalised by
+        // its running mean: the first clear dip between 50 and 600 Hz is the period, which is what keeps it off
+        // the octave below; a parabola through the dip gives the period to a fraction of a sample.
         {
-            const int lo = std::max (2, (int) (fsA / 500.0)), hi = std::min (nRing / 2, (int) (fsA / 50.0));
-            double sq[kMaxFrame + 1]; sq[0] = 0; for (int i = 0; i < nRing; ++i) sq[i + 1] = sq[i] + (double) v[i] * v[i];
-            double bestR = 0; int bestL = 0;
-            for (int L = lo; L <= hi; ++L)
+            const int lo = std::max (2, (int) (fsA / 600.0)), hi = std::min (nRing / 2, (int) (fsA / 50.0)), W = nRing - hi;
+            float dn[kMaxFrame / 2 + 2]; double run = 0; dn[0] = 1;
+            for (int L = 1; L <= hi; ++L)
             {
-                double r = 0; const double ea = 1e-12 + sq[nRing - L], eb = 1e-12 + sq[nRing] - sq[L];
-                for (int i = 0; i + L < nRing; ++i) r += (double) v[i] * v[i + L];
-                const double c = r / std::sqrt (ea * eb);
-                if (c > bestR + 0.03) { bestR = c; bestL = L; }       // the shortest repeat wins unless a longer one is clearly better
+                double d = 0;
+                for (int i = 0; i < W; ++i) { const double e = (double) v[i] - v[i + L]; d += e * e; }
+                run += d; dn[L] = run > 1e-18 ? (float) (d * L / run) : 1.0f;
             }
-            voiced = open ? (float) std::clamp ((bestR - 0.3) / 0.4, 0.0, 1.0) : 0.0f;
-            pitchHz = voiced >= 0.5f && bestL > 0 ? (float) (fsA / bestL) : 0.0f;
+            int best = 0; float bestV = 1e9f;
+            for (int L = lo; L < hi; ++L)
+                if (dn[L] < pitchDip && dn[L] <= dn[L - 1] && dn[L] <= dn[L + 1]) { best = L; bestV = dn[L]; break; }
+            if (best == 0)
+                for (int L = lo; L < hi; ++L) if (dn[L] < bestV) { bestV = dn[L]; best = L; }
+            periodicity = std::clamp (1.0f - bestV, 0.0f, 1.0f);
+            voiced = open ? std::clamp ((periodicity - 0.45f) / 0.35f, 0.0f, 1.0f) : 0.0f;
+            if (voiced >= 0.5f && best > lo && best < hi - 1)
+            {
+                const float a = dn[best - 1], b = dn[best], c = dn[best + 1], den = a - 2 * b + c;
+                const float frac = std::abs (den) > 1e-9f ? std::clamp (0.5f * (a - c) / den, -0.5f, 0.5f) : 0.0f;
+                pitchHz = (float) (fsA / ((double) best + frac));
+                pitchNote = 69.0f + 12.0f * std::log2 (pitchHz / 440.0f);
+            }
+            else { pitchHz = 0.0f; pitchNote = -1.0f; }
         }
         if (! open || sinceOnset < 0.012) return;       // formants hold through closures and bursts
 
