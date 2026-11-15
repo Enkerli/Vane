@@ -394,6 +394,8 @@ private:
     // modMatrix.voiceInput.
     windcore::VoiceTracker voiceTracker;
     bool voiceWasActive = false;
+    float voiceFrontLo = 5.4f, voiceFrontHi = 6.8f;   // the range the voice's back-to-front axis has used lately (it adapts)
+    float voiceFollow = 0.0f;                          // loudness follower (see modMatrix.voiceInput.follow)
     std::atomic<float>* pWaveguideModelRaw = nullptr;
     std::array<std::atomic<float>*, windcore::Character::kNum> pWindRaw {};
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.

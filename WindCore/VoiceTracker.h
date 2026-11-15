@@ -134,6 +134,10 @@ public:
     /** Seconds from a sound arriving to the vowel path fully reflecting it (window, decimation and smoothing). */
     double vowelLatency() const { return 0.5 * nFrame / fsA + 0.5 * nTap / fs + smooth; }
 
+    /** Back to front, as one number (about 5.2 for a back open vowel, 7 for a front close one): the second formant
+        raised and the first lowered, in octaves. A vowel chart's long diagonal, from back-open to front-close. */
+    static float frontAxis (float F1, float F2) { return std::log2 (std::max (F2, 1.0f)) - 0.5f * std::log2 (std::max (F1, 1.0f)); }
+
     /** Where a pair of formants sits on WindCore's vowel line: 0 = oo (320, 900 Hz), 0.5 = ah (700, 1200), 1 = ee (300, 2300).
         `distance` gets how far off the line they are, in octaves. */
     static float vowelPosition (float F1, float F2, float* distance = nullptr)

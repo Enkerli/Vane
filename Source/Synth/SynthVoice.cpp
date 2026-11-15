@@ -824,6 +824,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                       veloMix * std::sqrt(velocity), synth }));
         wgIn.params.breath = wgBreath;
     }
+    // A voice on the audio input as the breath (WindCore, docs/voice-input.md): the controller's breath times how
+    // loud the voice is (held through closures), by the Voice Breath Follow share.
+    if (useWind && paramVoiceBreath != nullptr) {
+        const float follow = paramVoiceBreath->load();
+        if (follow > 0.001f && modMatrix.voiceInput.active.load(std::memory_order_relaxed))
+            wgBreath *= (1.0f - follow) + follow * modMatrix.voiceInput.follow.load(std::memory_order_relaxed);
+    }
     // WindCore: this block's settings and tables from the shared control layer. Breath is read
     // once per block, so it is ramped per sample from where the last block ended.
     const float windBreathFrom = windBreathPrev;
@@ -853,10 +860,11 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         const float voiceVowelAmt = paramVoiceVowel != nullptr ? paramVoiceVowel->load() : 0.0f;
         if (voiceVowelAmt > 0.001f && vin.active.load(std::memory_order_relaxed)) {
             const bool open = vin.open.load(std::memory_order_relaxed);
-            const float vowel = vin.vowel.load(std::memory_order_relaxed);
             for (int j = 0; j < kMaxUnison; ++j) {
                 auto& wp = windVoices[(size_t) j].p;
-                wp.vowel = vowel;
+                // the voice's own first two formants, not a place on a line, so any vowel is picked up
+                wp.vowelF1 = vin.f1.load(std::memory_order_relaxed);
+                wp.vowelF2 = vin.f2.load(std::memory_order_relaxed);
                 wp.vowelDepth = open ? 10.0f * voiceVowelAmt : 0.0f;
             }
         }

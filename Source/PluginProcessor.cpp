@@ -122,7 +122,7 @@ VaneProcessor::VaneProcessor()
                 v->setWaveguideHandoff(&lastWaveguideVoice);
                 v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
                 v->setWindCore(&windCharacter);
-                v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"), apvts.getRawParameterValue("voiceVowel"));
+                v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"), apvts.getRawParameterValue("voiceVowel"), apvts.getRawParameterValue("voiceBreath"));
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
@@ -620,7 +620,30 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             vin.active.store(true, std::memory_order_relaxed);
             vin.open.store(open, std::memory_order_relaxed);
             vin.onsetThisBlock.store(onset, std::memory_order_relaxed);
-            vin.vowel.store(voiceTracker.vowel, std::memory_order_relaxed);
+            // Voice Vowel: back to front along a vowel chart's diagonal, scaled to the range this voice has used
+            // lately so a narrow-ranging voice (or a low one) still sweeps the whole 0..1.
+            {
+                const double blockSec = (double) n / juce::jmax(1.0, getSampleRate());
+                const float x = windcore::VoiceTracker::frontAxis(voiceTracker.f1, voiceTracker.f2);
+                if (open) {
+                    const float k = (float) juce::jlimit(0.0, 1.0, blockSec / 8.0);   // the range relaxes over about 8 s
+                    voiceFrontLo = x < voiceFrontLo ? x : voiceFrontLo + k * (x - voiceFrontLo);
+                    voiceFrontHi = x > voiceFrontHi ? x : voiceFrontHi + k * (x - voiceFrontHi);
+                    if (voiceFrontHi - voiceFrontLo < 0.7f) {   // never closer than 0.7 octave: a steady vowel stays put
+                        const float mid = 0.5f * (voiceFrontLo + voiceFrontHi);
+                        voiceFrontLo = mid - 0.35f; voiceFrontHi = mid + 0.35f;
+                    }
+                }
+                vin.vowel.store(juce::jlimit(0.0f, 1.0f, (x - voiceFrontLo) / (voiceFrontHi - voiceFrontLo)), std::memory_order_relaxed);
+                vin.f1.store(voiceTracker.f1, std::memory_order_relaxed);
+                vin.f2.store(voiceTracker.f2, std::memory_order_relaxed);
+                // loudness as breath: follows the voice quickly while the mouth is open, and is held through a closure
+                // (a half second to let go) so the attack after "t" is as loud as the voice, not as the silence.
+                const float lv = open ? juce::jlimit(0.0f, 1.0f, 1.0f + (voiceTracker.levelDb - voiceTracker.peakDb) / 30.0f) : 0.0f;
+                const float tau = open ? 0.008f : 0.5f;
+                voiceFollow += (1.0f - std::exp(-(float) blockSec / tau)) * (lv - voiceFollow);
+                vin.follow.store(voiceFollow, std::memory_order_relaxed);
+            }
             vin.level.store(open ? juce::jlimit(0.0f, 1.0f, 1.0f + (voiceTracker.levelDb - voiceTracker.peakDb) / 30.0f) : 0.0f,
                             std::memory_order_relaxed);
             if (onset) {
@@ -634,6 +657,7 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             vin.open.store(false, std::memory_order_relaxed);
             vin.onsetThisBlock.store(false, std::memory_order_relaxed);
             vin.level.store(0.0f, std::memory_order_relaxed);
+            voiceFollow = 0.0f; vin.follow.store(0.0f, std::memory_order_relaxed);
             voiceWasActive = false;
         }
     }
@@ -1569,6 +1593,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // Mouth shape and Mouth strength while a voice is on the input, and adds to whatever the mod matrix does.
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"voiceVowel", 1}, "Voice Vowel Strength",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // How much the voice's loudness is the breath (WindCore): at 1 a quiet "t" is a quiet note and a loud one a loud
+    // note, as with an envelope follower; at 0 the breath is whatever the controller says.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceBreath", 1}, "Voice Breath Follow",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     // WindCore's character controls, each 0..1, defined in WindCore/character.json (labels, ends,
     // what each one does). Plain ASCII names.

@@ -113,6 +113,17 @@ python3 voicein_render.py out/                   # a listening folder from the t
 python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a recording
 ```
 
+## Next
+- **Pitch from the voice**, so a sung line plays the notes (below). With the vowel, tongue and loudness follow, this
+  would make it possible to sing woodwind lines.
+- **Latency.** The sound trails the voice by about 50 ms (tracker window, block size, the reed's own attack).
+  Singing a line wants less; the first things to try are a shorter level window for onsets and a smaller
+  breath attack while the voice drives the breath.
+- **A single vowel dimension** is a guess: back to front along the chart's diagonal (second formant up, first
+  formant down). Open-close, or both as two sources, are the alternatives to listen to.
+- **The voice in the mouth** (sung into the reed), the panel's widgets for the mod sources, Linux, the effect
+  build for iOS, and the browser version (it plays MiniSax only).
+
 ## Pitch from the voice (later)
 The tracker already reports the voice's pitch (autocorrelation over 25 ms, 70 to 500 Hz), unused. Playing
 from it would need: protection against octave errors, a decision per moment between a new note and a bend
@@ -130,12 +141,17 @@ smoothing. Chording would then be extra engines at intervals from the tracked no
   to every format's Info.plist).
 - **Tracker in `processBlock`**, before the buffer is cleared; its answers are published once per block in
   `modMatrix.voiceInput`.
-- **Mod sources** (appended to the source list, so old presets keep working): **Voice Vowel** (0 oo, 0.5 ah,
-  1 ee), **Voice Level** (0 while the mouth is closed) and **Voice Brightness** (of the last consonant).
+- **Mod sources** (appended to the source list, so old presets keep working): **Voice Vowel** (back to
+  front along a vowel chart's diagonal, scaled to the range the voice has used in the last seconds, so a narrow
+  or low voice still sweeps 0..1), **Voice Level** (0 while the mouth is closed) and **Voice Brightness** (of the last consonant).
   For the vowel on WindCore's mouth: Mouth shape at oo (0), Voice Vowel to Wind Mouth at +1, Voice Level to
   Wind Mouth Strength at +1 with Mouth strength as the floor.
-- **Voice Vowel Strength** (0..1, off at 0): the voice's vowel sets WindCore's mouth shape (the filter version)
-  while the mouth is open, at up to 10 dB; it replaces Mouth shape and Mouth strength. No routing needed.
+- **Voice Vowel Strength** (0..1, off at 0): the two vowel resonances sit on the voice's own first two formants (any
+  vowel, not a place on an oo..ah..ee line) while the mouth is open, at up to 10 dB; it replaces Mouth shape and
+  Mouth strength. No routing needed. (The first version used the line and only picked up some vowel changes.)
+- **Voice Breath Follow** (0..1, off at 0): the voice's loudness is the breath, as with an envelope follower, held
+  through a closure so the attack after "t" is as loud as the voice. The sound trails the voice by about 50 ms
+  (measured: correlation 0.68 at that lag).
 - **Voice Tongue** (switch) and **Voice Onset Noise** (0..3; 0 leaves Chiff as set): while on and a voice is
   feeding the input, the reed stops when the mouth is closed (so with no voice, no sound) and re-attacks at each
   consonant with the consonant's noise (colour leaning from reed toward air for a bright consonant, but only half way:
