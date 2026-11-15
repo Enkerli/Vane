@@ -130,6 +130,7 @@ public:
         std::atomic<bool>  onsetThisBlock { false };// a consonant or vowel began in this block
         std::atomic<float> vowel { 0.5f }, level { 0.0f }, brightness { 0.0f }, onsetLevel { 0.0f };
         std::atomic<float> f1 { 500.0f }, f2 { 1500.0f }, f3 { 2500.0f }, f4 { 3500.0f };   // Hz, the voice's first four formants
+        std::atomic<float> in1 { 0.0f }, in2 { 0.0f };    // each input channel's average over the block, DC kept (a control voltage)
         std::atomic<float> follow { 0.0f };                 // 0..1, its loudness as breath: quick while open, held through a closure
     } voiceInput;
 

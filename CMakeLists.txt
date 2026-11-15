@@ -108,6 +108,41 @@ set(PLUGIN_BASE_PROPS
     # and follows ENKERLI_INSTALL_PLUGINS on the desktop platforms.
 )
 
+# ── Vane FX: the same plugin as an effect ─────────────────────────────────────
+# A MIDI-controlled effect ("music effect" in AU terms) with its audio input on:
+# insert it on an audio track (a microphone, a voice, a CV signal) and send it
+# MIDI. This is how the Voice input reaches hosts that give instruments no audio
+# (docs/voice-input.md). Same code and parameters as Vane; macOS for now.
+if(IS_MACOS)
+    option(VANE_BUILD_FX "Also build Vane FX, the effect version with an audio input" ON)
+else()
+    set(VANE_BUILD_FX OFF)
+endif()
+set(PLUGIN_FX_PROPS
+    COMPANY_NAME                "Enkerli"
+    COMPANY_WEBSITE             "https://enkerli.com"
+    BUNDLE_ID                   "com.enkerli.VaneFX"
+    PLUGIN_MANUFACTURER_CODE    Enke
+    PLUGIN_CODE                 VAfx
+    PRODUCT_NAME                "Vane FX"
+    DESCRIPTION                 "Vane as an effect - a voice or signal on the input plays the synthesizer"
+    IS_SYNTH                    FALSE
+    NEEDS_MIDI_INPUT            TRUE
+    NEEDS_MIDI_OUTPUT           FALSE
+    IS_MIDI_EFFECT              FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    VST3_CATEGORIES             Fx Instrument
+    ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-1024.png"
+    ICON_SMALL                  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-128.png"
+)
+set(VANE_PLUGIN_TARGETS Vane)
+# Applies one target_* command to every plugin target (Vane, and Vane FX when built).
+macro(vane_targets _cmd)
+    foreach(_vane_t IN LISTS VANE_PLUGIN_TARGETS)
+        cmake_language(CALL ${_cmd} ${_vane_t} ${ARGN})
+    endforeach()
+endmacro()
+
 # Apple Developer Team ID — used for iOS signing.
 # Override on the command line if needed: -DVANE_IOS_TEAM_ID=XXXXXXXXXX
 set(VANE_IOS_TEAM_ID "P8W7XXJN6C" CACHE STRING "Apple Developer Team ID for iOS signing")
@@ -146,6 +181,16 @@ elseif(IS_MACOS)
         # See JUCE CMake API docs: SUPPRESS_AU_PLIST_RESOURCE_USAGE.
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
     )
+    if(VANE_BUILD_FX)
+        juce_add_plugin(VaneFX
+            ${PLUGIN_FX_PROPS}
+            FORMATS                     AU VST3
+            COPY_PLUGIN_AFTER_BUILD     ${ENKERLI_INSTALL_PLUGINS}
+            SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
+        )
+        target_compile_definitions(VaneFX PUBLIC VANE_FX=1)
+        list(APPEND VANE_PLUGIN_TARGETS VaneFX)
+    endif()
 elseif(IS_LINUX)
     # Two Linux personalities, selected by VANE_LINUX_HEADLESS (default OFF →
     # the desktop DAW build):
@@ -228,6 +273,11 @@ if(NOT IS_IOS)
     clap_juce_extensions_plugin(TARGET Vane
         CLAP_ID       "com.enkerli.Vane"
         CLAP_FEATURES instrument synthesizer)
+    if(VANE_BUILD_FX)
+        clap_juce_extensions_plugin(TARGET VaneFX
+            CLAP_ID       "com.enkerli.VaneFX"
+            CLAP_FEATURES audio-effect instrument)
+    endif()
 endif()
 
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-finput-charset=UTF-8>)
@@ -244,11 +294,11 @@ add_custom_target(Vane_GenBuildStamp ALL
     BYPRODUCTS "${VANE_STAMP_H}"
     COMMENT "Generating build timestamp → BuildStamp.h"
     VERBATIM)
-add_dependencies(Vane Vane_GenBuildStamp)
-target_include_directories(Vane PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+vane_targets(add_dependencies Vane_GenBuildStamp)
+vane_targets(target_include_directories PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 # ── Sources ───────────────────────────────────────────────────────────────────
-target_sources(Vane PRIVATE
+vane_targets(target_sources PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/ModMatrixEditor.cpp
@@ -271,7 +321,7 @@ target_sources(Vane PRIVATE
     Source/Tests/ChordTests.cpp
 )
 
-target_include_directories(Vane PRIVATE Source MiniSax/Source WindCore)
+vane_targets(target_include_directories PRIVATE Source MiniSax/Source WindCore)
 
 # ── WebUI bundle ──────────────────────────────────────────────────────────────
 # The UI source (index.html) lives in the music-suite monorepo (apps/vane) —
@@ -307,7 +357,7 @@ juce_add_binary_data(VaneWebUI
     HEADER_NAME BinaryDataWebUI.h
     NAMESPACE   BinaryData
     SOURCES     "${VANE_WEBUI_DIR}/index.html")
-target_link_libraries(Vane PRIVATE VaneWebUI)
+vane_targets(target_link_libraries PRIVATE VaneWebUI)
 
 # ── Factory wavetable library (bundled, CC0 / Public Domain) ─────────────────
 # A curated subset compiled into BinaryData so the browser works on AUv3/iOS
@@ -323,7 +373,7 @@ juce_add_binary_data(VaneLibrary
         Assets/library/AKWF_pluckalgo.wav
         Assets/library/AKWF_stringbox.wav
         Assets/library/AKWF_bw_perfectwaves.wav)
-target_link_libraries(Vane PRIVATE VaneLibrary)
+vane_targets(target_link_libraries PRIVATE VaneLibrary)
 
 # ── Factory transient samples (PCM attacks / breath chiffs) ──────────────────
 # All samples are CC0-1.0 (Versilian Studios VSCO-2-CE and VCSL).
@@ -350,7 +400,7 @@ juce_add_binary_data(VaneTransients
         Assets/transients/gen_squeak.wav
         Assets/transients/gen_scratch.wav
         Assets/transients/gen_tick.wav)
-target_link_libraries(Vane PRIVATE VaneTransients)
+vane_targets(target_link_libraries PRIVATE VaneTransients)
 
 # On Linux, the opt-in headless MODEP/Pi build (-DVANE_LINUX_HEADLESS=ON) drops
 # the WebView UI: MODEP renders plugin controls from the LV2 ports and never
@@ -358,14 +408,14 @@ target_link_libraries(Vane PRIVATE VaneTransients)
 # removes the heavy WebKitGTK + GTK3 build dependency. The default desktop build
 # keeps the WebView (and builds VST3).
 if(IS_LINUX AND VANE_LINUX_HEADLESS)
-    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
+    vane_targets(target_compile_definitions PUBLIC JUCE_WEB_BROWSER=0 VANE_HEADLESS=1)
     message(STATUS "Linux build is HEADLESS (MODEP/Pi: no WebView UI, no WebKitGTK, no VST3)")
 else()
-    target_compile_definitions(Vane PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple / WebKitGTK on Linux
+    vane_targets(target_compile_definitions PUBLIC JUCE_WEB_BROWSER=1)   # WKWebView on Apple / WebKitGTK on Linux
     if(IS_LINUX)
         # Desktop/VNC standalone: WebView UI (needs libwebkit2gtk-*-dev) + JACK
         # so Vane shows up as a JACK client you can patch in the Patchbox graph.
-        target_compile_definitions(Vane PUBLIC JUCE_JACK=1)
+        vane_targets(target_compile_definitions PUBLIC JUCE_JACK=1)
         message(STATUS "Linux build uses WebView UI + JACK (needs libwebkit2gtk + JACK)")
         # juce_gui_extra's WebBrowserComponent includes <gtk/gtk.h> + WebKitGTK,
         # but JUCE's module CMake doesn't always propagate their include dirs to
@@ -375,21 +425,21 @@ else()
         if(NOT VANE_WEBKIT_FOUND)
             pkg_check_modules(VANE_WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.0 gtk+-x11-3.0)
         endif()
-        target_link_libraries(Vane PRIVATE PkgConfig::VANE_WEBKIT)
+        vane_targets(target_link_libraries PRIVATE PkgConfig::VANE_WEBKIT)
     endif()
 endif()
-target_compile_definitions(Vane PUBLIC
+vane_targets(target_compile_definitions PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
 )
 
 if(VANE_HAS_MTS)
-    target_compile_definitions(Vane PUBLIC VANE_HAS_MTS=1)
-    target_link_libraries(Vane PRIVATE VaneMTS)
+    vane_targets(target_compile_definitions PUBLIC VANE_HAS_MTS=1)
+    vane_targets(target_link_libraries PRIVATE VaneMTS)
 endif()
 
-target_link_libraries(Vane PRIVATE
+vane_targets(target_link_libraries PRIVATE
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
@@ -408,7 +458,7 @@ target_link_libraries(Vane PRIVATE
 )
 # LTO is fragile on a 4 GB Pi (link can OOM); enable it only off-device.
 if(NOT IS_LINUX)
-    target_link_libraries(Vane PRIVATE juce::juce_recommended_lto_flags)
+    vane_targets(target_link_libraries PRIVATE juce::juce_recommended_lto_flags)
 endif()
 
 # ── Offline render probe (headless diagnostics) ───────────────────────────────

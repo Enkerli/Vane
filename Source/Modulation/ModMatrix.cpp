@@ -127,6 +127,7 @@ bool ModMatrix::isBipolarSource(int sourceID) {
     return sourceID == ModSourceID::MPE_Slide
         || sourceID == ModSourceID::MPE_Pitchbend
         || sourceID == ModSourceID::Keytrack
+        || sourceID == ModSourceID::Input1 || sourceID == ModSourceID::Input2
         || sourceID == ModSourceID::MacroSlide
         || sourceID == ModSourceID::MacroPitchbend;
 }
@@ -189,6 +190,8 @@ float ModMatrix::getSourceValue(int sourceID,
         case ModSourceID::VoiceVowel:      return voiceInput.vowel.load(std::memory_order_relaxed);
         case ModSourceID::VoiceLevel:      return voiceInput.level.load(std::memory_order_relaxed);
         case ModSourceID::VoiceBrightness: return voiceInput.brightness.load(std::memory_order_relaxed);
+        case ModSourceID::Input1:          return voiceInput.in1.load(std::memory_order_relaxed);
+        case ModSourceID::Input2:          return voiceInput.in2.load(std::memory_order_relaxed);
         default: break;
     }
 
