@@ -172,7 +172,7 @@ public:
         and it is only rewritten between blocks. */
     void setWindCore(const windcore::Character* character) noexcept { windCharacter = character; }
     /** A voice on the audio input articulating WindCore: Voice Tongue (a switch), Voice Onset Noise (0..3) and Voice Vowel Strength (0..1) and Voice Breath Follow (0..1). */
-    void setVoiceParams(std::atomic<float>* tongue, std::atomic<float>* chiff, std::atomic<float>* vowel, std::atomic<float>* breath) noexcept { paramVoiceTongue = tongue; paramVoiceChiff = chiff; paramVoiceVowel = vowel; paramVoiceBreath = breath; }
+    void setVoiceParams(std::atomic<float>* tongue, std::atomic<float>* chiff, std::atomic<float>* vowel, std::atomic<float>* breath, std::atomic<float>* upper) noexcept { paramVoiceUpper = upper; paramVoiceTongue = tongue; paramVoiceChiff = chiff; paramVoiceVowel = vowel; paramVoiceBreath = breath; }
     bool windSelected() const noexcept {
         return windCharacter != nullptr && paramWgModel != nullptr && paramWgModel->load() > 0.5f;
     }
@@ -479,6 +479,7 @@ private:
     std::atomic<float>*                           paramVoiceChiff  = nullptr;
     std::atomic<float>*                           paramVoiceVowel  = nullptr;
     std::atomic<float>*                           paramVoiceBreath = nullptr;
+    std::atomic<float>*                           paramVoiceUpper  = nullptr;
     bool                                          voiceOpen = true;        // this block: the voice's mouth is open (or no voice tongue)
     std::atomic<SynthVoice*>* sharedWgVoice = nullptr;  // last waveguide-rendering voice (bore handoff)
     std::atomic<float>* paramWgOn         = nullptr;  // > 0.5 = waveguide replaces the oscillator

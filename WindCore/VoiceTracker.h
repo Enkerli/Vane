@@ -42,6 +42,7 @@ public:
     float onsetBright = 0;                   // 0..1 at the last onset: share of its power above 3 kHz
     float onsetLevel = 0;                    // 0..1: how loud the last onset is going to be (from the level 10 ms on, updated then)
     float f1 = 500, f2 = 1500;               // Hz, smoothed
+    float f3 = 2500, f4 = 3500;              // Hz, the next two resonances (they keep their last value when not found)
     float vowel = 0.5f;                      // 0 = oo, 0.5 = ah, 1 = ee
     float vowelFit = 0;                      // 0..1: 1 = on the line, 0 = an octave or more from it
     float voiced = 0;                        // 0..1, periodicity
@@ -76,10 +77,10 @@ public:
     void reset()
     {
         std::fill (pw, pw + kMaxWin, 0.0f); std::fill (ph, ph + kMaxWin, 0.0f); std::fill (in, in + kMaxTap, 0.0f);
-        std::fill (frame, frame + kMaxFrame, 0.0f); std::fill (mins, mins + kMins, -120.0f); std::fill (med1, med1 + 3, 500.0f); std::fill (med2, med2 + 3, 1500.0f);
+        std::fill (frame, frame + kMaxFrame, 0.0f); std::fill (mins, mins + kMins, -120.0f); std::fill (med1, med1 + 3, 500.0f); std::fill (med2, med2 + 3, 1500.0f); std::fill (med3, med3 + 3, 2500.0f); std::fill (med4, med4 + 3, 3500.0f);
         wi = ii = fi = mi = 0; sumP = sumH = 0; x1 = y1 = hfLp = 0; msCount = decCount = hopCount = 0;
         sinceOnset = 1e9; levelDb = -120; peakDb = -20; open = false; state = kClosed; onsetBright = onsetLevel = 0;
-        f1 = 500; f2 = 1500; vowel = 0.5f; vowelFit = 0; voiced = 0; pitchHz = 0; frameReady = false; pendingLevel = false; samples = 0;
+        f1 = 500; f2 = 1500; f3 = 2500; f4 = 3500; vowel = 0.5f; vowelFit = 0; voiced = 0; pitchHz = 0; frameReady = false; pendingLevel = false; samples = 0;
     }
 
     /** One sample. Returns true on the sample where an onset is found. */
@@ -163,7 +164,7 @@ private:
     int nWin = 576, D = 4, nTap = 33, nFrame = 300, nRing = 480, nHop = 60, msEvery = 48;
     int wi = 0, ii = 0, fi = 0, mi = 0, msCount = 0, decCount = 0, hopCount = 0; long samples = 0;
     float hp = 0.99f, hfA = 0.3f, x1 = 0, y1 = 0, hfLp = 0; bool pendingLevel = false;
-    float pw[kMaxWin], ph[kMaxWin], in[kMaxTap], taps[kMaxTap], frame[kMaxFrame], window[kMaxFrame], mins[kMins], med1[3], med2[3];
+    float pw[kMaxWin], ph[kMaxWin], in[kMaxTap], taps[kMaxTap], frame[kMaxFrame], window[kMaxFrame], mins[kMins], med1[3], med2[3], med3[3], med4[3];
 
     static float median3 (const float* m) { return std::max (std::min (m[0], m[1]), std::min (std::max (m[0], m[1]), m[2])); }
 
@@ -230,16 +231,22 @@ private:
         {
             if (z[i].imag() <= 0) continue;
             const double f = std::arg (z[i]) * fsA / (2 * 3.14159265358979), bw = -std::log (std::max (1e-9, std::abs (z[i]))) * fsA / 3.14159265358979;
-            if (f > 150 && f < 4000 && bw < 500) cand[n++] = (float) f;
+            if (f > 150 && f < 5400 && bw < 500) cand[n++] = (float) f;
         }
         std::sort (cand, cand + n);
         float g1 = 0, g2 = 0;
         for (int i = 0; i < n && g1 == 0; ++i) if (cand[i] >= 200 && cand[i] <= 1100) g1 = cand[i];
         for (int i = 0; i < n && g2 == 0; ++i) if (g1 > 0 && cand[i] >= std::max (550.0f, 1.25f * g1) && cand[i] <= 3300) g2 = cand[i];
         if (g1 == 0 || g2 == 0) return;
+        float g3 = 0, g4 = 0;
+        for (int i = 0; i < n && g3 == 0; ++i) if (cand[i] >= std::max (1800.0f, 1.15f * g2) && cand[i] <= 4200) g3 = cand[i];
+        for (int i = 0; i < n && g4 == 0; ++i) if (g3 > 0 && cand[i] >= 1.12f * g3 && cand[i] <= 5400) g4 = cand[i];
+        if (g3 > 0) { med3[0] = med3[1]; med3[1] = med3[2]; med3[2] = g3; }
+        if (g4 > 0) { med4[0] = med4[1]; med4[1] = med4[2]; med4[2] = g4; }
         med1[0] = med1[1]; med1[1] = med1[2]; med1[2] = g1; med2[0] = med2[1]; med2[1] = med2[2]; med2[2] = g2;
         const float k = 1.0f - std::exp (-(float) (nHop / fsA) / std::max (0.001f, smooth));
         f1 *= std::pow (median3 (med1) / f1, k); f2 *= std::pow (median3 (med2) / f2, k);
+        f3 *= std::pow (median3 (med3) / f3, k); f4 *= std::pow (std::max (median3 (med4), 1.1f * f3) / f4, k);
         float d = 0; vowel = vowelPosition (f1 / voiceSize, f2 / voiceSize, &d);
         vowelFit = std::clamp (1.0f - d, 0.0f, 1.0f);
     }

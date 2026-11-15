@@ -79,7 +79,7 @@ def build(score, f0=120.0, whisper=False, seed=1, floor_db=-66.0):
         k = int(tb * SR); x[k:k + len(b)] += b
     x += rng.standard_normal(n) * 10 ** (floor_db / 20)
     hop = SR // 200; idx = np.arange(0, n, hop)
-    truth = {"hop": hop / SR, "f1": F[0][idx].round(1).tolist(), "f2": F[1][idx].round(1).tolist(), "level": amp[idx].round(3).tolist(), "marks": marks}
+    truth = {"hop": hop / SR, "f1": F[0][idx].round(1).tolist(), "f2": F[1][idx].round(1).tolist(), "f3": F[2][idx].round(1).tolist(), "level": amp[idx].round(3).tolist(), "marks": marks}
     return x, truth
 
 SETS = {

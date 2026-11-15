@@ -8,7 +8,7 @@
 // A voice playing the instrument: --voice voice.wav (mono or mixed to mono, any rate), read alongside the events, which
 // still give the notes. What the voice does is chosen with v.<name>=<value>:
 //   v.vowel=<dB>     its vowel, as a place on the oo..ah..ee line, sets the vowel resonances on the sound (vowel, vowelDepth)
-//   v.formants=<dB>  its first two formants set those resonances directly (vowelF1, vowelF2)
+//   v.formants=<dB>  its first two formants set those resonances directly (vowelF1, vowelF2); with v.upper=1 its third and fourth too
 //   v.tongue=1       its closures stop the reed and its onsets tongue it, so "t", "k", "p" articulate the notes
 //   v.chiff=<0..3>   onset noise at those onsets: as loud as the consonant, bright for "t", dark for "p" (chiff, chiffColor)
 //   v.breath=<0..1>  its level drives the breath, by this share (the events' breath is the ceiling)
@@ -45,7 +45,7 @@ static std::map<std::string, float Params::*> table()
         { "breathFloor", &Params::breathFloor }, { "breathTop", &Params::breathTop }, { "breathCurve", &Params::breathCurve }, { "embMin", &Params::embMin }, { "embTrack", &Params::embTrack }, { "embFloor", &Params::embFloor }, { "loudOpen", &Params::loudOpen }, { "breathKnee", &Params::breathKnee },
         { "breathAttack", &Params::breathAttack }, { "breathRelease", &Params::breathRelease },
         { "keyTime", &Params::keyTime }, { "tongueTime", &Params::tongueTime }, { "tongueStop", &Params::tongueStop },
-        { "glide", &Params::glide }, { "body", &Params::body }, { "chiff", &Params::chiff }, { "chiffTime", &Params::chiffTime }, { "keyNoise", &Params::keyNoise }, { "chiffDirect", &Params::chiffDirect }, { "chiffColor", &Params::chiffColor }, { "bloom", &Params::bloom }, { "respond", &Params::respond }, { "weight", &Params::weight }, { "scoop", &Params::scoop }, { "vowel", &Params::vowel }, { "vowelDepth", &Params::vowelDepth }, { "vowelQ", &Params::vowelQ }, { "vowelF1", &Params::vowelF1 }, { "vowelF2", &Params::vowelF2 }, { "bodySize", &Params::bodySize }, { "wobble", &Params::wobble }, { "shimmer", &Params::shimmer }, { "drift", &Params::drift }, { "vibDepth", &Params::vibDepth },
+        { "glide", &Params::glide }, { "body", &Params::body }, { "chiff", &Params::chiff }, { "chiffTime", &Params::chiffTime }, { "keyNoise", &Params::keyNoise }, { "chiffDirect", &Params::chiffDirect }, { "chiffColor", &Params::chiffColor }, { "bloom", &Params::bloom }, { "respond", &Params::respond }, { "weight", &Params::weight }, { "scoop", &Params::scoop }, { "vowel", &Params::vowel }, { "vowelDepth", &Params::vowelDepth }, { "vowelQ", &Params::vowelQ }, { "vowelF1", &Params::vowelF1 }, { "vowelF2", &Params::vowelF2 }, { "vowelF3", &Params::vowelF3 }, { "vowelF4", &Params::vowelF4 }, { "bodySize", &Params::bodySize }, { "wobble", &Params::wobble }, { "shimmer", &Params::shimmer }, { "drift", &Params::drift }, { "vibDepth", &Params::vibDepth },
         { "vibRate", &Params::vibRate }, { "vibDelay", &Params::vibDelay }, { "slurDip", &Params::slurDip }, { "slurTime", &Params::slurTime }, { "reedComp", &Params::reedComp }, { "voiceSing", &Params::voiceSing }, { "voiceAir", &Params::voiceAir }, { "outGain", &Params::outGain },
     };
 }
@@ -112,7 +112,7 @@ int main (int argc, char** argv)
     Engine e; int rate = 48000; std::string cal, probe, curves, voicePath, voiceLog; static Character ch; bool useCh = false;
     std::vector<std::pair<float Params::*, float>> named;
     std::map<std::string, float> vo { { "vowel", 0 }, { "formants", 0 }, { "tongue", 0 }, { "chiff", 0 }, { "breath", 0 }, { "gain", 1 },
-                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 } };
+                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 }, { "upper", 0 } };
     for (int i = 3; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -298,9 +298,9 @@ int main (int argc, char** argv)
                 depthS += 0.25f * (want - depthS);
                 if (vVowel > 0 || vFormants > 0) e.p.vowelDepth = depthS;
                 if (vVowel > 0) e.p.vowel = vt.vowel;
-                if (vFormants > 0) { e.p.vowelF1 = vt.f1 / vt.voiceSize; e.p.vowelF2 = vt.f2 / vt.voiceSize; }
+                if (vFormants > 0) { e.p.vowelF1 = vt.f1 / vt.voiceSize; e.p.vowelF2 = vt.f2 / vt.voiceSize; if (vo["upper"] > 0) { e.p.vowelF3 = vt.f3 / vt.voiceSize; e.p.vowelF4 = vt.f4 / vt.voiceSize; } }
                 if (vlog != nullptr)
-                    std::fprintf (vlog, "f %.5f %.1f %d %d %.2f %.1f %.1f %.1f %.3f %.2f\n", t, vt.levelDb, (int) vt.open, (int) vt.state, vt.voiced, vt.pitchHz, vt.f1, vt.f2, vt.vowel, vt.vowelFit);
+                    std::fprintf (vlog, "f %.5f %.1f %d %d %.2f %.1f %.1f %.1f %.3f %.2f %.1f %.1f\n", t, vt.levelDb, (int) vt.open, (int) vt.state, vt.voiced, vt.pitchHz, vt.f1, vt.f2, vt.vowel, vt.vowelFit, vt.f3, vt.f4);
             }
         }
         out[n] = e.tickHost();

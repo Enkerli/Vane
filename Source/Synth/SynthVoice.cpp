@@ -866,6 +866,12 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 wp.vowelF1 = vin.f1.load(std::memory_order_relaxed);
                 wp.vowelF2 = vin.f2.load(std::memory_order_relaxed);
                 wp.vowelDepth = open ? 10.0f * voiceVowelAmt : 0.0f;
+                const float upper = paramVoiceUpper != nullptr ? paramVoiceUpper->load() : 0.0f;
+                if (upper > 0.001f) {       // and its third and fourth, as far as it has them
+                    wp.vowelF3 = vin.f3.load(std::memory_order_relaxed);
+                    wp.vowelF4 = vin.f4.load(std::memory_order_relaxed);
+                    wp.vowelUpper = upper;
+                }
             }
         }
         if (paramVoiceTongue != nullptr && paramVoiceTongue->load() > 0.5f && vin.active.load(std::memory_order_relaxed)) {

@@ -114,6 +114,11 @@ python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a re
 ```
 
 ## Next
+- **More formants, and widths.** The tracker could report a fifth formant and each resonance's bandwidth, and the
+  engine could draw a resonance per formant with its own width: a continuous, multidimensional vowel in place of
+  a few peaks. Four resonances are in; the rest is for listening to decide.
+- **The display.** The voice's vowel, level and consonant brightness are meters and lines in the panel's Sources
+  display; the formants themselves (a moving spectrum) could be drawn there too.
 - **Pitch from the voice**, so a sung line plays the notes (below). With the vowel, tongue and loudness follow, this
   would make it possible to sing woodwind lines.
 - **Latency.** The sound trails the voice by about 50 ms (tracker window, block size, the reed's own attack).
@@ -149,6 +154,10 @@ smoothing. Chording would then be extra engines at intervals from the tracked no
 - **Voice Vowel Strength** (0..1, off at 0): the two vowel resonances sit on the voice's own first two formants (any
   vowel, not a place on an oo..ah..ee line) while the mouth is open, at up to 10 dB; it replaces Mouth shape and
   Mouth strength. No routing needed. (The first version used the line and only picked up some vowel changes.)
+- **Voice Upper Formants** (0..1, off at 0): adds the voice's third and fourth formants to the first two on the
+  vowel resonances (depths 0.7 and 0.5 of the strength), so the vowel colours the whole audible spectrum, not two
+  peaks. Tracked within about 15 cents (F3) and 60 to 110 cents (F4) on synthetic voices; on real voices, +3 to +5 dB
+  above 2.4 kHz and nothing below. Needs Voice Vowel Strength above 0.
 - **Voice Breath Follow** (0..1, off at 0): the voice's loudness is the breath, as with an envelope follower, held
   through a closure so the attack after "t" is as loud as the voice. The sound trails the voice by about 50 ms
   (measured: correlation 0.68 at that lag).
