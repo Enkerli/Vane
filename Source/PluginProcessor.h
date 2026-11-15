@@ -15,7 +15,8 @@
 #include "Preset/ChordConfigStore.h"
 #include "Profile/ProfileManager.h"
 
-class VaneProcessor : public juce::AudioProcessor {
+class VaneProcessor : public juce::AudioProcessor,
+                      public juce::VST3ClientExtensions {
 public:
     VaneProcessor();
     ~VaneProcessor() override;
@@ -24,6 +25,16 @@ public:
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
+    // VST3: as an instrument, the Voice input is a side chain (an aux bus), which is where hosts look
+    // for one; as Vane FX it is the main input.
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return this; }
+    bool getPluginHasMainInput() const override {
+       #if defined(VANE_FX) && VANE_FX
+        return true;
+       #else
+        return false;
+       #endif
+    }
 
     juce::AudioProcessorEditor* createEditor() override;
 #if VANE_HEADLESS

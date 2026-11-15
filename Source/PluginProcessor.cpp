@@ -10,10 +10,17 @@
 #include <mutex>    // guards that cache
 #include <memory>   // std::shared_ptr for shared, immutable cached tables
 
-#if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+// The Voice input: on in Standalone and in Vane FX (the effect build, where it is the track's audio, stereo);
+// in the instrument plugins it is a side chain hosts may switch on.
+#if (defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone) || (defined(VANE_FX) && VANE_FX)
  #define VANE_VOICE_INPUT_ON_BY_DEFAULT true
 #else
  #define VANE_VOICE_INPUT_ON_BY_DEFAULT false
+#endif
+#if defined(VANE_FX) && VANE_FX
+ #define VANE_VOICE_INPUT_SET juce::AudioChannelSet::stereo()
+#else
+ #define VANE_VOICE_INPUT_SET juce::AudioChannelSet::mono()
 #endif
 
 VaneProcessor::VaneProcessor()
@@ -21,7 +28,7 @@ VaneProcessor::VaneProcessor()
 #if ! JUCE_LINUX
         // A voice to follow (docs/voice-input.md). Standalone only sees its main buses and starts with
         // input muted, so there it is on; plugin formats offer it as an input hosts may switch on.
-        .withInput("Voice", juce::AudioChannelSet::mono(), VANE_VOICE_INPUT_ON_BY_DEFAULT)
+        .withInput("Voice", VANE_VOICE_INPUT_SET, VANE_VOICE_INPUT_ON_BY_DEFAULT)
 #endif
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "Vane", createParameterLayout()),
@@ -614,8 +621,15 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             const float* a = buffer.getReadPointer(0);
             const float* b = nIn > 1 ? buffer.getReadPointer(1) : nullptr;
             bool onset = false;
-            for (int i = 0; i < n; ++i)
+            double sumA = 0.0, sumB = 0.0;
+            for (int i = 0; i < n; ++i) {
                 onset |= voiceTracker.process(b != nullptr ? 0.5f * (a[i] + b[i]) : a[i]);
+                sumA += a[i]; if (b != nullptr) sumB += b[i];
+            }
+            // the channels as control signals (Input 1, Input 2): the block's average, DC and all
+            const float mA = n > 0 ? (float) (sumA / n) : 0.0f, mB = b != nullptr && n > 0 ? (float) (sumB / n) : mA;
+            vin.in1.store(juce::jlimit(-1.0f, 1.0f, mA), std::memory_order_relaxed);
+            vin.in2.store(juce::jlimit(-1.0f, 1.0f, mB), std::memory_order_relaxed);
             const bool open = voiceTracker.open;
             vin.active.store(true, std::memory_order_relaxed);
             vin.open.store(open, std::memory_order_relaxed);
@@ -666,6 +680,7 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             vin.onsetThisBlock.store(false, std::memory_order_relaxed);
             vin.level.store(0.0f, std::memory_order_relaxed);
             voiceFollow = 0.0f; vin.follow.store(0.0f, std::memory_order_relaxed);
+            vin.in1.store(0.0f, std::memory_order_relaxed); vin.in2.store(0.0f, std::memory_order_relaxed);
             meterVoiceLevel.store(0.0f, std::memory_order_relaxed); meterVoiceBright.store(0.0f, std::memory_order_relaxed);
             voiceWasActive = false;
         }
