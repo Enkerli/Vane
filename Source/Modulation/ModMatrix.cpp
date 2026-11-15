@@ -184,6 +184,14 @@ float ModMatrix::getSourceValue(int sourceID,
     if (ccNum >= 0 && ccNum < 128)
         return ccValues[ccNum];
 
+    // Voice input (global)
+    switch (sourceID) {
+        case ModSourceID::VoiceVowel:      return voiceInput.vowel.load(std::memory_order_relaxed);
+        case ModSourceID::VoiceLevel:      return voiceInput.level.load(std::memory_order_relaxed);
+        case ModSourceID::VoiceBrightness: return voiceInput.brightness.load(std::memory_order_relaxed);
+        default: break;
+    }
+
     // Abstract macro slots — resolve to voice dim or pre-computed CC/AT value
     int macroIdx = sourceID - ModSourceID::Macro;
     if (macroIdx >= 0 && macroIdx < ModSourceID::NumMacros) {

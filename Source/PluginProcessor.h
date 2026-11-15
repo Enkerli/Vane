@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include "Synth/SynthVoice.h"
+#include "VoiceTracker.h"   // WindCore/: follows a voice on the audio input (level, consonants, vowel)
 #include "Synth/FormantFilter.h"
 #include "Synth/Room.h"
 #include "Synth/TransientLibrary.h"
@@ -22,6 +23,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    bool isBusesLayoutSupported(const BusesLayout&) const override;
 
     juce::AudioProcessorEditor* createEditor() override;
 #if VANE_HEADLESS
@@ -69,6 +71,7 @@ public:
     std::atomic<float> meterExpr      { 0.0f };   // CC11, 0..1
     std::atomic<float> meterPressure  { 0.0f };   // MPE Z channel pressure, 0..1
     std::atomic<float> meterSlide     { 0.0f };   // CC74 / MPE Y timbre, 0..1
+    std::atomic<float> meterVoiceVowel { 0.0f }, meterVoiceLevel { 0.0f }, meterVoiceBright { 0.0f };   // the voice input, 0..1 (for the panel)
     std::atomic<float> meterPitchbend { 0.0f };   // MPE pitchbend, -1..1 (signed)
     // Latched the first time a breath/expression CC or channel pressure arrives.
     // Synthetic breath in Auto mode steps aside once it is set — see
@@ -387,6 +390,13 @@ private:
     // WindCore (waveguideModel 1): its character controls, turned into settings and tables once
     // per block on the audio thread and shared by every voice's engines.
     windcore::Character windCharacter;
+    // Voice input: a voice on the audio input drives the Voice* mod sources and, with Voice Tongue,
+    // articulates WindCore (docs/voice-input.md). Audio thread only; results are published through
+    // modMatrix.voiceInput.
+    windcore::VoiceTracker voiceTracker;
+    bool voiceWasActive = false;
+    float voiceFrontLo = 5.4f, voiceFrontHi = 6.8f;   // the range the voice's back-to-front axis has used lately (it adapts)
+    float voiceFollow = 0.0f;                          // loudness follower (see modMatrix.voiceInput.follow)
     std::atomic<float>* pWaveguideModelRaw = nullptr;
     std::array<std::atomic<float>*, windcore::Character::kNum> pWindRaw {};
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.

@@ -10,8 +10,19 @@
 #include <mutex>    // guards that cache
 #include <memory>   // std::shared_ptr for shared, immutable cached tables
 
+#if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+ #define VANE_VOICE_INPUT_ON_BY_DEFAULT true
+#else
+ #define VANE_VOICE_INPUT_ON_BY_DEFAULT false
+#endif
+
 VaneProcessor::VaneProcessor()
     : AudioProcessor(BusesProperties()
+#if ! JUCE_LINUX
+        // A voice to follow (docs/voice-input.md). Standalone only sees its main buses and starts with
+        // input muted, so there it is on; plugin formats offer it as an input hosts may switch on.
+        .withInput("Voice", juce::AudioChannelSet::mono(), VANE_VOICE_INPUT_ON_BY_DEFAULT)
+#endif
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "Vane", createParameterLayout()),
       presetManager(apvts),
@@ -111,6 +122,7 @@ VaneProcessor::VaneProcessor()
                 v->setWaveguideHandoff(&lastWaveguideVoice);
                 v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
                 v->setWindCore(&windCharacter);
+                v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"), apvts.getRawParameterValue("voiceVowel"), apvts.getRawParameterValue("voiceBreath"), apvts.getRawParameterValue("voiceUpper"));
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
                                   chordSeq[0].data(), chordLen.data(), &chordRotIndex,
@@ -186,6 +198,8 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     synth.setCurrentPlaybackSampleRate(sampleRate);
     modMatrix.prepare(sampleRate, samplesPerBlock);
+    voiceTracker.prepare(sampleRate);
+    voiceWasActive = false;
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* v = dynamic_cast<SynthVoice*>(synth.getVoice(i)))
@@ -578,9 +592,84 @@ void VaneProcessor::restoreWavetableFromState()
 
 void VaneProcessor::releaseResources() {}
 
+bool VaneProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    // The voice input is nothing, one channel or two (the two are averaged).
+    const auto in = layouts.getMainInputChannelSet();
+    return in.isDisabled() || in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo();
+}
+
 void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Voice input: follow the voice before the buffer is cleared (inputs share its first channels).
+    // The tracker works sample by sample; its answers are published once per block.
+    {
+        auto& vin = modMatrix.voiceInput;
+        auto* inBus = getBusCount(true) > 0 ? getBus(true, 0) : nullptr;
+        const int nIn = (inBus != nullptr && inBus->isEnabled()) ? juce::jmin(inBus->getNumberOfChannels(), buffer.getNumChannels()) : 0;
+        if (nIn > 0) {
+            const int n = buffer.getNumSamples();
+            const float* a = buffer.getReadPointer(0);
+            const float* b = nIn > 1 ? buffer.getReadPointer(1) : nullptr;
+            bool onset = false;
+            for (int i = 0; i < n; ++i)
+                onset |= voiceTracker.process(b != nullptr ? 0.5f * (a[i] + b[i]) : a[i]);
+            const bool open = voiceTracker.open;
+            vin.active.store(true, std::memory_order_relaxed);
+            vin.open.store(open, std::memory_order_relaxed);
+            vin.onsetThisBlock.store(onset, std::memory_order_relaxed);
+            // Voice Vowel: back to front along a vowel chart's diagonal, scaled to the range this voice has used
+            // lately so a narrow-ranging voice (or a low one) still sweeps the whole 0..1.
+            {
+                const double blockSec = (double) n / juce::jmax(1.0, getSampleRate());
+                const float x = windcore::VoiceTracker::frontAxis(voiceTracker.f1, voiceTracker.f2);
+                if (open) {
+                    const float k = (float) juce::jlimit(0.0, 1.0, blockSec / 8.0);   // the range relaxes over about 8 s
+                    voiceFrontLo = x < voiceFrontLo ? x : voiceFrontLo + k * (x - voiceFrontLo);
+                    voiceFrontHi = x > voiceFrontHi ? x : voiceFrontHi + k * (x - voiceFrontHi);
+                    if (voiceFrontHi - voiceFrontLo < 0.7f) {   // never closer than 0.7 octave: a steady vowel stays put
+                        const float mid = 0.5f * (voiceFrontLo + voiceFrontHi);
+                        voiceFrontLo = mid - 0.35f; voiceFrontHi = mid + 0.35f;
+                    }
+                }
+                vin.vowel.store(juce::jlimit(0.0f, 1.0f, (x - voiceFrontLo) / (voiceFrontHi - voiceFrontLo)), std::memory_order_relaxed);
+                vin.f1.store(voiceTracker.f1, std::memory_order_relaxed);
+                vin.f2.store(voiceTracker.f2, std::memory_order_relaxed);
+                vin.f3.store(voiceTracker.f3, std::memory_order_relaxed);
+                vin.f4.store(voiceTracker.f4, std::memory_order_relaxed);
+                // loudness as breath: follows the voice quickly while the mouth is open, and is held through a closure
+                // (a half second to let go) so the attack after "t" is as loud as the voice, not as the silence.
+                const float lv = open ? juce::jlimit(0.0f, 1.0f, 1.0f + (voiceTracker.levelDb - voiceTracker.peakDb) / 30.0f) : 0.0f;
+                const float tau = open ? 0.008f : 0.5f;
+                voiceFollow += (1.0f - std::exp(-(float) blockSec / tau)) * (lv - voiceFollow);
+                vin.follow.store(voiceFollow, std::memory_order_relaxed);
+                // for the panel's display: the vowel only while it is being spoken, the brightness fading after a consonant
+                meterVoiceVowel.store(open ? vin.vowel.load(std::memory_order_relaxed) : meterVoiceVowel.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                meterVoiceLevel.store(vin.level.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                meterVoiceBright.store(onset ? juce::jmin(1.0f, 2.5f * voiceTracker.onsetBright)
+                                             : meterVoiceBright.load(std::memory_order_relaxed) * (float) std::exp(-blockSec / 0.12),
+                                       std::memory_order_relaxed);
+            }
+            vin.level.store(open ? juce::jlimit(0.0f, 1.0f, 1.0f + (voiceTracker.levelDb - voiceTracker.peakDb) / 30.0f) : 0.0f,
+                            std::memory_order_relaxed);
+            if (onset) {
+                vin.brightness.store(juce::jlimit(0.0f, 1.0f, 2.5f * voiceTracker.onsetBright), std::memory_order_relaxed);
+                vin.onsetLevel.store(voiceTracker.onsetLevel, std::memory_order_relaxed);
+            }
+            voiceWasActive = true;
+        } else if (voiceWasActive) {
+            voiceTracker.reset();
+            vin.active.store(false, std::memory_order_relaxed);
+            vin.open.store(false, std::memory_order_relaxed);
+            vin.onsetThisBlock.store(false, std::memory_order_relaxed);
+            vin.level.store(0.0f, std::memory_order_relaxed);
+            voiceFollow = 0.0f; vin.follow.store(0.0f, std::memory_order_relaxed);
+            meterVoiceLevel.store(0.0f, std::memory_order_relaxed); meterVoiceBright.store(0.0f, std::memory_order_relaxed);
+            voiceWasActive = false;
+        }
+    }
     buffer.clear();
 
     // WindCore: control positions to settings and tables (does nothing unless one moved).
@@ -1500,6 +1589,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"waveguideModel", 1}, "Waveguide Model",
         juce::StringArray{"MiniSax", "WindCore"}, 0));
+    // A voice on the audio input articulates WindCore (docs/voice-input.md): Voice Tongue stops the
+    // reed while the mouth is closed and re-attacks it at each consonant; Voice Onset Noise adds the
+    // consonant's noise at those attacks (0 leaves the Chiff control as set).
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"voiceTongue", 1}, "Voice Tongue", false));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceChiff", 1}, "Voice Onset Noise",
+        juce::NormalisableRange<float>(0.0f, 3.0f), 0.0f));
+    // The voice's vowel (oo, ah, ee) sets WindCore's mouth shape while the mouth is open; this is the strength
+    // of that vowel (1 = 10 dB at its upper resonance, as Mouth strength at its top). 0 = off. It replaces
+    // Mouth shape and Mouth strength while a voice is on the input, and adds to whatever the mod matrix does.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceVowel", 1}, "Voice Vowel Strength",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // The voice's third and fourth formants as well as its first two, on the vowel resonances (0 = the two only).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceUpper", 1}, "Voice Upper Formants",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    // How much the voice's loudness is the breath (WindCore): at 1 a quiet "t" is a quiet note and a loud one a loud
+    // note, as with an envelope follower; at 0 the breath is whatever the controller says.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voiceBreath", 1}, "Voice Breath Follow",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     // WindCore's character controls, each 0..1, defined in WindCore/character.json (labels, ends,
     // what each one does). Plain ASCII names.
     for (int k = 0; k < windcore::Character::kNum; ++k)

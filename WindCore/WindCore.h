@@ -87,6 +87,11 @@ struct Params
     float vowel       = 0.5f;     // 0 = oo, 0.5 = ah, 1 = ee
     float vowelDepth  = 0.0f;     // dB at the upper resonance (the lower one gets three quarters of it); 0 = off
     float vowelQ      = 4.5f;
+    float vowelF1     = 0.0f;     // Hz: with vowelF2, the two resonances given directly (for a tracked voice) in place of vowel; 0 = use vowel
+    float vowelF2     = 0.0f;
+    float vowelF3     = 0.0f;     // Hz: a third and a fourth resonance on top of the two (a tracked voice's own higher formants); 0 = none
+    float vowelUpper  = 1.0f;     // scales the third and fourth resonances' depth (1 = as above, 0 = none)
+    float vowelF4     = 0.0f;     // (the third and fourth carry 0.7 and 0.5 of the depth, the first two 0.75 and 1; needs F3 for F4)
 
     // --- Life: what a player's body does to a held note (all 0 = a perfectly still player)
     float wobble      = 0.0f;     // dB, slow random movement of the breath (level)
@@ -110,6 +115,11 @@ struct Params
     float scoop       = 0.0f;     // cents: pitch offset at a tongued start, gone in about 60 ms (negative = starts flat, as reeds do)
     float chiffColor  = 1.0f;     // 0 = reed: dark noise, mostly through the horn (saxophone, clarinet); 1 = air: bright hiss, mostly heard directly (flute)
     float glide       = 0.006f;   // s, smoothing of horn and embouchure settings
+
+    // --- Voice in the mouth: a signal given with setMouthInput (a sung or spoken voice, about +-1).
+    // Both 0 = none, and the engine is exactly as without it.
+    float voiceSing   = 0.0f;     // the signal as a share of the mouth pressure: singing into the horn (the reed's flow carries it, the horn pitches it)
+    float voiceAir    = 0.0f;     // the signal as turbulence the flow carries, beside the noise: a whisper becomes the breath noise (0..4)
     float outGain     = 1.0f;
 };
 
@@ -154,7 +164,7 @@ public:
         for (auto& t : taps) t = {};
         std::memset (dec, 0, sizeof dec); decPos = 0;
         sh1 = 0; tick = 0; held = 0; curNote = -1; curTap = -1; x1 = -1; rng = seed; bendSemis = 0;
-        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; nzLo = nzR = nzRlo = 0; bl1 = bl2 = 0; respS = 0; respA = 1; respMix = 1; scoopNow = 0; respTick = 0; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
+        zetaS = -1; first = true; breath = 0; zetaE = 0; noteS = -1; above = false; q = p; burstT = 0; burstAmp = 0; tongueWasLow = true; nzLo = nzR = nzRlo = 0; bl1 = bl2 = 0; respS = 0; respA = 1; respMix = 1; scoopNow = 0; respTick = 0; for (auto& pk : peaks) pk = {}; bodyScale = bodyDone = bodyAmt = -1; for (auto& pk : vow) pk = {}; vowS = -1; vowDepthS = 0; vowDone = vowDepthDone = -9; vowF1S = vowF2S = vowF1Done = vowF2Done = vowF3S = vowF4S = vowF3Done = vowF4Done = 0; vowN = 2; voiceIn = voicePrev = voiceNow = 0; for (auto& v : ln) v = 0; lifeBreath = lifeEmb = 1; lifeCents = 0; vibPhase = 0; noteAge = 0; slurPhase = 1; lifeRng = seed * 2654435761u + 0x9E3779B1u;
     }
 
     Params p;                      // the settings as set; the horn's curves act on top of them
@@ -179,6 +189,11 @@ public:
     void setBreath (float b)   { breath = std::clamp (b, 0.0f, 1.0f); }
     void setBend (float semis) { bendSemis = semis; }
 
+    /** One host-rate sample of a signal in the player's mouth (see voiceSing, voiceAir). Call before tickHost. */
+    void setMouthInput (float v) { voicePrev = voiceIn; voiceIn = v; }
+    /** A tongue stroke on a sounding note: the reed is stopped and released, with the onset burst and scoop. */
+    void tongueStroke() { tongue = 0; tongueWasLow = true; }
+
     void noteOn (int note)
     {
         note = std::clamp (note, 0, 127);
@@ -202,6 +217,7 @@ public:
         float y = 0;
         for (int k = 0; k < kOS; ++k)
         {
+            voiceNow = voicePrev + (voiceIn - voicePrev) * (float) (k + 1) / (float) kOS;
             const float v = tickInternal();
             dec[decPos] = v; dec[decPos + kDecN] = v;
             decPos = (decPos + 1) % kDecN;
@@ -236,8 +252,9 @@ public:
                 k.z1 = k.b1 * y - k.a1 * o + k.z2; k.z2 = k.b2 * y - k.a2 * o; y = o;
             }
         if (vowDepthDone > 0.01f)
-            for (auto& k : vow)
+            for (int vi = 0; vi < vowN; ++vi)
             {
+                auto& k = vow[vi];
                 const float o = k.b0 * y + k.z1;
                 k.z1 = k.b1 * y - k.a1 * o + k.z2; k.z2 = k.b2 * y - k.a2 * o; y = o;
             }
@@ -274,7 +291,9 @@ private:
     // body: five peaking filters after the horn, at the host rate
     struct Peak { float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; };
     Peak peaks[5]; float bodyScale = -1, bodyDone = -1, bodyAmt = -1;
-    Peak vow[2]; float vowS = -1, vowDepthS = 0, vowDone = -9, vowDepthDone = -9;
+    Peak vow[4]; int vowN = 2; float vowS = -1, vowDepthS = 0, vowDone = -9, vowDepthDone = -9;
+    float vowF1S = 0, vowF2S = 0, vowF1Done = 0, vowF2Done = 0, vowF3S = 0, vowF4S = 0, vowF3Done = 0, vowF4Done = 0;
+    float voiceIn = 0, voicePrev = 0, voiceNow = 0;                  // the signal in the mouth
     // life: four slow noises (two for breath, one embouchure, one pitch), vibrato phase, note age, slur dip
     float ln[4] = {}, lifeBreath = 1, lifeEmb = 1, lifeCents = 0, vibPhase = 0, noteAge = 0, slurPhase = 1;
     uint32_t lifeRng = 0x9E3779B1u;
@@ -368,21 +387,37 @@ private:
             const float gl = 1.0f - std::exp (-dt / 0.02f);
             vowS = vowS < 0 ? p.vowel : vowS + gl * (std::clamp (p.vowel, 0.0f, 1.0f) - vowS);
             vowDepthS += gl * (std::max (0.0f, p.vowelDepth) - vowDepthS);
-            if (std::abs (vowS - vowDone) > 0.002f || std::abs (vowDepthS - vowDepthDone) > 0.02f)
+            const bool direct = p.vowelF1 > 0 && p.vowelF2 > 0;      // the two resonances given in Hz (a tracked voice)
+            if (direct)
+            {
+                const float a = std::clamp (p.vowelF1, 150.0f, 1500.0f), b = std::clamp (p.vowelF2, 400.0f, 4000.0f);
+                vowF1S = vowF1S > 0 ? vowF1S * std::pow (a / vowF1S, gl) : a; vowF2S = vowF2S > 0 ? vowF2S * std::pow (b / vowF2S, gl) : b;
+            }
+            else vowF1S = vowF2S = 0;
+            const bool direct3 = direct && p.vowelF3 > 0, direct4 = direct3 && p.vowelF4 > 0;
+            if (direct3) { const float c = std::clamp (p.vowelF3, 1000.0f, 5000.0f); vowF3S = vowF3S > 0 ? vowF3S * std::pow (c / vowF3S, gl) : c; } else vowF3S = 0;
+            if (direct4) { const float d4 = std::clamp (p.vowelF4, 1500.0f, 6000.0f); vowF4S = vowF4S > 0 ? vowF4S * std::pow (d4 / vowF4S, gl) : d4; } else vowF4S = 0;
+            const int nv = direct4 ? 4 : direct3 ? 3 : 2;
+            const bool moved = (direct && std::abs (vowF1S - vowF1Done) + std::abs (vowF2S - vowF2Done) > 0.003f * vowF1S)
+                               || (direct3 && std::abs (vowF3S - vowF3Done) > 0.003f * vowF3S) || (direct4 && std::abs (vowF4S - vowF4Done) > 0.003f * vowF4S) || nv != vowN;
+            if (moved || (! direct && vowF1Done > 0) || std::abs (vowS - vowDone) > 0.002f || std::abs (vowDepthS - vowDepthDone) > 0.02f)
             {
                 // oo (320, 900 Hz), ah (700, 1200), ee (300, 2300): straight lines between them in log frequency
                 static constexpr float kF1[3] = { 320.0f, 700.0f, 300.0f }, kF2[3] = { 900.0f, 1200.0f, 2300.0f };
                 const float u = vowS * 2.0f; const int i = u < 1.0f ? 0 : 1; const float t = u - (float) i;
-                const float f[2] = { kF1[i] * std::pow (kF1[i + 1] / kF1[i], t), kF2[i] * std::pow (kF2[i + 1] / kF2[i], t) };
-                const float g[2] = { 0.75f * vowDepthS, vowDepthS };
-                for (int k = 0; k < 2; ++k)
+                float f[4] = { kF1[i] * std::pow (kF1[i + 1] / kF1[i], t), kF2[i] * std::pow (kF2[i + 1] / kF2[i], t), vowF3S, vowF4S };
+                if (vowF1S > 0) { f[0] = vowF1S; f[1] = vowF2S; }
+                const float g[4] = { 0.75f * vowDepthS, vowDepthS, 0.7f * p.vowelUpper * vowDepthS, 0.5f * p.vowelUpper * vowDepthS };
+                for (int k = nv; k < 4; ++k) vow[k] = {};      // resonances not in use are out of the signal path, and start clean
+                vowN = nv;
+                for (int k = 0; k < nv; ++k)
                 {
                     const float A = std::pow (10.0f, g[k] / 40.0f), w0 = 6.2831853f * std::min (0.45f * (float) fsHost, f[k]) / (float) fsHost;
                     const float al = std::sin (w0) / (2 * std::max (0.5f, p.vowelQ)), cs = std::cos (w0), a0 = 1 + al / A;
                     vow[k].b0 = (1 + al * A) / a0; vow[k].b1 = -2 * cs / a0; vow[k].b2 = (1 - al * A) / a0;
                     vow[k].a1 = -2 * cs / a0; vow[k].a2 = (1 - al / A) / a0;
                 }
-                vowDone = vowS; vowDepthDone = vowDepthS;
+                vowDone = vowS; vowDepthDone = vowDepthS; vowF1Done = vowF1S; vowF2Done = vowF2S; vowF3Done = vowF3S; vowF4Done = vowF4S;
             }
         }
         // Body: the pattern's frequencies follow the size of the horn for this part of the range (a baritone's
@@ -582,7 +617,7 @@ private:
         const float o = 1.0f + rx;
         const float open = 0.5f * (o + std::sqrt (o * o + layS * layS));
         const float kz = zetaE * open * tongue * tongue * (3 - 2 * tongue);
-        const float A = gamma - Sm - V, B = W + Bm, Bk = B * kz;
+        const float A = gamma * (1.0f + p.voiceSing * voiceNow) - Sm - V, B = W + Bm, Bk = B * kz;
         float u;
         if (A >= 0) u =  kz * 0.5f * (-Bk + std::sqrt (Bk * Bk + 4 * A));
         else        u = -kz * 0.5f * (-Bk + std::sqrt (Bk * Bk - 4 * A));
@@ -592,7 +627,7 @@ private:
         rng = rng * 1664525u + 1013904223u;
         const float white = (float) (int32_t) rng * (1.0f / 2147483648.0f);
         nz += nzA * (white - nz);
-        float un = airS * std::abs (u) * nz * 8.0f;
+        float un = airS * std::abs (u) * nz * 8.0f + std::clamp (p.voiceAir, 0.0f, 4.0f) * std::abs (u) * voiceNow;   // above about 4 the horn stops playing its note
         float direct = 0;
         if (burstAmp > 0)
         {

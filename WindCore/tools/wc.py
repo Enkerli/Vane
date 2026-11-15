@@ -13,7 +13,7 @@ def build():
     os.makedirs(os.path.dirname(BIN), exist_ok=True)
     src = os.path.join(ROOT, "cli", "windcore-render.cpp")
     hdr = os.path.join(ROOT, "WindCore.h")
-    deps = [src, hdr] + [os.path.join(ROOT, f) for f in ("WindCharacter.h", "WindCoreData.h") if os.path.exists(os.path.join(ROOT, f))]
+    deps = [src, hdr] + [os.path.join(ROOT, f) for f in ("WindCharacter.h", "WindCoreData.h", "VoiceTracker.h") if os.path.exists(os.path.join(ROOT, f))]
     if os.path.exists(BIN) and os.path.getmtime(BIN) > max(os.path.getmtime(f) for f in deps):
         return
     subprocess.check_call(["clang++", "-std=c++17", "-O2", "-Wall", "-o", BIN + ".new", src])
@@ -43,7 +43,7 @@ def held(note, breath=0.6, dur=1.2, ramp=0.03):
             (0.05 + dur + 0.03, "off", note), (0.05 + dur + 0.3, "end", 0)]
 
 
-def render(events, out=None, params=None, cal=True, rate=48000, probe=None, controls=None, curves=True):
+def render(events, out=None, params=None, cal=True, rate=48000, probe=None, controls=None, curves=True, voice=None, voice_log=None):
     build()
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
         for e in sorted(events, key=lambda e: e[0]):
@@ -63,6 +63,10 @@ def render(events, out=None, params=None, cal=True, rate=48000, probe=None, cont
         cmd += ["--curves", curves]
     elif curves and controls is None and os.path.exists(CURVES):
         cmd += ["--curves", CURVES]
+    if voice:
+        cmd += ["--voice", voice]
+    if voice_log:
+        cmd += ["--voice-log", voice_log]
     if controls is not None:
         cmd += ["--controls", ",".join("%s=%r" % kv for kv in controls.items()) or ","]
     for k, v in (params or {}).items():

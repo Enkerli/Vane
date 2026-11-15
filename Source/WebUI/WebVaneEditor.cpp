@@ -42,6 +42,8 @@ const ParamPair kParamMap[] = {
     { "WgBreathNoise", "waveguideBreathNoise" }, { "WgGrowl", "waveguideGrowl" },
     // Model choice and WindCore character controls; keys match the WindCore panel in music-suite apps/vane/index.html.
     { "WgModel", "waveguideModel" },
+    // A voice on the audio input articulating WindCore (docs/voice-input.md).
+    { "VoiceTongue", "voiceTongue" }, { "VoiceChiff", "voiceChiff" }, { "VoiceVowel", "voiceVowel" }, { "VoiceBreath", "voiceBreath" }, { "VoiceUpper", "voiceUpper" },
     { "RoomMix", "roomMix" }, { "RoomSize", "roomSize" }, { "RoomTone", "roomTone" },
     { "WindMouth", "windMouth" }, { "WindMouthDepth", "windMouthDepth" }, { "WindBite", "windBite" }, { "WindResponse", "windResponse" }, { "WindWeight", "windWeight" }, { "WindAir", "windAir" }, { "WindReed", "windReed" }, { "WindChamber", "windChamber" }, { "WindBaffle", "windBaffle" }, { "WindCone", "windCone" }, { "WindHoles", "windHoles" }, { "WindBell", "windBell" }, { "WindBody", "windBody" }, { "WindBodySize", "windBodySize" }, { "WindFingers", "windFingers" }, { "WindTongue", "windTongue" }, { "WindChiff", "windChiff" }, { "WindChiffColor", "windChiffColor" }, { "WindBloom", "windBloom" }, { "WindScoop", "windScoop" }, { "WindKeyNoise", "windKeyNoise" }, { "WindWobble", "windWobble" }, { "WindShimmer", "windShimmer" }, { "WindDrift", "windDrift" }, { "WindVibrato", "windVibrato" }, { "WindVibRate", "windVibRate" }, { "WindSlur", "windSlur" },
     // Synthetic breath — the stand-in wind source when the input is only notes
@@ -568,6 +570,9 @@ void WebVaneEditor::timerCallback()
         { "Slide",      proc.meterSlide.load() },
         { "Pitchbend",  (proc.meterPitchbend.load() + 1.0f) * 0.5f },
         { "Velocity",   proc.meterVelocity.load() },
+        { "Voice Vowel",      proc.meterVoiceVowel.load() },
+        { "Voice Level",      proc.meterVoiceLevel.load() },
+        { "Voice Brightness", proc.meterVoiceBright.load() },
     }));
 
     // ── Live aux-source values (configurable global CCs) → "auxMeters" ─────────

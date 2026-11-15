@@ -824,6 +824,13 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                                       veloMix * std::sqrt(velocity), synth }));
         wgIn.params.breath = wgBreath;
     }
+    // A voice on the audio input as the breath (WindCore, docs/voice-input.md): the controller's breath times how
+    // loud the voice is (held through closures), by the Voice Breath Follow share.
+    if (useWind && paramVoiceBreath != nullptr) {
+        const float follow = paramVoiceBreath->load();
+        if (follow > 0.001f && modMatrix.voiceInput.active.load(std::memory_order_relaxed))
+            wgBreath *= (1.0f - follow) + follow * modMatrix.voiceInput.follow.load(std::memory_order_relaxed);
+    }
     // WindCore: this block's settings and tables from the shared control layer. Breath is read
     // once per block, so it is ramped per sample from where the last block ended.
     const float windBreathFrom = windBreathPrev;
@@ -843,6 +850,44 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
             wp.vibDepth   = std::clamp(wp.vibDepth + 35.0f * mods[ModDestID::WindVibrato], 0.0f, 60.0f);
         }
         windBreathPrev = wgBreath;
+        // A voice on the audio input (docs/voice-input.md): while Voice Tongue is on, the reed is
+        // stopped when the mouth is closed and re-attacked at each consonant, with the consonant's
+        // noise (loudness and brightness as heard) when Voice Onset Noise is above 0. Block-accurate.
+        voiceOpen = true;
+        const auto& vin = modMatrix.voiceInput;
+        // The voice's vowel as the mouth shape: its place on the oo..ah..ee line, at full strength while the
+        // mouth is open (the engine glides the resonances over about 20 ms, so a closure fades them out).
+        const float voiceVowelAmt = paramVoiceVowel != nullptr ? paramVoiceVowel->load() : 0.0f;
+        if (voiceVowelAmt > 0.001f && vin.active.load(std::memory_order_relaxed)) {
+            const bool open = vin.open.load(std::memory_order_relaxed);
+            for (int j = 0; j < kMaxUnison; ++j) {
+                auto& wp = windVoices[(size_t) j].p;
+                // the voice's own first two formants, not a place on a line, so any vowel is picked up
+                wp.vowelF1 = vin.f1.load(std::memory_order_relaxed);
+                wp.vowelF2 = vin.f2.load(std::memory_order_relaxed);
+                wp.vowelDepth = open ? 10.0f * voiceVowelAmt : 0.0f;
+                const float upper = paramVoiceUpper != nullptr ? paramVoiceUpper->load() : 0.0f;
+                if (upper > 0.001f) {       // and its third and fourth, as far as it has them
+                    wp.vowelF3 = vin.f3.load(std::memory_order_relaxed);
+                    wp.vowelF4 = vin.f4.load(std::memory_order_relaxed);
+                    wp.vowelUpper = upper;
+                }
+            }
+        }
+        if (paramVoiceTongue != nullptr && paramVoiceTongue->load() > 0.5f && vin.active.load(std::memory_order_relaxed)) {
+            voiceOpen = vin.open.load(std::memory_order_relaxed);
+            const float chiffAmt = paramVoiceChiff != nullptr ? paramVoiceChiff->load() : 0.0f;
+            const bool onset = vin.onsetThisBlock.load(std::memory_order_relaxed) && ! isTailingOff;
+            for (int j = 0; j < kMaxUnison; ++j) {
+                auto& e = windVoices[(size_t) j];
+                if (chiffAmt > 0.0f) {
+                    e.p.chiff      = chiffAmt * (0.4f + 0.6f * vin.onsetLevel.load(std::memory_order_relaxed));
+                    // a bright consonant ("t") leans toward air, but only part way: fully air is a hi-hat
+                    e.p.chiffColor = 0.5f * std::clamp(vin.brightness.load(std::memory_order_relaxed), 0.0f, 1.0f);
+                }
+                if (onset && voiceOpen) e.tongueStroke();
+            }
+        }
     }
 
     // Wavefold depth: base param + per-voice OscFold mod, clamped 0..1.
@@ -1080,7 +1125,7 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
                 // engine crossfades itself) with bend and modulation on top, and breath ramped across
                 // the block. Pitch is refreshed every 8 samples, the engine's own control rate.
                 const float wb = windBreathFrom + windBreathStep * (float) (i + 1);
-                const bool gateOn = ! isTailingOff;
+                const bool gateOn = ! isTailingOff && voiceOpen;
                 const int nW = unisonOn ? uN : 1;
                 if ((i & 7) == 0) {
                     const float bendSemis = 12.0f * std::log2(std::max(1.0e-4f, windPitchMult));
