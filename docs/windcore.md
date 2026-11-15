@@ -5,7 +5,7 @@ character controls. This page is about playing it and shaping it. How it works a
 [WindCore/README.md](../WindCore/README.md).
 
 ## Getting a sound
-1. In **Waveguide**, turn the Reed / Bore Engine **On** and choose **WindCore**.
+1. In **Waveguide**, turn the Reed / Bore Engine **On**. **WindCore** is the model it starts with.
 2. Play with breath (CC2 by default). Breath blows the reed directly: loudness and brightness come from the
    model, so no VCA routing is needed. From a sequencer or keyboard, **Synthetic Breath** stands in.
 3. Set the filter fully open and leave fold and noise blend off to hear the model on its own.
@@ -28,6 +28,20 @@ start and the space they sound in:
 
 Keep **Life** low at first. Its slow movement of breath and pitch can sound like trying too hard; a player on a
 wind controller already brings their own.
+
+## Presets
+`VanePresetGen WindCore` (a build target; see `Tools/PresetGen`) writes these into the presets folder:
+
+| Preset | What it is |
+|---|---|
+| WindCore - Attack | Found by playing: an attack sample through the pitch resonator at low gain, a strong mouth, a full, large body. The closest to an acoustic instrument so far; cello-like at the bottom, oboe-like at the top |
+| WindCore - Chiffy | A looser embouchure, stubbier cone and covered tone holes, with more onset noise |
+| WindCore - Voice | A voice on the audio input plays it: consonants tongue, vowels shape the mouth, loudness is the breath |
+| WindCore - Voice Vowels | The same without the tongue: notes from MIDI and breath, coloured by the voice |
+| WindCore - Talking Horn, Sine to Brass | The ideas under "Moving the character while you play" |
+| WindCore - CV Mouth and Air | Input 1 and Input 2 (a control voltage) on Air and Mouth |
+
+They sound best with a room or a convolution reverb after Vane. Getting notes and audio in: [daw-setup.md](daw-setup.md).
 
 ## The controls
 Each slider in the panel names its two ends and says what it does. In short:
