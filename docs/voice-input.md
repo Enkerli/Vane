@@ -117,7 +117,8 @@ python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a re
 Three ways in, the first two new on 2026-11-15:
 
 - **Vane FX**, the same plugin built as an effect (AU music effect, VST3 "Fx|Instrument", CLAP audio effect;
-  macOS for now, `-DVANE_BUILD_FX=OFF` to skip it). Its stereo input is on: insert it on an audio track that
+  and AUv3 inside its own "Vane FX" app; macOS and iOS, `-DVANE_BUILD_FX=OFF` to skip it; AUv3 needs the
+  Xcode generator, `cmake -G Xcode`, as for Vane's own). Its stereo input is on: insert it on an audio track that
   carries the voice or signal, and send it MIDI from another track. This works wherever an effect can receive
   MIDI. Presets and parameters are Vane's.
 - **Vane, the instrument, with a side chain.** The Voice input is now an aux bus in VST3 (where hosts look for a

@@ -112,8 +112,10 @@ set(PLUGIN_BASE_PROPS
 # A MIDI-controlled effect ("music effect" in AU terms) with its audio input on:
 # insert it on an audio track (a microphone, a voice, a CV signal) and send it
 # MIDI. This is how the Voice input reaches hosts that give instruments no audio
-# (docs/voice-input.md). Same code and parameters as Vane; macOS for now.
-if(IS_MACOS)
+# (docs/voice-input.md). Same code and parameters as Vane; macOS and iOS for now.
+# An AUv3 lives inside an app, so the effect comes with its own app ("Vane FX"),
+# which is also a standalone that plays from the device's input.
+if(IS_MACOS OR IS_IOS)
     option(VANE_BUILD_FX "Also build Vane FX, the effect version with an audio input" ON)
 else()
     set(VANE_BUILD_FX OFF)
@@ -132,6 +134,8 @@ set(PLUGIN_FX_PROPS
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES             Fx Instrument
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT  "Vane FX follows the sound on its input (a voice, its vowels and consonants)."
     ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-1024.png"
     ICON_SMALL                  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon/vane-128.png"
 )
@@ -165,6 +169,27 @@ if(IS_IOS)
             UIInterfaceOrientationLandscapeLeft
             UIInterfaceOrientationLandscapeRight
     )
+    if(VANE_BUILD_FX)
+        juce_add_plugin(VaneFX
+            ${PLUGIN_FX_PROPS}
+            FORMATS                     AUv3 Standalone
+            COPY_PLUGIN_AFTER_BUILD     FALSE
+            DEVELOPMENT_TEAM            "${VANE_IOS_TEAM_ID}"
+            BACKGROUND_AUDIO_ENABLED    TRUE
+            IPHONE_SCREEN_ORIENTATIONS
+                UIInterfaceOrientationPortrait
+                UIInterfaceOrientationPortraitUpsideDown
+                UIInterfaceOrientationLandscapeLeft
+                UIInterfaceOrientationLandscapeRight
+            IPAD_SCREEN_ORIENTATIONS
+                UIInterfaceOrientationPortrait
+                UIInterfaceOrientationPortraitUpsideDown
+                UIInterfaceOrientationLandscapeLeft
+                UIInterfaceOrientationLandscapeRight
+        )
+        target_compile_definitions(VaneFX PUBLIC VANE_FX=1)
+        list(APPEND VANE_PLUGIN_TARGETS VaneFX)
+    endif()
 elseif(IS_MACOS)
     juce_add_plugin(Vane
         ${PLUGIN_BASE_PROPS}
@@ -184,7 +209,7 @@ elseif(IS_MACOS)
     if(VANE_BUILD_FX)
         juce_add_plugin(VaneFX
             ${PLUGIN_FX_PROPS}
-            FORMATS                     AU VST3
+            FORMATS                     AU AUv3 VST3 Standalone
             COPY_PLUGIN_AFTER_BUILD     ${ENKERLI_INSTALL_PLUGINS}
             SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         )
