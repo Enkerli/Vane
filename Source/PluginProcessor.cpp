@@ -1603,7 +1603,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // character controls (WindCore/README.md).
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"waveguideModel", 1}, "Waveguide Model",
-        juce::StringArray{"MiniSax", "WindCore"}, 0));
+        juce::StringArray{"MiniSax", "WindCore"}, 1));   // WindCore unless a preset says otherwise
     // A voice on the audio input articulates WindCore (docs/voice-input.md): Voice Tongue stops the
     // reed while the mouth is closed and re-attacks it at each consonant; Voice Onset Noise adds the
     // consonant's noise at those attacks (0 leaves the Chiff control as set).
