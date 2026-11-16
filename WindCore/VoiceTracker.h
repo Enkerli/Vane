@@ -135,6 +135,9 @@ public:
         return onset;
     }
 
+    /** Seconds between two vowel-path frames (when frameReady is set). */
+    double hopSeconds() const { return nHop / fsA; }
+
     /** Seconds from a sound arriving to the vowel path fully reflecting it (window, decimation and smoothing). */
     double vowelLatency() const { return 0.5 * nFrame / fsA + 0.5 * nTap / fs + smooth; }
 

@@ -5,7 +5,8 @@
 #include <atomic>
 #include <cstdint>
 #include "Synth/SynthVoice.h"
-#include "VoiceTracker.h"   // WindCore/: follows a voice on the audio input (level, consonants, vowel)
+#include "VoiceTracker.h"   // WindCore/: follows a voice on the audio input (level, consonants, vowel, pitch)
+#include "VoiceNotes.h"     // WindCore/: the notes that pitch is singing
 #include "Synth/FormantFilter.h"
 #include "Synth/Room.h"
 #include "Synth/TransientLibrary.h"
@@ -45,7 +46,7 @@ public:
 
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override  { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }   // Voice MIDI Out: the notes and expression of a voice on the input
     bool isMidiEffect() const override { return false; }
     bool supportsMPE()  const override { return true; }
     double getTailLengthSeconds() const override { return 0.5; }
@@ -408,6 +409,14 @@ private:
     bool voiceWasActive = false;
     float voiceFrontLo = 5.4f, voiceFrontHi = 6.8f;   // the range the voice's back-to-front axis has used lately (it adapts)
     float voiceFollow = 0.0f;                          // loudness follower (see modMatrix.voiceInput.follow)
+    // Voice Pitch (docs/pitch-tracking.md): the voice's pitch plays notes on channel 1, with the rest as pitch bend.
+    windcore::VoiceNotes voiceNotes;
+    juce::MidiBuffer     voiceMidi;                    // this block's notes from the voice (to the synth, and out)
+    int voiceCC2 = -1, voiceCC74 = -1;                 // last expression values sent out
+    std::atomic<float>* pVoicePitch = nullptr;         // 0 off, 1 notes, 2 glide
+    std::atomic<float>* pVoiceTranspose = nullptr;
+    std::atomic<float>* pVoiceMidiOut = nullptr;
+    std::atomic<float>* pNonMPEPBRangeRaw = nullptr;
     std::atomic<float>* pWaveguideModelRaw = nullptr;
     std::array<std::atomic<float>*, windcore::Character::kNum> pWindRaw {};
     // Glide-curve LUT (Bezier glide), shared read-only with the voices.

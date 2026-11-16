@@ -151,6 +151,10 @@ VaneProcessor::VaneProcessor()
     pVowelReso      = apvts.getRawParameterValue("vowelReso");
     pVowelMove      = apvts.getRawParameterValue("vowelMove");
     pVowelMode      = apvts.getRawParameterValue("vowelMode");
+    pVoicePitch       = apvts.getRawParameterValue("voicePitch");
+    pVoiceTranspose   = apvts.getRawParameterValue("voiceTranspose");
+    pVoiceMidiOut     = apvts.getRawParameterValue("voiceMidiOut");
+    pNonMPEPBRangeRaw = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
     pMacroBreathCC  = apvts.getRawParameterValue("macroBreathCC");
     pMacroExprSrc   = apvts.getRawParameterValue("macroExprSrc");
@@ -207,6 +211,7 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     modMatrix.prepare(sampleRate, samplesPerBlock);
     voiceTracker.prepare(sampleRate);
     voiceWasActive = false;
+    voiceNotes.reset(); voiceMidi.ensureSize(4096); voiceCC2 = voiceCC74 = -1;
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* v = dynamic_cast<SynthVoice*>(synth.getVoice(i)))
@@ -609,6 +614,27 @@ bool VaneProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    voiceMidi.clear();
+    const int   voicePitchMode = pVoicePitch != nullptr ? (int) std::lround(pVoicePitch->load()) : 0;
+    const float pbRange = juce::jmax(1.0f, pNonMPEPBRangeRaw != nullptr ? pNonMPEPBRangeRaw->load() : 2.0f);
+    // one VoiceNotes event as MIDI on channel 1, at sample `pos` of this block
+    auto voiceEvent = [&] (const windcore::VoiceNotes::Event& ev, int pos) {
+        using E = windcore::VoiceNotes::Event;
+        if (ev.type == E::kNoteOn) {
+            const int vel = juce::jlimit(1, 127, (int) std::lround(30.0f + 97.0f * voiceFollow));
+            voiceMidi.addEvent(juce::MidiMessage::noteOn(1, juce::jlimit(0, 127, ev.note), (juce::uint8) vel), pos);
+        } else if (ev.type == E::kNoteOff) {
+            voiceMidi.addEvent(juce::MidiMessage::noteOff(1, juce::jlimit(0, 127, ev.note)), pos);
+        } else if (ev.type == E::kBend) {
+            const int pw = juce::jlimit(0, 16383, (int) std::lround(8192.0f + 8191.0f * juce::jlimit(-1.0f, 1.0f, ev.bend / pbRange)));
+            voiceMidi.addEvent(juce::MidiMessage::pitchWheel(1, pw), pos);
+        }
+    };
+    if (voicePitchMode == 0 && voiceNotes.note >= 0) {           // switched off with a note sounding
+        voiceMidi.addEvent(juce::MidiMessage::noteOff(1, voiceNotes.note), 0);
+        voiceMidi.addEvent(juce::MidiMessage::pitchWheel(1, 8192), 0);
+        voiceNotes.reset();
+    }
 
     // Voice input: follow the voice before the buffer is cleared (inputs share its first channels).
     // The tracker works sample by sample; its answers are published once per block.
@@ -625,6 +651,14 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             for (int i = 0; i < n; ++i) {
                 onset |= voiceTracker.process(b != nullptr ? 0.5f * (a[i] + b[i]) : a[i]);
                 sumA += a[i]; if (b != nullptr) sumB += b[i];
+                if (voicePitchMode > 0 && voiceTracker.frameReady) {
+                    voiceNotes.glide = voicePitchMode == 2;
+                    voiceNotes.transpose = pVoiceTranspose != nullptr ? pVoiceTranspose->load() : 0.0f;
+                    windcore::VoiceNotes::Event evs[3];
+                    const int ne = voiceNotes.process(voiceTracker.pitchNote, voiceTracker.periodicity, voiceTracker.open,
+                                                      (float) (voiceTracker.hopSeconds()), evs);
+                    for (int k = 0; k < ne; ++k) voiceEvent(evs[k], i);
+                }
             }
             // the channels as control signals (Input 1, Input 2): the block's average, DC and all
             const float mA = n > 0 ? (float) (sumA / n) : 0.0f, mB = b != nullptr && n > 0 ? (float) (sumB / n) : mA;
@@ -680,12 +714,19 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             vin.onsetThisBlock.store(false, std::memory_order_relaxed);
             vin.level.store(0.0f, std::memory_order_relaxed);
             voiceFollow = 0.0f; vin.follow.store(0.0f, std::memory_order_relaxed);
+            if (voiceNotes.note >= 0) {                           // the input went away with a note sounding
+                voiceMidi.addEvent(juce::MidiMessage::noteOff(1, voiceNotes.note), 0);
+                voiceMidi.addEvent(juce::MidiMessage::pitchWheel(1, 8192), 0);
+            }
+            voiceNotes.reset();
             vin.in1.store(0.0f, std::memory_order_relaxed); vin.in2.store(0.0f, std::memory_order_relaxed);
             meterVoiceLevel.store(0.0f, std::memory_order_relaxed); meterVoiceBright.store(0.0f, std::memory_order_relaxed);
             voiceWasActive = false;
         }
     }
     buffer.clear();
+    // the voice's notes play the synth like any incoming MIDI (they are merged before the MIDI is read below)
+    if (! voiceMidi.isEmpty()) midi.addEvents(voiceMidi, 0, buffer.getNumSamples(), 0);
 
     // WindCore: control positions to settings and tables (does nothing unless one moved).
     if (pWaveguideModelRaw == nullptr) {
@@ -881,6 +922,21 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     room.process(L, R, buffer.getNumSamples());
 
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
+
+    // MIDI out: only what the voice made (incoming MIDI is not passed through). With Voice MIDI Out on, its
+    // notes and bends, plus its expression: loudness as CC2 (breath), back-to-front vowel as CC74, the
+    // brightness of each consonant as CC71.
+    midi.clear();
+    if (pVoiceMidiOut != nullptr && pVoiceMidiOut->load() > 0.5f && modMatrix.voiceInput.active.load(std::memory_order_relaxed)) {
+        midi.addEvents(voiceMidi, 0, buffer.getNumSamples(), 0);
+        const int cc2  = juce::jlimit(0, 127, (int) std::lround(127.0f * voiceFollow));
+        const int cc74 = juce::jlimit(0, 127, (int) std::lround(127.0f * modMatrix.voiceInput.vowel.load(std::memory_order_relaxed)));
+        const int last = juce::jmax(0, buffer.getNumSamples() - 1);
+        if (cc2 != voiceCC2)   { midi.addEvent(juce::MidiMessage::controllerEvent(1, 2, cc2), last);   voiceCC2 = cc2; }
+        if (cc74 != voiceCC74) { midi.addEvent(juce::MidiMessage::controllerEvent(1, 74, cc74), last); voiceCC74 = cc74; }
+        if (modMatrix.voiceInput.onsetThisBlock.load(std::memory_order_relaxed))
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 71, juce::jlimit(0, 127, (int) std::lround(127.0f * modMatrix.voiceInput.brightness.load(std::memory_order_relaxed)))), 0);
+    }
 }
 
 juce::AudioProcessorEditor* VaneProcessor::createEditor()
@@ -1609,6 +1665,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // consonant's noise at those attacks (0 leaves the Chiff control as set).
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"voiceTongue", 1}, "Voice Tongue", false));
+    // The voice's pitch plays the notes (docs/pitch-tracking.md): Notes = a new note at each sung note, the rest as
+    // bend; Glide = one note per phrase, the whole melody as bend. Notes go out on channel 1 like incoming MIDI.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"voicePitch", 1}, "Voice Pitch", juce::StringArray{"Off", "Notes", "Glide"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"voiceTranspose", 1}, "Voice Transpose", -36, 36, 0));
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"voiceMidiOut", 1}, "Voice MIDI Out", false));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"voiceChiff", 1}, "Voice Onset Noise",
         juce::NormalisableRange<float>(0.0f, 3.0f), 0.0f));
