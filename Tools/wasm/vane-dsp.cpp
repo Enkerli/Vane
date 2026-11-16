@@ -41,6 +41,7 @@
 #include "Synth/Wavetable.h"
 #include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
+#include "WindCharacter.h"      // WindCore: the reed, cone and mouth model and its control layer (std-lib only)
 #include "MiniSaxVoice.h"       // the REAL waveguide reed/bore engine (MiniSax — std-lib only)
 #include "Synth/BreathEnvelope.h" // synthetic breath for note-only input (shared header, std-lib only)
 #include "Synth/SamplePlayer.h" // one-shot PCM transient player (pure std, no JUCE)
@@ -176,6 +177,16 @@ float pSbAtk = 35.0f, pSbDec = 120.0f, pSbSus = 0.80f, pSbRel = 180.0f;// [56..5
 bool  gSawRealExpression = false;
 constexpr float kWgMakeupGain = 2.5f;   // engine peaks ~0.4 at full breath — same constant as SynthVoice
 
+// WindCore — the plugin's second Waveguide model, the default. [id 60] chooses the model (0 MiniSax,
+// 1 WindCore); [61..] are its character controls in WindCore/character.json order, each 0..1. One control
+// layer is shared by every engine, rebuilt only when a control moves (SynthVoice/PluginProcessor parity).
+int   gWgModel = 1;                                       // [id 60]
+constexpr int kWindParam0 = 61;                           // [61 .. 61 + Character::kNum - 1]
+float gWindPos[windcore::Character::kNum];
+bool  gWindDirty = true;
+windcore::Character& windCharacter() { static windcore::Character c; return c; }
+constexpr float kWindMakeupGain = 0.3f;                    // same constant as SynthVoice
+
 // ── Stereo unison / rotating chords (SynthVoice parity) ──────────────────────
 // Up to kMaxUnison detuned (or chord-interval) sub-voices per note, spread
 // across the stereo field with the plugin's exact equal-power pan + power
@@ -296,11 +307,11 @@ float gParamSmooth = 0.00693f;
 // matching the real engine; the UI's per-slot atk/rel are accepted but ignored
 // for now (same as the real header's "future revision" note).
 constexpr int kNumSlots = 24;
-// 13 original dests + the 8 Waveguide tone dests (13..20) — index-aligned with
+// 13 original dests + the 8 Waveguide tone dests (13..20) + the 7 WindCore ones (21..27) — index-aligned with
 // the UI's DESTS list and the plugin's ModSlots::kDestNames. Dest 7 (Noise) and
 // 13..20 (Wg) are now implemented here; Transient (10) / UniDetune (11) still
 // accumulate unused (those features aren't in the standalone voice yet).
-constexpr int kNumDests = 21;
+constexpr int kNumDests = 28;
 struct Slot { int src = 0, dst = 0, curve = 0; float amt = 0.0f; bool on = true; };
 Slot gSlots[kNumSlots];
 
@@ -427,6 +438,8 @@ struct Voice {
     // handoff for the same effect — here the state simply stays put).
     minisax::MiniSaxVoice wg;
     uint32_t              wgSeed = 0;
+    windcore::Engine      wind[kMaxUnison];              // WindCore: one horn per unison slot, like the bores
+    float                 windBreathPrev = 0.0f;         // breath at the end of the last block (ramped per sample)
 
     // Stereo unison: extra sub-voices (osc or bore per slot, mirrors the
     // plugin's unisonOscs/waveguideVoices), a right-channel filter for true
@@ -548,6 +561,8 @@ void vane_init (double sampleRate) {
     gSampleRate = sampleRate;
     ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
     for (int c = 0; c < 17; ++c) gChPress[c] = 0.0f;
+    for (int k = 0; k < windcore::Character::kNum; ++k) gWindPos[k] = windcore::Character::defaultPosition (k);
+    gWindDirty = true;
     gFormantL.prepare (sampleRate); gFormantL.reset();
     gFormantR.prepare (sampleRate); gFormantR.reset(); gVowelPosMod = 0.0f;
     breathSlewer.prepare (sampleRate); breathSlewer.setRates (5.0f, 80.0f); breathSlewer.reset();
@@ -565,6 +580,7 @@ void vane_init (double sampleRate) {
         // breath noise across voices — same intent as SynthVoice's seeds).
         v.wgSeed = minisax::NoiseGenerator::defaultSeed ^ (uint32_t) (vi * 0x9E3779B1u);
         v.wg.prepare (sampleRate, v.wgSeed);
+        for (int j = 0; j < kMaxUnison; ++j) { v.wind[j].seed = 0x12345u + (uint32_t) (vi * 977 + j * 131); v.wind[j].prepare (sampleRate); }
         v.synthBreath.prepare (sampleRate);
         v.noiseWhiteState = 0x9E3779B97F4A7C15ULL ^ (uint64_t) vi;
         for (auto& b : v.noisePinkB) b = 0.0f;
@@ -700,6 +716,8 @@ void startNote (int note, int vel, int channel) {
         // inherent) and re-entrains them at the new delay length: a physical slur.
         v.wg.reset (v.wgSeed);
         for (int j = 0; j < kMaxUnison - 1; ++j) v.wgUni[j].reset (v.wgUniSeeds[j]);
+        for (auto& e : v.wind) e.reset();
+        v.windBreathPrev = 0.0f;
         v.pitchMulSmoothed = 1.0f;             // matches smoothedPitchMult.setCurrentAndTargetValue(1.0f) at prepare
         v.cutoffSmoothed   = pCutoff;          // matches smoothedCutoff.setCurrentAndTargetValue(initCutoff) at note-on
         v.morphSmoothed = pMorph; v.pwSmoothed = pPW; v.inharmSmoothed = pInharm; v.syncSmoothed = pSync;  // snap osc params on a fresh attack
@@ -922,7 +940,12 @@ void vane_set_param (int id, float val) {
         case 57: pSbDec  = val; break;   // ms
         case 58: pSbSus  = val; break;   // 0..1
         case 59: pSbRel  = val; break;   // ms
-        default: break;
+        case 60: gWgModel = (int) (val + 0.5f) > 0 ? 1 : 0; break;   // 0 MiniSax, 1 WindCore
+        default:
+            if (id >= kWindParam0 && id < kWindParam0 + windcore::Character::kNum) {
+                gWindPos[id - kWindParam0] = clamp01 (val); gWindDirty = true;
+            }
+            break;
     }
 }
 
@@ -1044,6 +1067,8 @@ void vane_render (int n) {
     // setStep) before processing — n can vary between calls.
     breathSlewer.setStep (n);
     exprSlewer.setStep (n);
+    // WindCore: control positions to settings and tables (only when one moved).
+    if (gWindDirty) { windCharacter().set (gWindPos); gWindDirty = false; }
 
     // Global mod sources, slewed once per block (matches the real engine's
     // once-per-buffer Slewer::process() call rate). Curves are applied per-slot
@@ -1203,6 +1228,24 @@ void vane_render (int n) {
                                                               pVelVCA * std::sqrt (v.vel))));
         }
 
+        // ── WindCore block-rate settings — SynthVoice verbatim: the shared control layer's settings, then the
+        //    Wind destinations, which only touch what cannot detune the horn. Breath ramps across the block.
+        const bool useWind = gWgOn && gWgModel == 1;
+        const float windFrom = v.windBreathPrev, windStep = (wgIn.params.breath - v.windBreathPrev) / (float) std::max (1, n);
+        if (useWind) {
+            for (auto& e : v.wind) {
+                auto& wp = e.p; wp = windCharacter().params; e.shared = &windCharacter().tables;
+                wp.vowel      = clampf (wp.vowel + mods[21], 0.0f, 1.0f);
+                wp.vowelDepth = clampf (wp.vowelDepth + 10.0f * mods[22], 0.0f, 20.0f);
+                wp.bodySize   = clampf (wp.bodySize * std::exp2 (mods[23]), 0.35f, 3.0f);
+                wp.respond    = clampf (wp.respond + 1.4f * mods[24], 0.0f, 1.4f);
+                wp.air        = clampf (wp.air + 0.1f * mods[25], 0.0f, 0.1f);
+                wp.bell       = clampf (wp.bell + 12.0f * mods[26], -6.0f, 20.0f);
+                wp.vibDepth   = clampf (wp.vibDepth + 35.0f * mods[27], 0.0f, 60.0f);
+            }
+            v.windBreathPrev = wgIn.params.breath;
+        }
+
         // ── Stereo unison — SynthVoice's block-rate computation verbatim ────────
         // uN sub-voices spread across the field with equal-power pans, power-
         // normalised so engaging unison doesn't change the level; Detune mode
@@ -1344,7 +1387,23 @@ void vane_render (int n) {
             // bore each) pitched by uDetMul and panned by uPanL/R, exactly the
             // plugin's stereo-unison path.
             float srcL, srcR;
-            if (gWgOn) {
+            if (useWind) {
+                // WindCore: the horn takes the pitch (a jump of more than half a semitone is a key moving, which
+                // it crossfades itself; smaller moves retune it), refreshed every 8 samples, and breath ramped.
+                const float wb = windFrom + windStep * (float) (s + 1);
+                const int nW = unisonOn ? uN : 1;
+                if ((s & 7) == 0)
+                    for (int j = 0; j < nW; ++j)
+                        v.wind[j].setPitch (69.0f + 12.0f * std::log2 (std::max (8.0f, hzNow * (unisonOn ? uDetMul[j] : 1.0f)) / 440.0f), 0.0f);
+                srcL = srcR = 0.0f;
+                for (int j = 0; j < nW; ++j) {
+                    auto& e = v.wind[j];
+                    e.setBreath (wb); e.setGate (! v.releasing);
+                    const float w = e.tickHost() * kWindMakeupGain;
+                    if (unisonOn) { srcL += w * uPanL[j]; srcR += w * uPanR[j]; }
+                    else srcL = srcR = w;
+                }
+            } else if (gWgOn) {
                 wgIn.gate = v.releasing ? 0.0f : 1.0f;   // holding = still bridging → keep blowing
                 if (! unisonOn) {
                     wgIn.pitchHz = hzNow;

@@ -98,4 +98,5 @@ a short diffuse tail, as a close microphone hears an instrument in a room. **Mix
 - In the lowest octave (F#1 to E2) and on a few notes around G2, how a note starts can move its pitch by up to
   about 20 cents: the reed can settle in two ways there.
 - The character controls are not modulation-matrix targets yet, so the mouth can't be played from a joystick.
-- The browser version plays MiniSax.
+- The browser version plays WindCore with all its controls and the seven Wind destinations; it has no audio input,
+  so the Voice controls and Input 1/2 do nothing there.

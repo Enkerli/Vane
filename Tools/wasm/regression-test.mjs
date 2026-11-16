@@ -811,5 +811,25 @@ function estimateHz(e, blocks, sr = 48000, blockSize = 128) {
         ft > 258 && fr2 < 250, `fixedTime=${ft.toFixed(1)} fixedRate=${fr2.toFixed(1)} Hz (target 261.6)`);
 }
 
+// ── WindCore (Waveguide model 1, the default) ─────────────────────────────────
+for (const note of [43, 67]) {
+  const e = await fresh(); e.vane_init(48000); e.vane_set_param(30, 1); e.vane_set_param(60, 1); e.vane_set_mono(1);
+  e.vane_set_cc(2, 0.75); e.vane_note_on(note, 100, 1);
+  const x = []; for (let i = 0; i < 48000 * 1.2 / 128; i++) x.push(...render(e, 128));
+  const seg = x.slice(48000 * 0.7, 48000 * 1.1), f0 = 440 * 2 ** ((note - 69) / 12);
+  const lo = Math.floor(48000 / (f0 * 1.4)), hi = Math.ceil(48000 / (f0 / 1.4)); let best = lo, bv = -1e9;
+  const ac = L => { let s2 = 0; for (let i = 0; i + L < seg.length; i++) s2 += seg[i] * seg[i + L]; return s2; };
+  for (let L = lo; L <= hi; L++) { const v = ac(L); if (v > bv) { bv = v; best = L; } }
+  const a = ac(best - 1), b = ac(best), c = ac(best + 1), cents = 1200 * Math.log2(48000 / (best + 0.5 * (a - c) / (a - 2 * b + c)) / f0);
+  const r = Math.sqrt(seg.reduce((t, v) => t + v * v, 0) / seg.length);
+  check(`WindCore note ${note}: sounds, in tune (${cents.toFixed(1)} cents), no bad samples`, r > 0.01 && Math.abs(cents) < 10 && x.every(Number.isFinite), `rms ${r.toFixed(4)}`);
+}
+{ // a WindCore control reaches the engine: Mouth strength up changes the sound
+  const take = async (strength) => { const e = await fresh(); e.vane_init(48000); e.vane_set_param(30, 1); e.vane_set_param(60, 1); e.vane_set_param(61, 0); e.vane_set_param(62, strength);
+    e.vane_set_mono(1); e.vane_set_cc(2, 0.75); e.vane_note_on(55, 100, 1); let o = []; for (let i = 0; i < 300; i++) o = o.concat(Array.from(render(e, 128))); return o.slice(-9600); };
+  const a = await take(0), b = await take(1); let d = 0; for (let i = 0; i < a.length; i++) d += (a[i] - b[i]) ** 2;
+  check("WindCore Mouth strength changes the sound", d > 1e-3, `diff ${d.toExponential(2)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
