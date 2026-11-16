@@ -41,6 +41,8 @@
 #include "Synth/Wavetable.h"
 #include "Synth/FormantFilter.h"   // real global vowel/wah formant stage (juce_core-light)
 #include "MPE/TuningClient.h"   // the REAL tuning engine — MTS code compile-gated off
+#include "VoiceTracker.h"       // a voice on the input: level, consonants, formants, pitch (std-lib only)
+#include "VoiceNotes.h"         // that pitch as notes and bend
 #include "WindCharacter.h"      // WindCore: the reed, cone and mouth model and its control layer (std-lib only)
 #include "MiniSaxVoice.h"       // the REAL waveguide reed/bore engine (MiniSax — std-lib only)
 #include "Synth/BreathEnvelope.h" // synthetic breath for note-only input (shared header, std-lib only)
@@ -186,6 +188,20 @@ float gWindPos[windcore::Character::kNum];
 bool  gWindDirty = true;
 windcore::Character& windCharacter() { static windcore::Character c; return c; }
 constexpr float kWindMakeupGain = 0.3f;                    // same constant as SynthVoice
+
+// ── Voice input (docs/voice-input.md, docs/pitch-tracking.md) ────────────────
+// The page's microphone reaches vane_input_buffer() each render quantum; the tracker runs here, as in the
+// plugin's processBlock, and its state drives the Voice controls on WindCore, the Voice/Input mod sources, and
+// (Voice Pitch) notes. Params: [88] Tongue, [89] Onset Noise, [90] Vowel Strength, [91] Upper Formants,
+// [92] Breath Follow, [93] Pitch (0 off, 1 notes, 2 glide), [94] Transpose.
+windcore::VoiceTracker gVT;
+windcore::VoiceNotes   gVN;
+bool  gInActive = false;
+float gInBuf[kMaxBlock] = {};                    // the input's samples for this render quantum (mono)
+float pVoiceTongue = 0, pVoiceChiff = 0, pVoiceVowel = 0, pVoiceUpper = 0, pVoiceBreath = 0, pVoiceTranspose = 0;
+int   pVoicePitch = 0;
+struct VoiceIn { bool open = false, onset = false; float vowel = 0.5f, level = 0, bright = 0, onsetLevel = 0, follow = 0,
+                 f1 = 500, f2 = 1500, f3 = 2500, f4 = 3500, in1 = 0, in2 = 0, frontLo = 5.4f, frontHi = 6.8f; } gVin;
 
 // ── Stereo unison / rotating chords (SynthVoice parity) ──────────────────────
 // Up to kMaxUnison detuned (or chord-interval) sub-voices per note, spread
@@ -562,6 +578,7 @@ void vane_init (double sampleRate) {
     ccBreathRaw = 0.0f; ccExprRaw = 0.0f;   // full reset — a re-init shouldn't inherit stale CC state
     for (int c = 0; c < 17; ++c) gChPress[c] = 0.0f;
     for (int k = 0; k < windcore::Character::kNum; ++k) gWindPos[k] = windcore::Character::defaultPosition (k);
+    gVT.prepare (sampleRate); gVN.reset(); gVin = VoiceIn{};
     gWindDirty = true;
     gFormantL.prepare (sampleRate); gFormantL.reset();
     gFormantR.prepare (sampleRate); gFormantR.reset(); gVowelPosMod = 0.0f;
@@ -841,6 +858,15 @@ void startNote (int note, int vel, int channel) {
     } else { v.oscMorphArmed = false; v.oscMorphRamp = 1.0f; }
 }
 
+// The page's microphone: up to kMaxBlock mono samples written here before each vane_render, and whether
+// there is an input at all (the Voice controls do nothing without one).
+float* vane_input_buffer() { return gInBuf; }
+void vane_set_input_active (int on) {
+    const bool now = on != 0;
+    if (now != gInActive) { gVT.reset(); gVin = VoiceIn{}; }
+    gInActive = now;
+}
+
 void vane_note_on (int note, int vel, int channel) {
     if (gMono) pushHeld (note, channel, vel);
     startNote (note, vel, channel);
@@ -941,6 +967,13 @@ void vane_set_param (int id, float val) {
         case 58: pSbSus  = val; break;   // 0..1
         case 59: pSbRel  = val; break;   // ms
         case 60: gWgModel = (int) (val + 0.5f) > 0 ? 1 : 0; break;   // 0 MiniSax, 1 WindCore
+        case 88: pVoiceTongue = val; break;
+        case 89: pVoiceChiff  = val; break;
+        case 90: pVoiceVowel  = val; break;
+        case 91: pVoiceUpper  = val; break;
+        case 92: pVoiceBreath = val; break;
+        case 93: pVoicePitch  = (int) (val + 0.5f); break;
+        case 94: pVoiceTranspose = val; break;
         default:
             if (id >= kWindParam0 && id < kWindParam0 + windcore::Character::kNum) {
                 gWindPos[id - kWindParam0] = clamp01 (val); gWindDirty = true;
@@ -1067,6 +1100,47 @@ void vane_render (int n) {
     // setStep) before processing — n can vary between calls.
     breathSlewer.setStep (n);
     exprSlewer.setStep (n);
+    // Voice input: follow the voice on the input for this quantum, and play its notes (Voice Pitch).
+    gVin.onset = false;
+    if (gInActive) {
+        double sum = 0.0;
+        for (int s = 0; s < n; ++s) {
+            gVin.onset |= gVT.process (gInBuf[s]);
+            sum += gInBuf[s];
+            if (pVoicePitch > 0 && gVT.frameReady) {
+                gVN.glide = pVoicePitch == 2; gVN.transpose = pVoiceTranspose;
+                windcore::VoiceNotes::Event ev[3];
+                const int ne = gVN.process (gVT.pitchNote, gVT.periodicity, gVT.open, (float) gVT.hopSeconds(), ev);
+                for (int k = 0; k < ne; ++k) {
+                    using E = windcore::VoiceNotes::Event;
+                    if (ev[k].type == E::kNoteOn)  vane_note_on (ev[k].note, (int) clampf (30.0f + 97.0f * gVin.follow, 1.0f, 127.0f), 1);
+                    else if (ev[k].type == E::kNoteOff) vane_note_off (ev[k].note, 1);
+                    else if (ev[k].type == E::kBend) {
+                        for (auto& v : voices) if (v.active && v.channel == 1) v.bend = clampf (ev[k].bend / std::max (1.0f, pBendRange), -1.0f, 1.0f);
+                    }
+                }
+            }
+        }
+        const float blockSec = (float) n / (float) gSampleRate;
+        gVin.open = gVT.open;
+        gVin.in1 = gVin.in2 = clampf ((float) (sum / std::max (1, n)), -1.0f, 1.0f);
+        gVin.level = gVin.open ? clamp01 (1.0f + (gVT.levelDb - gVT.peakDb) / 30.0f) : 0.0f;
+        gVin.follow += (1.0f - std::exp (-blockSec / (gVin.open ? 0.008f : 0.5f))) * (gVin.level - gVin.follow);
+        gVin.f1 = gVT.f1; gVin.f2 = gVT.f2; gVin.f3 = gVT.f3; gVin.f4 = gVT.f4;
+        const float x = windcore::VoiceTracker::frontAxis (gVT.f1, gVT.f2);
+        if (gVin.open) {
+            const float k = clamp01 (blockSec / 8.0f);
+            gVin.frontLo = x < gVin.frontLo ? x : gVin.frontLo + k * (x - gVin.frontLo);
+            gVin.frontHi = x > gVin.frontHi ? x : gVin.frontHi + k * (x - gVin.frontHi);
+            if (gVin.frontHi - gVin.frontLo < 0.7f) { const float m = 0.5f * (gVin.frontLo + gVin.frontHi); gVin.frontLo = m - 0.35f; gVin.frontHi = m + 0.35f; }
+        }
+        gVin.vowel = clamp01 ((x - gVin.frontLo) / (gVin.frontHi - gVin.frontLo));
+        if (gVin.onset) { gVin.bright = clamp01 (2.5f * gVT.onsetBright); gVin.onsetLevel = gVT.onsetLevel; }
+    }
+    if ((! gInActive || pVoicePitch == 0) && gVN.note >= 0) {    // pitch off or input gone with a note sounding
+        vane_note_off (gVN.note, 1); gVN.reset();
+    }
+
     // WindCore: control positions to settings and tables (only when one moved).
     if (gWindDirty) { windCharacter().set (gWindPos); gWindDirty = false; }
 
@@ -1141,6 +1215,11 @@ void vane_render (int n) {
                 case 5:  srcVal = pbS;        break;   // Pitchbend (per-voice, MPE X)
                 case 6:  srcVal = velS;       break;   // Velocity (per-voice)
                 case 15: srcVal = v.keytrack; break;   // Keytrack (per-note constant)
+                case 16: srcVal = gInActive ? gVin.vowel : 0.0f; break;   // Voice Vowel (back to front)
+                case 17: srcVal = gVin.level;  break;  // Voice Level
+                case 18: srcVal = gVin.bright; break;  // Voice Brightness
+                case 19: srcVal = gVin.in1;    break;  // Input 1 (DC kept)
+                case 20: srcVal = gVin.in2;    break;  // Input 2
                 default: srcVal = 0.0f;       break;   // Aux 1-8 — unsupported standalone
             }
             mods[sl.dst] += applyCurve (srcVal, sl.curve) * sl.amt;
@@ -1226,6 +1305,9 @@ void vane_render (int n) {
             wgIn.params.breath = clamp01 (std::max (std::max (breathS, exprS),
                                                     std::max (std::max (pressS, synth),
                                                               pVelVCA * std::sqrt (v.vel))));
+            // Voice Breath Follow: the voice's loudness as the breath (held through closures)
+            if (gInActive && pVoiceBreath > 0.001f)
+                wgIn.params.breath *= (1.0f - pVoiceBreath) + pVoiceBreath * gVin.follow;
         }
 
         // ── WindCore block-rate settings — SynthVoice verbatim: the shared control layer's settings, then the
@@ -1242,6 +1324,15 @@ void vane_render (int n) {
                 wp.air        = clampf (wp.air + 0.1f * mods[25], 0.0f, 0.1f);
                 wp.bell       = clampf (wp.bell + 12.0f * mods[26], -6.0f, 20.0f);
                 wp.vibDepth   = clampf (wp.vibDepth + 35.0f * mods[27], 0.0f, 60.0f);
+                if (gInActive && pVoiceVowel > 0.001f) {            // the voice's own formants as the vowel
+                    wp.vowelF1 = gVin.f1; wp.vowelF2 = gVin.f2;
+                    wp.vowelDepth = gVin.open ? 10.0f * pVoiceVowel : 0.0f;
+                    if (pVoiceUpper > 0.001f) { wp.vowelF3 = gVin.f3; wp.vowelF4 = gVin.f4; wp.vowelUpper = pVoiceUpper; }
+                }
+                if (gInActive && pVoiceTongue > 0.5f) {             // consonants tongue the reed, with their noise
+                    if (pVoiceChiff > 0.0f) { wp.chiff = pVoiceChiff * (0.4f + 0.6f * gVin.onsetLevel); wp.chiffColor = 0.5f * gVin.bright; }
+                    if (gVin.onset && gVin.open && ! v.releasing) e.tongueStroke();
+                }
             }
             v.windBreathPrev = wgIn.params.breath;
         }
@@ -1398,7 +1489,7 @@ void vane_render (int n) {
                 srcL = srcR = 0.0f;
                 for (int j = 0; j < nW; ++j) {
                     auto& e = v.wind[j];
-                    e.setBreath (wb); e.setGate (! v.releasing);
+                    e.setBreath (wb); e.setGate (! v.releasing && (! gInActive || pVoiceTongue <= 0.5f || gVin.open));
                     const float w = e.tickHost() * kWindMakeupGain;
                     if (unisonOn) { srcL += w * uPanL[j]; srcR += w * uPanR[j]; }
                     else srcL = srcR = w;

@@ -113,6 +113,15 @@ python3 voicein_render.py out/                   # a listening folder from the t
 python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a recording
 ```
 
+## Audio input in the browser version
+The webapp's **Mic** chip (top of the page) feeds the microphone to the engine, which runs the same tracker and
+the same Voice controls on WindCore as the plugin: Voice Tongue, Onset Noise, Vowel, Upper Formants, Breath
+Follow, Voice Pitch (notes with no MIDI) and Transpose, and the Voice and Input sources in the matrix. The raw
+input is used (no echo cancellation, noise suppression or automatic gain), so headphones are needed. Voice MIDI
+Out is plugin-only for now. Checked in Node with recordings and a sung scale (tongue: 10 re-attacks against 1;
+pitch: the rising notes within 10 cents of the voice, the falling ones 20 to 32 cents flat, worse than the plugin's
+18 at most on the same melody: to look at). Not yet tried with a real microphone.
+
 ## Audio input in hosts
 Three ways in, the first two new on 2026-11-15:
 
