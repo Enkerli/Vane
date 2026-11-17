@@ -73,6 +73,16 @@ int main (int argc, char** argv)
     }
 
     VaneProcessor proc;
+    // VanePerfRender --params x x: every parameter, tab-separated: id, name, default, range low..high, steps
+    if (std::string (argv[1]) == "--params") {
+        for (auto* p : proc.getParameters())
+            if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p)) {
+                const auto& nr = r->getNormalisableRange();
+                std::printf ("%s\t%s\t%s\t%g..%g\t%d\n", r->paramID.toRawUTF8(), r->getName (80).toRawUTF8(),
+                             r->getCurrentValueAsText().toRawUTF8(), nr.start, nr.end, r->getNumSteps());
+            }
+        return 0;
+    }
     if (const char* sf = std::getenv ("VANE_STATE")) {
         juce::MemoryBlock mb;
         if (! juce::File (sf).loadFileAsData (mb)) { std::fprintf (stderr, "cannot read state %s\n", sf); return 1; }
