@@ -93,7 +93,7 @@ set(PLUGIN_BASE_PROPS
     DESCRIPTION                 "MPE synthesizer - responds to input, shapes sound"
     IS_SYNTH                    TRUE
     NEEDS_MIDI_INPUT            TRUE
-    NEEDS_MIDI_OUTPUT           FALSE
+    NEEDS_MIDI_OUTPUT           TRUE    # Voice MIDI Out: notes and expression from a voice on the input
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     # The Voice input (docs/voice-input.md): Standalone reads the microphone.
@@ -130,7 +130,7 @@ set(PLUGIN_FX_PROPS
     DESCRIPTION                 "Vane as an effect - a voice or signal on the input plays the synthesizer"
     IS_SYNTH                    FALSE
     NEEDS_MIDI_INPUT            TRUE
-    NEEDS_MIDI_OUTPUT           FALSE
+    NEEDS_MIDI_OUTPUT           TRUE    # Voice MIDI Out: notes and expression from a voice on the input
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES             Fx Instrument

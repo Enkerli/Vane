@@ -172,6 +172,12 @@ public:
         and it is only rewritten between blocks. */
     void setWindCore(const windcore::Character* character) noexcept { windCharacter = character; }
     /** A voice on the audio input articulating WindCore: Voice Tongue (a switch), Voice Onset Noise (0..3) and Voice Vowel Strength (0..1) and Voice Breath Follow (0..1). */
+    /** The lower zone's master pitch-bend range in semitones, as the host last set it (published per block). */
+    void setMasterBendRange(const std::atomic<float>* range) noexcept { masterBendRangeSrc = range; }
+    float masterBendRange() const noexcept {
+        const float r = masterBendRangeSrc != nullptr ? masterBendRangeSrc->load(std::memory_order_relaxed) : 2.0f;
+        return r > 0.01f ? r : 2.0f;
+    }
     void setVoiceParams(std::atomic<float>* tongue, std::atomic<float>* chiff, std::atomic<float>* vowel, std::atomic<float>* breath, std::atomic<float>* upper) noexcept { paramVoiceUpper = upper; paramVoiceTongue = tongue; paramVoiceChiff = chiff; paramVoiceVowel = vowel; paramVoiceBreath = breath; }
     bool windSelected() const noexcept {
         return windCharacter != nullptr && paramWgModel != nullptr && paramWgModel->load() > 0.5f;
@@ -475,6 +481,7 @@ private:
     const windcore::Character*                    windCharacter = nullptr;
     float                                         windBreathPrev = 0.0f;   // breath at the end of the last block (ramped per sample)
     std::atomic<float>*                           paramWgModel = nullptr;  // 0 MiniSax, 1 WindCore
+    const std::atomic<float>*                     masterBendRangeSrc = nullptr;
     std::atomic<float>*                           paramVoiceTongue = nullptr;
     std::atomic<float>*                           paramVoiceChiff  = nullptr;
     std::atomic<float>*                           paramVoiceVowel  = nullptr;

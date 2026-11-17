@@ -113,6 +113,15 @@ python3 voicein_render.py out/                   # a listening folder from the t
 python3 voicein_render.py out/ my-voice.wav      # every variant, driven by a recording
 ```
 
+## Audio input in the browser version
+The webapp's **Mic** chip (top of the page) feeds the microphone to the engine, which runs the same tracker and
+the same Voice controls on WindCore as the plugin: Voice Tongue, Onset Noise, Vowel, Upper Formants, Breath
+Follow, Voice Pitch (notes with no MIDI) and Transpose, and the Voice and Input sources in the matrix. The raw
+input is used (no echo cancellation, noise suppression or automatic gain), so headphones are needed. Voice MIDI
+Out is plugin-only for now. Checked in Node with recordings and a sung scale (tongue: 10 re-attacks against 1;
+pitch: the rising notes within 10 cents of the voice, the falling ones 20 to 32 cents flat, worse than the plugin's
+18 at most on the same melody: to look at). Not yet tried with a real microphone.
+
 ## Audio input in hosts
 Three ways in, the first two new on 2026-11-15:
 
@@ -153,7 +162,7 @@ an effect.
 - **A single vowel dimension** is a guess: back to front along the chart's diagonal (second formant up, first
   formant down). Open-close, or both as two sources, are the alternatives to listen to.
 - **The voice in the mouth** (sung into the reed), the panel's widgets for the mod sources, Linux, the effect
-  build for iOS, and the browser version (it plays MiniSax only).
+  build for iOS, and voice input in the browser version (it plays WindCore but has no audio input).
 
 ## Pitch from the voice (later)
 The tracker already reports the voice's pitch (autocorrelation over 25 ms, 70 to 500 Hz), unused. Playing
@@ -195,7 +204,7 @@ smoothing. Chording would then be extra engines at intervals from the tracked no
 
 Not done: the voice in the mouth (step 5: needs the voice per sample inside each voice), the effect build
 (AUv3 on iOS), the panel (native and web: none of these controls has a widget yet; the mod slots and the two
-parameters work from the host's generic UI or by hand), Linux, and the browser version (it plays MiniSax only,
+parameters work from the host's generic UI or by hand), Linux, and voice input in the browser version (it plays WindCore but has no audio input,
 so there is nothing there for a voice to drive yet). Untested in any host: how each one presents or enables an
 instrument's input bus, and Standalone's microphone permission when signed and notarised (it needs the
 audio-input entitlement).

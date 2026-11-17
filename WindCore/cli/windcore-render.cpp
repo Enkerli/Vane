@@ -12,6 +12,8 @@
 //   v.tongue=1       its closures stop the reed and its onsets tongue it, so "t", "k", "p" articulate the notes
 //   v.chiff=<0..3>   onset noise at those onsets: as loud as the consonant, bright for "t", dark for "p" (chiff, chiffColor)
 //   v.breath=<0..1>  its level drives the breath, by this share (the events' breath is the ceiling)
+//   v.notes=1        its pitch plays the notes (no note events needed); v.notes=2 glides: one note per phrase, the rest as bend
+//   v.transpose=<st> semitones added to the notes it plays
 //   v.gain=<x>       level of the voice fed to the mouth (it is first scaled to peak at 1); used with voiceSing=, voiceAir=
 //   v.rise= v.dip= v.open= v.close= v.size= v.smooth= v.emphasis=   tracker settings (see VoiceTracker.h)
 // --voice-log f.txt writes what was tracked: "f <t> <level dB> <open> <state> <voiced> <pitch Hz> <F1> <F2> <vowel> <fit>" every
@@ -19,6 +21,7 @@
 // cal.txt lines: <note> <cents c0> <c1> <gain dB> [<c2>]   with cents = c0 + c1*e + c2*e*e, e = sqrt(embouchure opening)
 #include "../WindCharacter.h"
 #include "../VoiceTracker.h"
+#include "../VoiceNotes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -112,7 +115,7 @@ int main (int argc, char** argv)
     Engine e; int rate = 48000; std::string cal, probe, curves, voicePath, voiceLog; static Character ch; bool useCh = false;
     std::vector<std::pair<float Params::*, float>> named;
     std::map<std::string, float> vo { { "vowel", 0 }, { "formants", 0 }, { "tongue", 0 }, { "chiff", 0 }, { "breath", 0 }, { "gain", 1 },
-                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 }, { "upper", 0 } };
+                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 }, { "upper", 0 }, { "notes", 0 }, { "transpose", 0 }, { "bend", -1 }, { "legato", 0 }, { "legatoms", 0 }, { "minper", 0 }, { "slew", 0 } };
     for (int i = 3; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -229,6 +232,8 @@ int main (int argc, char** argv)
     const float vVowel = vo["vowel"], vFormants = vo["formants"], vChiff = vo["chiff"], vBreath = std::clamp (vo["breath"], 0.0f, 1.0f), vGain = vo["gain"];
     const bool vTongue = vo["tongue"] > 0;
     int heldNotes = 0; float depthS = 0, breathS = 0;
+    bool onsetSinceFrame = false;
+    VoiceNotes vn; if (vo["bend"] >= 0) vn.bendAmount = vo["bend"]; if (vo["legato"] > 0) vn.legatoSemis = vo["legato"]; if (vo["legatoms"] > 0) vn.legatoFrames = (int) std::lround (vo["legatoms"] / 5.0f); if (vo["minper"] > 0) vn.minPeriodicity = vo["minper"]; if (vo["slew"] > 0) vn.slew = vo["slew"] / 1000.0f; vn.bendRange = 24.0f; vn.transpose = vo["transpose"]; vn.glide = vo["notes"] > 1.5f; const bool vNotes = vo["notes"] > 0;
 
     e.prepare (rate);
     const size_t N = (size_t) (tEnd * rate) + 1;
@@ -278,6 +283,7 @@ int main (int argc, char** argv)
         {
             const float v = n < voice.size() ? voice[n] : 0.0f;
             const bool onset = vt.process (v);
+            onsetSinceFrame |= onset;
             e.setMouthInput (v * vGain);
             if (onset && vlog != nullptr) std::fprintf (vlog, "o %.5f %.3f %.3f\n", t, vt.onsetBright, vt.onsetLevel);
             if (onset && vChiff > 0)
@@ -291,6 +297,17 @@ int main (int argc, char** argv)
                 if (onset && heldNotes > 0) e.tongueStroke();
                 e.setGate (heldNotes > 0 && vt.open);
             }
+            if (vt.frameReady && vNotes)
+            {
+                // the voice's own pitch plays the notes; its distance from each note is the bend
+                VoiceNotes::Event evn[3]; const int ne = vn.process (vt.pitchNote, vt.periodicity, vt.open, 0.005f, evn, onsetSinceFrame); onsetSinceFrame = false;
+                for (int k = 0; k < ne; ++k)
+                {
+                    if (evn[k].type == VoiceNotes::Event::kNoteOn)       { e.noteOn (evn[k].note); ++heldNotes; if (vlog != nullptr) std::fprintf (vlog, "n %.5f on %d\n", t, evn[k].note); }
+                    else if (evn[k].type == VoiceNotes::Event::kNoteOff) { e.noteOff (evn[k].note); heldNotes = std::max (0, heldNotes - 1); if (vlog != nullptr) std::fprintf (vlog, "n %.5f off %d\n", t, evn[k].note); }
+                    else if (evn[k].type == VoiceNotes::Event::kBend)    e.setBend (evn[k].bend);
+                }
+            }
             if (vt.frameReady)
             {
                 // the vowel resonances fade in with a sound that has formants, and hold their place through closures
@@ -300,7 +317,7 @@ int main (int argc, char** argv)
                 if (vVowel > 0) e.p.vowel = vt.vowel;
                 if (vFormants > 0) { e.p.vowelF1 = vt.f1 / vt.voiceSize; e.p.vowelF2 = vt.f2 / vt.voiceSize; if (vo["upper"] > 0) { e.p.vowelF3 = vt.f3 / vt.voiceSize; e.p.vowelF4 = vt.f4 / vt.voiceSize; } }
                 if (vlog != nullptr)
-                    std::fprintf (vlog, "f %.5f %.1f %d %d %.2f %.1f %.1f %.1f %.3f %.2f %.1f %.1f\n", t, vt.levelDb, (int) vt.open, (int) vt.state, vt.voiced, vt.pitchHz, vt.f1, vt.f2, vt.vowel, vt.vowelFit, vt.f3, vt.f4);
+                    std::fprintf (vlog, "f %.5f %.1f %d %d %.2f %.1f %.1f %.1f %.3f %.2f %.1f %.1f %.3f %.2f\n", t, vt.levelDb, (int) vt.open, (int) vt.state, vt.voiced, vt.pitchHz, vt.f1, vt.f2, vt.vowel, vt.vowelFit, vt.f3, vt.f4, vt.pitchNote, vt.periodicity);
             }
         }
         out[n] = e.tickHost();

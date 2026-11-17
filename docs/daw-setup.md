@@ -27,6 +27,12 @@ is documented to work and nobody has tried it here yet.
 - **Audio as modulation (untested).** An Audio Sidechain modulator on any Vane parameter needs nothing from the
   plugin, but it bypasses the voice tracker: level only, no vowels or consonants.
 
+- **Voice Pitch and notes from the host.** With Voice Pitch on, the voice plays the notes and Vane ignores notes
+  from the host, so a Note Receiver left on the track cannot add a second set of notes to the one mono voice.
+- **Bitwig sets the pitch-bend range of channel 1 to 48** (as for any MPE plugin). Vane used to assume 2 there,
+  so every bend, Voice Pitch's included, came out 24 times too large: the sound jumped about, sat an octave or so
+  high and clipped. Vane now reads the range the host set.
+
 ## Logic Pro
 - **Vane FX as a MIDI-controlled effect (untested).** Create a *Software Instrument* track. In its Instrument slot
   choose **AU MIDI-controlled Effects > Enkerli > Vane FX**. In the plugin window's header, set **Side Chain** to

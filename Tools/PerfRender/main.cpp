@@ -33,7 +33,7 @@ int main (int argc, char** argv)
     if (argc < 3) { std::fprintf (stderr, "usage: %s perf.txt out.wav [sampleRate] [seconds]\n", argv[0]); return 2; }
     juce::ScopedJuceInitialiser_GUI juceInit;
     const double sr = argc > 3 ? std::atof (argv[3]) : 48000.0;
-    const int bs = 256;
+    const int bs = std::getenv ("VANE_BLOCK") ? std::max (16, std::atoi (std::getenv ("VANE_BLOCK"))) : 256;   // a host's block size
 
     std::vector<Ev> evs;
     std::ifstream in (argv[1]);
@@ -102,6 +102,9 @@ int main (int argc, char** argv)
     proc.prepareToPlay (sr, bs);
     juce::AudioBuffer<float> buf (2, bs);
     const int total = (int) (secs * sr);
+    // VANE_MIDI_OUT=file.txt: what the plugin sends out, one line per event: <seconds> <description>
+    std::FILE* midiOut = nullptr;
+    if (const char* mo = std::getenv ("VANE_MIDI_OUT")) midiOut = std::fopen (mo, "w");
     juce::AudioBuffer<float> out (2, total);
     size_t k = 0;
     auto t0 = std::chrono::steady_clock::now();
@@ -127,8 +130,12 @@ int main (int argc, char** argv)
         if (voice.getNumSamples() > 0)
             for (int i = 0; i < n; ++i) buf.setSample (0, i, pos + i < voice.getNumSamples() ? voice.getSample (0, pos + i) : 0.0f);
         proc.processBlock (buf, midi);
+        if (midiOut != nullptr)
+            for (const auto meta : midi)
+                std::fprintf (midiOut, "%.5f %s\n", (pos + meta.samplePosition) / sr, meta.getMessage().getDescription().toRawUTF8());
         for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, buf, c, 0, n);
     }
+    if (midiOut != nullptr) std::fclose (midiOut);
     const double cpu = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
     float peak = out.getMagnitude (0, total);
     std::printf ("rendered %.1f s at %.0f Hz in %.1f s (%.0f%% of real time); peak %.3f\n", secs, sr, cpu, 100 * cpu / secs, peak);
