@@ -148,6 +148,30 @@ with `pluginkit -m -v | grep -i vane` and remove it with `pluginkit -r <path to 
 Not checked in any DAW yet: which hosts show the side chain on an instrument, and how each routes MIDI to
 an effect.
 
+## The voice on the wavetable oscillator (2026-11-16)
+The Voice controls first acted only on the reed models. With the oscillator as the sound (Reed / Bore Engine off):
+
+| Control | On the oscillator |
+|---|---|
+| Voice Breath Follow | The voice's loudness is the level (blended with the VCA routes by the amount). Without it, and with no velocity or VCA route, the oscillator is silent: this is what makes a voice patch speak |
+| Voice Tongue | Silent while the mouth is closed, a fresh attack (from zero) at each consonant |
+| Voice Vowel Strength | The voice's F1 and F2 set the global **Vowel** filter (F1 opens it, F2 fronts it, in its own ranges: 270 to 850 Hz and 700 to 2300 Hz), at that strength, with the Vowel filter's Round, Bite and Move. It works whether or not the filter is switched on, and keeps the last vowel through a rest. On WindCore it goes into the model's mouth instead, as before |
+| Voice Pitch, Slew, Bend, Transpose, MIDI Out | As on the reed |
+
+On any source, a consonant with Voice Tongue on also fires the **Transient** layer (its attack sample, pitch
+resonator and noise-to-tone morph), as a note start does.
+
+**Level matching.** Band-passing a bright wave down to a vowel lost 7 dB at strength 0.6 and 16 dB at 1 on the test
+recording (more on a dark, low note, which is mostly its fundamental). When the voice drives the Vowel filter it now
+brings the output back to the input's loudness (power followers over about 25 ms, up to +18 dB, held through
+silence and while the filter rings up at a note start). Measured over the recording: within 0.4 dB at 0.6; at 1,
+-4 to +2.5 dB (5th to 95th percentile of 50 ms frames) with peaks up to +7 dB on resonant vowels, so full strength
+is peakier. The Vowel filter used on its own is unchanged.
+
+Presets (`VanePresetGen Wavetable`): **Wavetable - Voice** (a bright wave, loudness, tongue, vowel 0.6, the Tongue
+attack sample at consonants, pitch from the voice in Glide at 25 ms) and **Wavetable - Talkbox** (notes and chords
+from MIDI at their velocity, the voice only shaping the vowel at 0.85). The browser engine does the same.
+
 ## Next
 - **More formants, and widths.** The tracker could report a fifth formant and each resonance's bandwidth, and the
   engine could draw a resonance per formant with its own width: a continuous, multidimensional vowel in place of

@@ -156,6 +156,8 @@ VaneProcessor::VaneProcessor()
     pVoiceTranspose   = apvts.getRawParameterValue("voiceTranspose");
     pVoicePitchBend   = apvts.getRawParameterValue("voicePitchBend");
     pVoicePitchSlew   = apvts.getRawParameterValue("voicePitchSlew");
+    pVoiceVowelRaw    = apvts.getRawParameterValue("voiceVowel");
+    pWaveguideOnRaw2  = apvts.getRawParameterValue("waveguideOn");
     pVoiceMidiOut     = apvts.getRawParameterValue("voiceMidiOut");
     pNonMPEPBRangeRaw = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
@@ -921,8 +923,29 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     const auto  vMode = (pVowelMode && pVowelMode->load() > 0.5f)
                         ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel;
     formantL.setMode(vMode);  formantR.setMode(vMode);
-    formantL.setParams(vOpen, vFrnt, vRnd, vAmt, vRes, vMov);
-    formantR.setParams(vOpen, vFrnt, vRnd, vAmt, vRes, vMov);
+    // Voice Vowel on a source with no mouth of its own (the oscillator, MiniSax): the voice's formants set this
+    // filter's vowel (F1 opens it, F2 fronts it) at the Voice Vowel strength, level-matched. WindCore takes
+    // the vowel into its own mouth instead (SynthVoice).
+    float fOpen = vOpen, fFrnt = vFrnt, fAmt = vAmt; auto fMode = vMode; bool fMatch = false;
+    {
+        const float vv = pVoiceVowelRaw != nullptr ? pVoiceVowelRaw->load() : 0.0f;
+        const bool wgOn = pWaveguideOnRaw2 != nullptr && pWaveguideOnRaw2->load() > 0.5f;
+        const bool reedMouth = wgOn && pWaveguideModelRaw != nullptr && pWaveguideModelRaw->load() > 0.5f;   // WindCore
+        if (vv > 0.001f && ! reedMouth && modMatrix.voiceInput.active.load(std::memory_order_relaxed)) {
+            const auto& vin = modMatrix.voiceInput;
+            const float f1 = vin.f1.load(std::memory_order_relaxed), f2 = vin.f2.load(std::memory_order_relaxed);
+            // the filter's own ranges: F1 270..850 Hz, F2 700..2300 Hz (it keeps the last vowel through a rest)
+            fOpen = juce::jlimit(0.0f, 1.0f, std::log2(juce::jmax(1.0f, f1) / 270.0f) / std::log2(850.0f / 270.0f));
+            fFrnt = juce::jlimit(0.0f, 1.0f, std::log2(juce::jmax(1.0f, f2) / 700.0f) / std::log2(2300.0f / 700.0f));
+            fAmt  = vv;
+            fMode = FormantFilter::Mode::Vowel;
+            fMatch = true;
+        }
+    }
+    formantL.setMode(fMode);  formantR.setMode(fMode);
+    formantL.setLevelMatch(fMatch);  formantR.setLevelMatch(fMatch);
+    formantL.setParams(fOpen, fFrnt, vRnd, fAmt, vRes, vMov);
+    formantR.setParams(fOpen, fFrnt, vRnd, fAmt, vRes, vMov);
 
     // Apply master output level per-sample so automation ramps smoothly, then the
     // formant (pass-through when amount==0).

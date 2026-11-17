@@ -681,6 +681,43 @@ void vane_set_cc (int cc, float v01) {
 // Triggers (or, in mono, retargets) the sounding voice for `note`. Shared by a
 // fresh physical note-on AND a mono stack reattach (releasing the top note
 // reveals the next one down) — both go through the same legato/glide decision.
+// The transient layer's attack sample (with its pitch resonator and noise-to-tone morph): at a note start, and
+// at a consonant from a voice on the input (Voice Tongue), on any sound source. SynthVoice::fireTransient.
+static void fireTransient (Voice& v, float targetHz) {
+    if (pTrChoice <= 0 || pTrChoice >= (int) gTransients.size()) return;
+    TrEntry& ts = gTransients[(size_t) pTrChoice];
+    if (ts.data.size() >= 2) {
+        const float pitchTrack = ts.pitched
+            ? std::clamp (targetHz / ts.nativeHz, 0.125f, 8.0f) : 1.0f;
+        float speedRatio = pitchTrack * (float) (ts.srcRate / gSampleRate);
+        auto rnd = [&v]() {
+            v.noiseWhiteState = v.noiseWhiteState * 6364136223846793005ULL
+                                                  + 1442695040888963407ULL;
+            return (float) ((int32_t) (v.noiseWhiteState >> 33)) / 2147483648.0f;
+        };
+        v.trGainMul  = 1.0f + pTrVar * 0.30f * rnd();
+        speedRatio  *= 1.0f + pTrVar * 0.05f * rnd();
+        int startOff = 0;
+        if (! ts.pitched) {
+            const float u = 0.5f * (rnd() + 1.0f);
+            startOff = (int) (pTrVar * u * 0.004f * ts.srcRate);
+        }
+        v.trPlayer.setSample (ts.data.data(), (int) ts.data.size());
+        v.trEnvLevel = 1.0f;
+        v.trPlayer.trigger (speedRatio, startOff);
+        v.trReso.reset();
+        v.trReso.setTuning (targetHz > 0.0f ? targetHz : 110.0f);
+        v.trResoActive = true; v.trResoSilent = 0;
+        // Noise→tone morph: duck the note body so the oscillator
+        // emerges from under the transient (TrMorph ms ramp).
+        if (pTrMorph > 0.5f) {
+            v.oscMorphRamp  = 0.0f;
+            v.oscMorphInc   = 1.0f / (pTrMorph * 0.001f * (float) gSampleRate);
+            v.oscMorphArmed = true;
+        } else { v.oscMorphRamp = 1.0f; v.oscMorphArmed = false; }
+    }
+}
+
 void startNote (int note, int vel, int channel) {
     int idx;
     bool legato = false;
@@ -822,39 +859,7 @@ void startNote (int note, int vel, int channel) {
     // offset (up to ~4 ms) so repeated hits stop sounding like a loop.
     if (pTrChoice > 0 && pTrChoice < (int) gTransients.size()) {
         const bool shouldTrigger = (pTrTrigger == 0) || ! legato;
-        if (shouldTrigger) {
-            TrEntry& ts = gTransients[(size_t) pTrChoice];
-            if (ts.data.size() >= 2) {
-                const float pitchTrack = ts.pitched
-                    ? std::clamp (targetHz / ts.nativeHz, 0.125f, 8.0f) : 1.0f;
-                float speedRatio = pitchTrack * (float) (ts.srcRate / gSampleRate);
-                auto rnd = [&v]() {
-                    v.noiseWhiteState = v.noiseWhiteState * 6364136223846793005ULL
-                                                          + 1442695040888963407ULL;
-                    return (float) ((int32_t) (v.noiseWhiteState >> 33)) / 2147483648.0f;
-                };
-                v.trGainMul  = 1.0f + pTrVar * 0.30f * rnd();
-                speedRatio  *= 1.0f + pTrVar * 0.05f * rnd();
-                int startOff = 0;
-                if (! ts.pitched) {
-                    const float u = 0.5f * (rnd() + 1.0f);
-                    startOff = (int) (pTrVar * u * 0.004f * ts.srcRate);
-                }
-                v.trPlayer.setSample (ts.data.data(), (int) ts.data.size());
-                v.trEnvLevel = 1.0f;
-                v.trPlayer.trigger (speedRatio, startOff);
-                v.trReso.reset();
-                v.trReso.setTuning (targetHz > 0.0f ? targetHz : 110.0f);
-                v.trResoActive = true; v.trResoSilent = 0;
-                // Noise→tone morph: duck the note body so the oscillator
-                // emerges from under the transient (TrMorph ms ramp).
-                if (pTrMorph > 0.5f) {
-                    v.oscMorphRamp  = 0.0f;
-                    v.oscMorphInc   = 1.0f / (pTrMorph * 0.001f * (float) gSampleRate);
-                    v.oscMorphArmed = true;
-                } else { v.oscMorphRamp = 1.0f; v.oscMorphArmed = false; }
-            }
-        }
+        if (shouldTrigger) fireTransient (v, targetHz);
     } else { v.oscMorphArmed = false; v.oscMorphRamp = 1.0f; }
 }
 
@@ -1253,8 +1258,21 @@ void vane_render (int n) {
         }
 
         // Dest application — mirrors SynthVoice::renderNextBlock:
-        const float vcaTarget      = v.holding ? v.holdVca
+        float vcaTarget            = v.holding ? v.holdVca
                                                : clamp01 (pVelVCA * std::sqrt (v.vel) + mods[0]);
+        // A voice on the input: on the oscillator, Voice Breath Follow makes its loudness the level and Voice
+        // Tongue silences it while the mouth is closed and re-attacks it at each consonant; on any source a
+        // consonant with Voice Tongue on fires the transient layer (SynthVoice::renderNextBlock).
+        if (gInActive) {
+            const bool tongueOn = pVoiceTongue > 0.5f;
+            const bool onset = tongueOn && gVin.open && gVin.onset && ! v.releasing;
+            if (! gWgOn && ! v.holding) {
+                if (pVoiceBreath > 0.001f) vcaTarget = (1.0f - pVoiceBreath) * vcaTarget + pVoiceBreath * gVin.follow;
+                if (tongueOn && ! gVin.open) vcaTarget = 0.0f;
+                if (onset) v.vca = 0.0f;
+            }
+            if (onset) fireTransient (v, v.currentHz);
+        }
         const float targetCutoffHz = pCutoff * std::pow (2.0f, mods[1] * 5.0f);   // ±5 octaves
         const float resonance      = clamp01 (pReso + mods[2]);
         // Per-voice oscillator character — THIS is what makes morph per-note:
@@ -1631,7 +1649,18 @@ void vane_render (int n) {
     const float vOpen = clamp01 (pVowelPos + gVowelPosMod);
     for (auto* f : { &gFormantL, &gFormantR }) {
         f->setMode (gVowelMode ? FormantFilter::Mode::Wah : FormantFilter::Mode::Vowel);
-        f->setParams (vOpen, pVowFront, pVowRound, gVowelEn ? pVowAmt : 0.0f, pVowBite, pVowMove);
+        float fOpen = vOpen, fFront = pVowFront, fAmt = gVowelEn ? pVowAmt : 0.0f;
+        f->setLevelMatch (false);
+        // Voice Vowel on a source with no mouth of its own (the oscillator, MiniSax): F1 opens this filter, F2
+        // fronts it, at the Voice Vowel strength while the mouth is open (PluginProcessor's vowel stage).
+        if (gInActive && pVoiceVowel > 0.001f && ! (gWgOn && gWgModel == 1)) {
+            fOpen  = clamp01 (std::log2 (std::max (1.0f, gVin.f1) / 270.0f) / std::log2 (850.0f / 270.0f));
+            fFront = clamp01 (std::log2 (std::max (1.0f, gVin.f2) / 700.0f) / std::log2 (2300.0f / 700.0f));
+            fAmt   = pVoiceVowel;            // the filter keeps the last vowel through a rest
+            f->setMode (FormantFilter::Mode::Vowel);
+            f->setLevelMatch (true);
+        }
+        f->setParams (fOpen, fFront, pVowRound, fAmt, pVowBite, pVowMove);
     }
 
     for (int s = 0; s < n; ++s) {

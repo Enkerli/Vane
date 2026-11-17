@@ -420,6 +420,8 @@ private:
     std::atomic<float>* pVoiceTranspose = nullptr;
     std::atomic<float>* pVoicePitchBend = nullptr;
     std::atomic<float>* pVoicePitchSlew = nullptr;
+    std::atomic<float>* pVoiceVowelRaw = nullptr;
+    std::atomic<float>* pWaveguideOnRaw2 = nullptr;     // (the private branch has its own pWaveguideOnRaw)
     std::atomic<float>* pVoiceMidiOut = nullptr;
     std::atomic<float>* pNonMPEPBRangeRaw = nullptr;
     std::atomic<float>* pWaveguideModelRaw = nullptr;
