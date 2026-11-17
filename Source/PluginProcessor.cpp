@@ -129,6 +129,7 @@ VaneProcessor::VaneProcessor()
                 v->setWaveguideHandoff(&lastWaveguideVoice);
                 v->setWaveguideModel(apvts.getRawParameterValue("waveguideModel"));
                 v->setWindCore(&windCharacter);
+                v->setMasterBendRange(&masterBendRange);
                 v->setVoiceParams(apvts.getRawParameterValue("voiceTongue"), apvts.getRawParameterValue("voiceChiff"), apvts.getRawParameterValue("voiceVowel"), apvts.getRawParameterValue("voiceBreath"), apvts.getRawParameterValue("voiceUpper"));
                 v->setGlideLUT(glideLUT.data());
                 v->setChordParams(apvts.getRawParameterValue("unisonMode"),
@@ -932,6 +933,12 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     room.process(L, R, buffer.getNumSamples());
 
     pushSpectrumSamples (L, buffer.getNumSamples());   // real FFT of the output
+
+    // The master pitch-bend range as the host left it, for the voices' channel-1 bend (see SynthVoice).
+    {
+        const auto zone = synth.getZoneLayout().getLowerZone();
+        masterBendRange.store(zone.isActive() ? (float) zone.masterPitchbendRange : 2.0f, std::memory_order_relaxed);
+    }
 
     // MIDI out: only what the voice made (incoming MIDI is not passed through). With Voice MIDI Out on, its
     // notes and bends, plus its expression: loudness as CC2 (breath), back-to-front vowel as CC74, the

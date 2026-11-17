@@ -160,12 +160,12 @@ void SynthVoice::noteStarted()
 
     // Channel-1 (non-MPE master channel): JUCE never writes note.pitchbend for
     // master-channel PB — only totalPitchbendInSemitones is updated.
-    // For the lower zone with default masterPitchbendRange = 2:
-    //   totalPitchbendInSemitones = normalizedPB × 2
-    // Dividing by 2 recovers normalizedPB in −1..1.
+    //   totalPitchbendInSemitones = normalizedPB × the lower zone's masterPitchbendRange
+    // Dividing by that range recovers normalizedPB in −1..1. The range is 2 unless the host sets it: an MPE host
+    // (Bitwig, with CLAP) sets it to 48, and dividing by a fixed 2 then made every bend 24 times too large.
     // Member channels: use note.pitchbend.asSignedFloat() as usual.
     pitchbend = (note.midiChannel <= 1)
-                ? static_cast<float>(note.totalPitchbendInSemitones) / 2.0f
+                ? static_cast<float>(note.totalPitchbendInSemitones) / masterBendRange()
                 : note.pitchbend.asSignedFloat();
 
     baseHz    = tuning.noteToHz(note.initialNote, note.midiChannel);
@@ -612,11 +612,11 @@ void SynthVoice::notePitchbendChanged()
 {
     // Channel-1 (non-MPE): JUCE updates totalPitchbendInSemitones at each PB event
     // but never touches note.pitchbend, which stays at the note-on value (typically 0).
-    // Divide totalPitchbendInSemitones by the lower zone's masterPitchbendRange (2)
+    // Divide totalPitchbendInSemitones by the lower zone's masterPitchbendRange (2 unless the host sets it)
     // to recover the normalised −1..1 value.
     // Member channels: note.pitchbend is updated per-event as normal.
     pitchbend = (currentlyPlayingNote.midiChannel <= 1)
-                ? static_cast<float>(currentlyPlayingNote.totalPitchbendInSemitones) / 2.0f
+                ? static_cast<float>(currentlyPlayingNote.totalPitchbendInSemitones) / masterBendRange()
                 : currentlyPlayingNote.pitchbend.asSignedFloat();
 
     // baseHz is intentionally NOT re-queried here.  It was set in noteStarted()
