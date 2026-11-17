@@ -27,6 +27,10 @@ is documented to work and nobody has tried it here yet.
 - **Audio as modulation (untested).** An Audio Sidechain modulator on any Vane parameter needs nothing from the
   plugin, but it bypasses the voice tracker: level only, no vowels or consonants.
 
+- **Voice Pitch and notes from the host.** With Voice Pitch on, the voice plays the notes and Vane ignores notes
+  from the host. Before that rule, a Note Receiver left on the track fed a second set of notes into the one mono
+  voice, which in one test made the sound jump about, sit about an octave high and clip.
+
 ## Logic Pro
 - **Vane FX as a MIDI-controlled effect (untested).** Create a *Software Instrument* track. In its Instrument slot
   choose **AU MIDI-controlled Effects > Enkerli > Vane FX**. In the plugin window's header, set **Side Chain** to

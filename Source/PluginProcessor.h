@@ -412,6 +412,7 @@ private:
     // Voice Pitch (docs/pitch-tracking.md): the voice's pitch plays notes on channel 1, with the rest as pitch bend.
     windcore::VoiceNotes voiceNotes;
     juce::MidiBuffer     voiceMidi;                    // this block's notes from the voice (to the synth, and out)
+    juce::MidiBuffer     hostMidiKept;                 // with Voice Pitch on: the host's MIDI without its notes
     int voiceCC2 = -1, voiceCC74 = -1;                 // last expression values sent out
     std::atomic<float>* pVoicePitch = nullptr;         // 0 off, 1 notes, 2 glide
     std::atomic<float>* pVoiceTranspose = nullptr;

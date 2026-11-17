@@ -211,7 +211,7 @@ void VaneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     modMatrix.prepare(sampleRate, samplesPerBlock);
     voiceTracker.prepare(sampleRate);
     voiceWasActive = false;
-    voiceNotes.reset(); voiceMidi.ensureSize(4096); voiceCC2 = voiceCC74 = -1;
+    voiceNotes.reset(); voiceMidi.ensureSize(4096); hostMidiKept.ensureSize(8192); voiceCC2 = voiceCC74 = -1;
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* v = dynamic_cast<SynthVoice*>(synth.getVoice(i)))
@@ -725,6 +725,16 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         }
     }
     buffer.clear();
+    // With Voice Pitch on, the voice owns the notes: notes from the host (a Note Receiver, a keyboard) are
+    // dropped, so two note sources cannot fight over one mono voice; its controllers and expression stay.
+    if (voicePitchMode > 0 && modMatrix.voiceInput.active.load(std::memory_order_relaxed)) {
+        hostMidiKept.clear();
+        for (const auto meta : midi) {
+            const auto m = meta.getMessage();
+            if (! m.isNoteOnOrOff()) hostMidiKept.addEvent(m, meta.samplePosition);
+        }
+        midi.swapWith(hostMidiKept);
+    }
     // the voice's notes play the synth like any incoming MIDI (they are merged before the MIDI is read below)
     if (! voiceMidi.isEmpty()) midi.addEvents(voiceMidi, 0, buffer.getNumSamples(), 0);
 

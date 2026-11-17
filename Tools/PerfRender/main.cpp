@@ -33,7 +33,7 @@ int main (int argc, char** argv)
     if (argc < 3) { std::fprintf (stderr, "usage: %s perf.txt out.wav [sampleRate] [seconds]\n", argv[0]); return 2; }
     juce::ScopedJuceInitialiser_GUI juceInit;
     const double sr = argc > 3 ? std::atof (argv[3]) : 48000.0;
-    const int bs = 256;
+    const int bs = std::getenv ("VANE_BLOCK") ? std::max (16, std::atoi (std::getenv ("VANE_BLOCK"))) : 256;   // a host's block size
 
     std::vector<Ev> evs;
     std::ifstream in (argv[1]);
