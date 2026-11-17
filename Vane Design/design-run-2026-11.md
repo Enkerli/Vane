@@ -48,7 +48,8 @@ Stage views: Sources (controller and voice lines), Spectrum, Outputs (modulation
 1. **One group holds everything about the reed** (about 55 controls), including things that are not the reed:
    synthetic breath and the whole voice input.
 2. **Three vowels** that look alike and are not: the global *Vowel* filter (any sound), WindCore's *Mouth* (its own
-   resonances), and *Voice vowel* (your formants driving that mouth). Nothing explains which is which.
+   resonances), and *Voice vowel* (your formants driving that mouth, or on the oscillator the global Vowel
+   filter). Nothing explains which is which.
 3. **Four breaths**: a controller's breath (CC2 / pressure via the breath macro), *Synthetic breath* (for
    keyboards), *Voice breath follow*, and *Input 1/2* as control voltages. They combine in ways the panel does
    not show (synthetic breath stands down once a real controller speaks; voice follow multiplies).
@@ -71,7 +72,7 @@ Stage views: Sources (controller and voice lines), Spectrum, Outputs (modulation
 | Sound source | Oscillator **or** reed model, never both; the filter, vowel filter, transient layer and room apply to either |
 | Reed model's loudness | Comes from breath (no VCA routing); the matrix's VCA routes only shape the oscillator |
 | Breath | max(controller breath, expression, pressure, synthetic breath, velocity mix) × voice breath follow |
-| Voice controls | Need an audio input; act on the reed model (WindCore; private builds: other models too) |
+| Voice controls | Need an audio input; act on the reed model (WindCore; private builds: other models too) and on the oscillator (loudness, tongue; the vowel then drives the global Vowel filter) |
 | Voice pitch | Plays the notes; host notes are then ignored; bend uses the host's pitch-bend range |
 | Mouth (WindCore) | Set by Mouth shape/strength, or replaced by Voice vowel while a voice sounds; also a matrix destination |
 | Tuning | MTS-ESP or internal tuning; voice pitch could snap to its degrees (not yet) |
@@ -101,7 +102,7 @@ Stage views: Sources (controller and voice lines), Spectrum, Outputs (modulation
 |---|---|---|
 | Wind controller | WindCore Attack, WindCore Chiffy, Talking Horn, Sine to Brass | The reed's range, breath shaping the tone |
 | Keyboard | (to make) a WindCore patch with synthetic breath and velocity, a wavetable lead | Playable without breath |
-| Voice | WindCore Voice (tongue, vowel, breath), Voice Glide (pitch follow, slew 25 ms), Voice Vowels (colour only) | The voice input's three uses |
+| Voice | WindCore Voice (tongue, vowel, breath), Voice Glide (pitch follow, slew 25 ms), Voice Vowels (colour only), Wavetable - Voice, Wavetable - Talkbox (chords from MIDI, vowel from the voice) | The voice input's uses, on either source |
 | Control voltage | CV Mouth and Air | Input 1/2 |
 | Chords | (to make) a rotating-chord reed patch | Chords on the reed |
 Each preset: a one-line description, the controller it expects, and which section it lives in.

@@ -217,6 +217,30 @@ int main (int argc, char** argv) {
         route (p, 1, 20, 21, 1.0f);                                            // Input 2 → Wind Mouth
     });
 
+    // ── The voice on the wavetable oscillator (docs/voice-input.md) ──────────────────────────────────────────
+    // A bright wavetable, its loudness from the voice, consonants re-attack it and fire the Tongue attack sample,
+    // vowels set the Vowel filter (level-matched). Pitch follows the voice (Glide, 25 ms slew). No voice, no sound.
+    make ("Wavetable - Voice", [](VaneProcessor& p){
+        setAll (p, {
+        { "waveguideOn", 0.0f }, { "monoMode", 1.0f }, { "velocityMix", 0.0f }, { "outputLevel", 0.7f },
+        { "oscMorphPos", 1.0f }, { "filterCutoff", 9000.0f }, { "filterRes", 0.15f }, { "filterMode", 0.0f },
+        { "voicePitch", 2.0f }, { "voicePitchSlew", 25.0f }, { "voiceBreath", 1.0f }, { "voiceTongue", 1.0f }, { "voiceVowel", 0.6f },
+        { "transientChoice", 6.0f }, { "transientGain", 0.5f }, { "transientDynamics", 0.5f }, { "transientResonate", 0.4f },
+        { "roomMix", 0.2f }
+        });
+    });
+
+    // Talkbox: notes and chords from MIDI (velocity is the level); the voice only shapes the vowel, strongly. Output
+    // is lower: a chord of bright waves through resonant vowels has high peaks.
+    make ("Wavetable - Talkbox", [](VaneProcessor& p){
+        setAll (p, {
+        { "waveguideOn", 0.0f }, { "monoMode", 0.0f }, { "velocityMix", 1.0f }, { "outputLevel", 0.35f },
+        { "oscMorphPos", 1.0f }, { "filterCutoff", 12000.0f }, { "filterRes", 0.1f }, { "filterMode", 0.0f },
+        { "voicePitch", 0.0f }, { "voiceBreath", 0.0f }, { "voiceTongue", 0.0f }, { "voiceVowel", 0.85f },
+        { "roomMix", 0.15f }
+        });
+    });
+
     std::printf ("Done → ~/Library/Vane/Presets/\n");
     return 0;
 }

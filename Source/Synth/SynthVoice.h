@@ -143,6 +143,8 @@ public:
     // Wire the transient library (owned by VaneProcessor, shared across all voices).
     // Safe to call before prepare() — used in the processor constructor.
     void setTransientLibrary(const TransientLibrary* lib) noexcept { transientLib = lib; }
+    /** Start the transient layer's attack sample now (a note start, or a consonant on the voice input). */
+    void fireTransient();
 
     // Wire the waveguide (MiniSax) APVTS pointers.  When `on` reads > 0.5 the
     // MiniSax reed/bore engine replaces the wavetable oscillator as the voice's

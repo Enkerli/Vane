@@ -37,7 +37,7 @@ public:
     void reset()
     {
         for (auto& b : band) b = BiquadState{};
-        drift = 0.0f;
+        drift = 0.0f; pIn = pOut = 0.0f; matchGain = 1.0f;
     }
 
     // Articulatory vowel axes (all 0..1): open (close→open, drives F1), front
@@ -55,6 +55,11 @@ public:
     }
 
     void setMode (Mode m) noexcept { mode = m; }
+
+    // Level match: bring the output back up to the input's loudness (slow power followers, up to +18 dB, never
+    // down, over about 25 ms). Band-passing a source to a vowel can lose 15 dB or more, most of all on a low, dark note; the voice
+    // input turns this on when it drives the vowel, so its strength changes the colour and not the level.
+    void setLevelMatch (bool on) noexcept { levelMatch = on; }
 
     // Per-sample.  Returns dry when amount==0 (and is effectively bypassable by
     // the caller when the stage is disabled).
@@ -91,7 +96,19 @@ public:
             wet *= outTrim;
         }
 
-        return x + amount * (wet - x);
+        float y = x + amount * (wet - x);
+        if (levelMatch)
+        {
+            const float c = 1.0f - std::exp (-1.0f / (0.025f * sr));   // about 25 ms
+            pIn  += c * (x * x - pIn);
+            pOut += c * (y * y - pOut);
+            // the gain holds through silence and while the band-passes are still ringing up at a note start
+            // (output far below input), so two followers near zero never make a burst
+            if (pIn > 1.0e-7f && pOut > 0.003f * pIn)
+                matchGain += c * (juce::jlimit (1.0f, 8.0f, std::sqrt (pIn / pOut)) - matchGain);
+            y *= matchGain;
+        }
+        return y;
     }
 
 private:
@@ -175,6 +192,8 @@ private:
     float gLin[N] { 1, 1, 1 };
 
     float sr = 48000.0f;
+    bool  levelMatch = false;
+    float pIn = 0.0f, pOut = 0.0f, matchGain = 1.0f;
     float amount = 0.0f, reso = 0.5f, move = 0.0f;
     float front = 0.5f, round = 0.0f;
     float targetPos = 0.0f, lastPos = -1.0f, lastFront = -1.0f, lastRound = -1.0f, lastReso = -1.0f;

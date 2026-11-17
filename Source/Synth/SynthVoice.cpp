@@ -523,65 +523,7 @@ void SynthVoice::noteStarted()
             ? static_cast<int>(std::round(paramTransientTrigger->load())) : 1;
         bool shouldTrigger = (triggerMode == 0) || !isLegato;  // 0=Always, 1=Non-legato
 
-        if (shouldTrigger) {
-            int choice = static_cast<int>(std::round(paramTransientChoice->load()));
-            if (const TransientSample* ts = transientLib->getSample(choice)) {
-                // Pitched (tonal) samples track the note: speed = voiceHz / nativeHz.
-                // Inharmonic (noise) samples play at a fixed speed — the attack is
-                // identical across the keyboard and there is no harmonic series to
-                // smear under transposition.  Both still correct for sample-rate.
-                const float pitchTrack = ts->pitched
-                    ? juce::jlimit(0.125f, 8.0f, baseHz / ts->nativeHz)
-                    : 1.0f;
-                float speedRatio = pitchTrack
-                                   * static_cast<float>(ts->sampleRate / sampleRate);
-
-                // ── Per-trigger variation (round-robin) ──────────────────────────────
-                // Decorrelate successive hits so a fixed sample stops sounding like a
-                // looped object: jitter gain, micro-pitch, and (for noise) the start
-                // offset, which reads a fresh excerpt.  Uses the per-voice noise LCG.
-                const float var = paramTransientVariation ? paramTransientVariation->load() : 0.0f;
-                auto rnd = [this]() {   // uniform in [-1, 1]
-                    noiseWhiteState = noiseWhiteState * 6364136223846793005ULL
-                                                      + 1442695040888963407ULL;
-                    return static_cast<float>(static_cast<int32_t>(noiseWhiteState >> 33))
-                           / 2147483648.0f;
-                };
-                transientGainMul = 1.0f + var * 0.30f * rnd();        // ~±2.5 dB at var=1
-                speedRatio      *= 1.0f + var * 0.05f * rnd();         // ±5% micro-pitch
-                // Start offset only for inharmonic noise (no defined attack to skip);
-                // up to ~4 ms of fresh excerpt.  Tonal samples keep their onset intact.
-                int startOff = 0;
-                if (!ts->pitched) {
-                    const float u = 0.5f * (rnd() + 1.0f);             // [0,1]
-                    startOff = static_cast<int>(var * u * 0.004f * static_cast<float>(ts->sampleRate));
-                }
-
-                transientPlayer.setSample(ts->buffer.getReadPointer(0),
-                                          ts->buffer.getNumSamples());
-                transientEnvLevel = 1.0f;
-                transientFilter.reset();   // clear stale state from a previous note
-                transientPlayer.trigger(speedRatio, startOff);
-
-                // Pitch resonator: tune to the played note so the noise rings at
-                // its pitch (Karplus-Strong excitation → harmonic fusion).
-                transientReso.reset();
-                transientReso.setTuning(baseHz > 0.0f ? baseHz : 110.0f);
-                transientResoActive = true;
-                transientResoSilent = 0;
-
-                // Noise→tone morph: arm the note-body fade-in so the oscillator
-                // emerges from under the transient instead of starting alongside it.
-                const float morphMs = paramTransientMorph ? paramTransientMorph->load() : 0.0f;
-                if (morphMs > 0.5f) {
-                    oscMorphRamp  = 0.0f;
-                    oscMorphInc   = 1.0f / (morphMs * 0.001f * static_cast<float>(sampleRate));
-                    oscMorphArmed = true;
-                } else {
-                    oscMorphRamp = 1.0f; oscMorphArmed = false;
-                }
-            }
-        }
+        if (shouldTrigger) fireTransient();
     }
 
     tailLevel    = 1.0f;
@@ -714,6 +656,26 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
     float veloMix  = paramVelocityMix ? paramVelocityMix->load() : 0.0f;
     float vcaLevel = std::clamp(veloMix * std::sqrt(velocity)
                                 + mods[ModDestID::VCALevel], 0.0f, 1.0f);
+    // A voice on the audio input (docs/voice-input.md). On the oscillator, Voice Breath Follow makes its loudness the
+    // level (the reed models take it as breath instead, below), and Voice Tongue silences it while the mouth is closed
+    // and re-attacks it at each consonant. On any source, a consonant with Voice Tongue on fires the transient layer.
+    {
+        const auto& vinO = modMatrix.voiceInput;
+        const bool wgOnHere = paramWgOn != nullptr && paramWgOn->load() > 0.5f;
+        if (vinO.active.load(std::memory_order_relaxed)) {
+            const bool tongueOn = paramVoiceTongue != nullptr && paramVoiceTongue->load() > 0.5f;
+            const bool open = vinO.open.load(std::memory_order_relaxed);
+            const bool onset = tongueOn && open && vinO.onsetThisBlock.load(std::memory_order_relaxed) && ! isTailingOff;
+            if (! wgOnHere) {
+                const float follow = paramVoiceBreath != nullptr ? paramVoiceBreath->load() : 0.0f;
+                if (follow > 0.001f)
+                    vcaLevel = (1.0f - follow) * vcaLevel + follow * vinO.follow.load(std::memory_order_relaxed);
+                if (tongueOn && ! open) vcaLevel = 0.0f;
+                if (onset) smoothedVCA.setCurrentAndTargetValue(0.0f);     // the attack starts again from nothing
+            }
+            if (onset) fireTransient();
+        }
+    }
     smoothedVCA.setTargetValue(vcaLevel);
 
     // Pitch: pitchbend + mod matrix fine tune + detune, as a per-block multiplier
@@ -1334,5 +1296,69 @@ void SynthVoice::renderNextBlock(juce::AudioBuffer<float>& buffer,
         filterR.getState(r1, r2);
         sharedFilterRS1->store(r1);
         sharedFilterRS2->store(r2);
+    }
+}
+
+// The transient layer's attack sample (and the pitch resonator and noise-to-tone morph it arms): at a note start,
+// and at a consonant from a voice on the input (Voice Tongue), on any sound source.
+void SynthVoice::fireTransient()
+{
+    if (paramTransientGain == nullptr || transientLib == nullptr || paramTransientChoice == nullptr) return;
+    int choice = static_cast<int>(std::round(paramTransientChoice->load()));
+    if (const TransientSample* ts = transientLib->getSample(choice)) {
+        // Pitched (tonal) samples track the note: speed = voiceHz / nativeHz.
+        // Inharmonic (noise) samples play at a fixed speed — the attack is
+        // identical across the keyboard and there is no harmonic series to
+        // smear under transposition.  Both still correct for sample-rate.
+        const float pitchTrack = ts->pitched
+            ? juce::jlimit(0.125f, 8.0f, baseHz / ts->nativeHz)
+            : 1.0f;
+        float speedRatio = pitchTrack
+                           * static_cast<float>(ts->sampleRate / sampleRate);
+
+        // ── Per-trigger variation (round-robin) ──────────────────────────────
+        // Decorrelate successive hits so a fixed sample stops sounding like a
+        // looped object: jitter gain, micro-pitch, and (for noise) the start
+        // offset, which reads a fresh excerpt.  Uses the per-voice noise LCG.
+        const float var = paramTransientVariation ? paramTransientVariation->load() : 0.0f;
+        auto rnd = [this]() {   // uniform in [-1, 1]
+            noiseWhiteState = noiseWhiteState * 6364136223846793005ULL
+                                              + 1442695040888963407ULL;
+            return static_cast<float>(static_cast<int32_t>(noiseWhiteState >> 33))
+                   / 2147483648.0f;
+        };
+        transientGainMul = 1.0f + var * 0.30f * rnd();        // ~±2.5 dB at var=1
+        speedRatio      *= 1.0f + var * 0.05f * rnd();         // ±5% micro-pitch
+        // Start offset only for inharmonic noise (no defined attack to skip);
+        // up to ~4 ms of fresh excerpt.  Tonal samples keep their onset intact.
+        int startOff = 0;
+        if (!ts->pitched) {
+            const float u = 0.5f * (rnd() + 1.0f);             // [0,1]
+            startOff = static_cast<int>(var * u * 0.004f * static_cast<float>(ts->sampleRate));
+        }
+
+        transientPlayer.setSample(ts->buffer.getReadPointer(0),
+                                  ts->buffer.getNumSamples());
+        transientEnvLevel = 1.0f;
+        transientFilter.reset();   // clear stale state from a previous note
+        transientPlayer.trigger(speedRatio, startOff);
+
+        // Pitch resonator: tune to the played note so the noise rings at
+        // its pitch (Karplus-Strong excitation → harmonic fusion).
+        transientReso.reset();
+        transientReso.setTuning(baseHz > 0.0f ? baseHz : 110.0f);
+        transientResoActive = true;
+        transientResoSilent = 0;
+
+        // Noise→tone morph: arm the note-body fade-in so the oscillator
+        // emerges from under the transient instead of starting alongside it.
+        const float morphMs = paramTransientMorph ? paramTransientMorph->load() : 0.0f;
+        if (morphMs > 0.5f) {
+            oscMorphRamp  = 0.0f;
+            oscMorphInc   = 1.0f / (morphMs * 0.001f * static_cast<float>(sampleRate));
+            oscMorphArmed = true;
+        } else {
+            oscMorphRamp = 1.0f; oscMorphArmed = false;
+        }
     }
 }
