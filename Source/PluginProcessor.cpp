@@ -154,6 +154,7 @@ VaneProcessor::VaneProcessor()
     pVowelMode      = apvts.getRawParameterValue("vowelMode");
     pVoicePitch       = apvts.getRawParameterValue("voicePitch");
     pVoiceTranspose   = apvts.getRawParameterValue("voiceTranspose");
+    pVoicePitchBend   = apvts.getRawParameterValue("voicePitchBend");
     pVoiceMidiOut     = apvts.getRawParameterValue("voiceMidiOut");
     pNonMPEPBRangeRaw = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
@@ -650,14 +651,17 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             bool onset = false;
             double sumA = 0.0, sumB = 0.0;
             for (int i = 0; i < n; ++i) {
-                onset |= voiceTracker.process(b != nullptr ? 0.5f * (a[i] + b[i]) : a[i]);
+                const bool on1 = voiceTracker.process(b != nullptr ? 0.5f * (a[i] + b[i]) : a[i]);
+                onset |= on1; voiceOnsetSinceFrame |= on1;
                 sumA += a[i]; if (b != nullptr) sumB += b[i];
                 if (voicePitchMode > 0 && voiceTracker.frameReady) {
                     voiceNotes.glide = voicePitchMode == 2;
                     voiceNotes.transpose = pVoiceTranspose != nullptr ? pVoiceTranspose->load() : 0.0f;
+                    voiceNotes.bendAmount = pVoicePitchBend != nullptr ? pVoicePitchBend->load() : 0.4f;
                     windcore::VoiceNotes::Event evs[3];
                     const int ne = voiceNotes.process(voiceTracker.pitchNote, voiceTracker.periodicity, voiceTracker.open,
-                                                      (float) (voiceTracker.hopSeconds()), evs);
+                                                      (float) (voiceTracker.hopSeconds()), evs, voiceOnsetSinceFrame);
+                    voiceOnsetSinceFrame = false;
                     for (int k = 0; k < ne; ++k) voiceEvent(evs[k], i);
                 }
             }
@@ -1688,6 +1692,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
         juce::ParameterID{"voicePitch", 1}, "Voice Pitch", juce::StringArray{"Off", "Notes", "Glide"}, 0));
     layout.add(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"voiceTranspose", 1}, "Voice Transpose", -36, 36, 0));
+    // How much of the sung pitch's wander around each note goes out as bend: 0 = locked to the note (a keyboard),
+    // 1 = all of it (every scoop and waver). Glide mode always passes all of it.
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voicePitchBend", 1}, "Voice Pitch Bend",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.4f));
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"voiceMidiOut", 1}, "Voice MIDI Out", false));
     layout.add(std::make_unique<juce::AudioParameterFloat>(

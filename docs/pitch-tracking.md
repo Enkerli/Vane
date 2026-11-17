@@ -33,6 +33,17 @@ gives 15 notes in notes mode, 1 in glide mode. A whisper still starts 2 false no
 - Checked: sung melodies with no MIDI notes into `VanePerfRender` (`VANE_VOICE`, and `VANE_MIDI_OUT=file` to log
   what comes out): 9 of 9, 9 of 9 and 6 of 6 notes out, instrument in tune with the voice within about 10 cents.
 
+## Against a real voice (2026-11-16)
+A singing-voice editor's transcription of one real recording (20 notes, D2 to B2) as the reference
+(`tools/voicein_vs_reference.py voice.wav reference.mid`). The voice wanders about +-80 cents within a note, centred
+on it, and the first version made 47 notes (29 extra: flipping between neighbours) and passed all the wander as
+bend, which sounded like searching. Now: an octave check in the tracker (a voice can repeat as well at two periods
+as at one); after a consonant the next steady pitch picks the note at once, and in between a change needs 0.75
+semitone held 50 ms; Voice Pitch Bend (0..1, 0.4 by default) sets how much of the wander is heard. Result: 18 extra,
+10 of 20 matching the reference's pitch (12 before; 4 differ, some where the voice itself sits between notes).
+Synthetic melodies: 90 of 96 notes, notes about 25 ms later than before. A tighter setting (0.9 semitone, 70 ms)
+leaves 11 extra at about 125 ms. Listening examples: WindBenchy 15-voice-pitch (not in the repository).
+
 ## Next steps, in order
 1. **Play it live**, Vane FX on an audio track with nothing else: the whole point, and nothing above replaces it.
 2. **Hosts.** MIDI out from an instrument or an effect is routed differently in each host; extend

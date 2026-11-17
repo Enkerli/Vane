@@ -974,6 +974,7 @@ void vane_set_param (int id, float val) {
         case 92: pVoiceBreath = val; break;
         case 93: pVoicePitch  = (int) (val + 0.5f); break;
         case 94: pVoiceTranspose = val; break;
+        case 95: gVN.bendAmount = clamp01 (val); break;
         default:
             if (id >= kWindParam0 && id < kWindParam0 + windcore::Character::kNum) {
                 gWindPos[id - kWindParam0] = clamp01 (val); gWindDirty = true;
@@ -1102,15 +1103,18 @@ void vane_render (int n) {
     exprSlewer.setStep (n);
     // Voice input: follow the voice on the input for this quantum, and play its notes (Voice Pitch).
     gVin.onset = false;
+    bool onsetSinceFrame = false;
     if (gInActive) {
         double sum = 0.0;
         for (int s = 0; s < n; ++s) {
-            gVin.onset |= gVT.process (gInBuf[s]);
+            const bool on1 = gVT.process (gInBuf[s]);
+            gVin.onset |= on1; onsetSinceFrame |= on1;
             sum += gInBuf[s];
             if (pVoicePitch > 0 && gVT.frameReady) {
                 gVN.glide = pVoicePitch == 2; gVN.transpose = pVoiceTranspose;
                 windcore::VoiceNotes::Event ev[3];
-                const int ne = gVN.process (gVT.pitchNote, gVT.periodicity, gVT.open, (float) gVT.hopSeconds(), ev);
+                const int ne = gVN.process (gVT.pitchNote, gVT.periodicity, gVT.open, (float) gVT.hopSeconds(), ev, onsetSinceFrame);
+                onsetSinceFrame = false;
                 for (int k = 0; k < ne; ++k) {
                     using E = windcore::VoiceNotes::Event;
                     if (ev[k].type == E::kNoteOn)  vane_note_on (ev[k].note, (int) clampf (30.0f + 97.0f * gVin.follow, 1.0f, 127.0f), 1);

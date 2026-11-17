@@ -197,6 +197,16 @@ private:
                 if (dn[L] < pitchDip && dn[L] <= dn[L - 1] && dn[L] <= dn[L + 1]) { best = L; bestV = dn[L]; break; }
             if (best == 0)
                 for (int L = lo; L < hi; ++L) if (dn[L] < bestV) { bestV = dn[L]; best = L; }
+            // Octave check: a real voice often repeats about as well every two periods as every one, and the
+            // longer one can win. If half the lag is also a clear dip, the pitch is the higher one.
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                const int h = best / 2;
+                if (h <= lo) break;
+                int hb = h; for (int L = std::max (lo, h - 2); L <= std::min (hi - 1, h + 2); ++L) if (dn[L] < dn[hb]) hb = L;
+                if (dn[hb] < std::max (2.0f * pitchDip, bestV + 0.15f) && dn[hb] <= dn[hb - 1] && dn[hb] <= dn[hb + 1]) { best = hb; bestV = dn[hb]; }
+                else break;
+            }
             periodicity = std::clamp (1.0f - bestV, 0.0f, 1.0f);
             voiced = open ? std::clamp ((periodicity - 0.45f) / 0.35f, 0.0f, 1.0f) : 0.0f;
             if (voiced >= 0.5f && best > lo && best < hi - 1)
