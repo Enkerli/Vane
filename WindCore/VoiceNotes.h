@@ -38,8 +38,10 @@ public:
     int   legatoFrames  = 10;      // 50 ms
     float bendAmount    = 0.4f;    // share of the pitch's wander around the note that goes out as bend (0 = locked to the note)
     float bendSmooth    = 0.04f;   // s, smoothing of that bend
-    bool  glide         = false;   // true: one note per phrase, and the bend carries the whole melody
-    float glideRange    = 24.0f;   // semitones the bend may reach in glide mode
+    bool  glide         = false;   // true: the played pitch follows the sung one continuously (slewed), with no re-attacks:
+                                   // the note changes underneath, as a slur, only to keep the bend within bendRange
+    float bendRange     = 2.0f;    // semitones the bend can express (the synth's pitch-bend range)
+    float slew          = 0.04f;   // s, glide mode: how smoothly the played pitch follows the sung one
     /** Optional: the note a pitch belongs to (a scale, a tuning's degrees). Default: the nearest semitone. */
     int (*quantise) (float pitchNote, void* context) = nullptr;
     void* quantiseContext = nullptr;
@@ -83,17 +85,30 @@ public:
         if (note < 0)
         {
             if (! still) return 0;
-            note = pick (centre); bend = (glide ? 1.0f : bendAmount) * (centre - (float) note); bendS = bend; away = 0;
+            note = pick (centre); bend = (glide ? 1.0f : bendAmount) * (centre - (float) note); bendS = bend; away = 0; glideS = centre;
             out[count++] = { Event::kNoteOn, note, bend };
             out[count++] = { Event::kBend, note, bend };
             return count;
         }
-        const float dev = p - (float) note;
         if (glide)
         {
-            setBend (std::clamp (dev, -glideRange, glideRange), out, count);
+            // one-pole slew on the sung pitch (after a 3-frame median, which removes single-frame tracker slips)
+            const float med = n >= 3 ? median3 (hist[n - 3], hist[n - 2], hist[n - 1]) : p;
+            glideS += (1.0f - std::exp (-dt / std::max (0.001f, slew))) * (med - glideS);
+            float d = glideS - (float) note;
+            if (std::abs (d) > 0.8f * bendRange)
+            {
+                // re-centre: a slur to the nearest note, with the bend carrying the rest, so nothing jumps
+                const int old = note; note = (int) std::lround (glideS); d = glideS - (float) note;
+                bend = d; out[count++] = { Event::kNoteOn, note, bend };
+                out[count++] = { Event::kNoteOff, old, 0 };
+                out[count++] = { Event::kBend, note, bend };
+                return count;
+            }
+            if (std::abs (d - bend) >= 0.01f) { bend = d; out[count++] = { Event::kBend, note, bend }; }
             return count;
         }
+        const float dev = p - (float) note;
         const bool afterConsonant = sinceOnset < 0.25f;      // a new syllable: the note may change readily
         const float threshold = afterConsonant ? changeSemis : legatoSemis;
         if (std::abs (dev) > threshold)
@@ -120,7 +135,8 @@ public:
 
 private:
     static constexpr int kHist = 16;
-    float hist[kHist] = {}; int n = 0, away = 0; float silent = 0, sinceOnset = 1e9f, lastDt = 0.005f, bendS = 0;
+    float hist[kHist] = {}; int n = 0, away = 0; float silent = 0, sinceOnset = 1e9f, lastDt = 0.005f, bendS = 0, glideS = 0;
+    static float median3 (float a, float b, float c) { return std::max (std::min (a, b), std::min (std::max (a, b), c)); }
 
     int pick (float pitch) const { return quantise != nullptr ? quantise (pitch, quantiseContext) : (int) std::lround (pitch); }
     void setBend (float b, Event* out, int& count)

@@ -115,7 +115,7 @@ int main (int argc, char** argv)
     Engine e; int rate = 48000; std::string cal, probe, curves, voicePath, voiceLog; static Character ch; bool useCh = false;
     std::vector<std::pair<float Params::*, float>> named;
     std::map<std::string, float> vo { { "vowel", 0 }, { "formants", 0 }, { "tongue", 0 }, { "chiff", 0 }, { "breath", 0 }, { "gain", 1 },
-                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 }, { "upper", 0 }, { "notes", 0 }, { "transpose", 0 }, { "bend", -1 }, { "legato", 0 }, { "legatoms", 0 }, { "minper", 0 } };
+                                      { "rise", 0 }, { "open", 0 }, { "close", 0 }, { "size", 0 }, { "smooth", 0 }, { "emphasis", -1 }, { "dip", 0 }, { "upper", 0 }, { "notes", 0 }, { "transpose", 0 }, { "bend", -1 }, { "legato", 0 }, { "legatoms", 0 }, { "minper", 0 }, { "slew", 0 } };
     for (int i = 3; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -233,7 +233,7 @@ int main (int argc, char** argv)
     const bool vTongue = vo["tongue"] > 0;
     int heldNotes = 0; float depthS = 0, breathS = 0;
     bool onsetSinceFrame = false;
-    VoiceNotes vn; if (vo["bend"] >= 0) vn.bendAmount = vo["bend"]; if (vo["legato"] > 0) vn.legatoSemis = vo["legato"]; if (vo["legatoms"] > 0) vn.legatoFrames = (int) std::lround (vo["legatoms"] / 5.0f); if (vo["minper"] > 0) vn.minPeriodicity = vo["minper"]; vn.transpose = vo["transpose"]; vn.glide = vo["notes"] > 1.5f; const bool vNotes = vo["notes"] > 0;
+    VoiceNotes vn; if (vo["bend"] >= 0) vn.bendAmount = vo["bend"]; if (vo["legato"] > 0) vn.legatoSemis = vo["legato"]; if (vo["legatoms"] > 0) vn.legatoFrames = (int) std::lround (vo["legatoms"] / 5.0f); if (vo["minper"] > 0) vn.minPeriodicity = vo["minper"]; if (vo["slew"] > 0) vn.slew = vo["slew"] / 1000.0f; vn.bendRange = 24.0f; vn.transpose = vo["transpose"]; vn.glide = vo["notes"] > 1.5f; const bool vNotes = vo["notes"] > 0;
 
     e.prepare (rate);
     const size_t N = (size_t) (tEnd * rate) + 1;

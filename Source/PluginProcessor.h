@@ -419,6 +419,7 @@ private:
     std::atomic<float>* pVoicePitch = nullptr;         // 0 off, 1 notes, 2 glide
     std::atomic<float>* pVoiceTranspose = nullptr;
     std::atomic<float>* pVoicePitchBend = nullptr;
+    std::atomic<float>* pVoicePitchSlew = nullptr;
     std::atomic<float>* pVoiceMidiOut = nullptr;
     std::atomic<float>* pNonMPEPBRangeRaw = nullptr;
     std::atomic<float>* pWaveguideModelRaw = nullptr;

@@ -44,6 +44,15 @@ semitone held 50 ms; Voice Pitch Bend (0..1, 0.4 by default) sets how much of th
 Synthetic melodies: 90 of 96 notes, notes about 25 ms later than before. A tighter setting (0.9 semitone, 70 ms)
 leaves 11 extra at about 125 ms. Listening examples: WindBenchy 15-voice-pitch (not in the repository).
 
+### Glide follows the voice (2026-11-16)
+The reference editor's render of the same recording follows the sung pitch curve within 13 cents median: it keeps
+the voice's movement rather than snapping it to notes, which is why it sounds in tune and in sync. Locking to the
+notes moves away from it (Notes at bend 0: 39 cents). Glide mode now follows the sung pitch continuously through a
+3-frame median and a one-pole slew (Voice Pitch Slew, 40 ms by default), with no re-attacks: the note changes
+underneath, as a slur, only to keep the bend within the pitch-bend range. Against the render: Glide 10 ms 20 cents,
+25 ms 21, 40 ms 22, 80 ms 25 (`tools/voicein_vs_render.py`). The measure does not hear "searching"; ears decide.
+Glide trails the voice by 40 to 60 ms (the tracker's window); the editor works offline and has no lag.
+
 ## Next steps, in order
 1. **Play it live**, Vane FX on an audio track with nothing else: the whole point, and nothing above replaces it.
 2. **Hosts.** MIDI out from an instrument or an effect is routed differently in each host; extend

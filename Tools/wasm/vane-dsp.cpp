@@ -975,6 +975,7 @@ void vane_set_param (int id, float val) {
         case 93: pVoicePitch  = (int) (val + 0.5f); break;
         case 94: pVoiceTranspose = val; break;
         case 95: gVN.bendAmount = clamp01 (val); break;
+        case 96: gVN.slew = 0.001f * clampf (val, 1.0f, 300.0f); break;
         default:
             if (id >= kWindParam0 && id < kWindParam0 + windcore::Character::kNum) {
                 gWindPos[id - kWindParam0] = clamp01 (val); gWindDirty = true;
@@ -1111,7 +1112,7 @@ void vane_render (int n) {
             gVin.onset |= on1; onsetSinceFrame |= on1;
             sum += gInBuf[s];
             if (pVoicePitch > 0 && gVT.frameReady) {
-                gVN.glide = pVoicePitch == 2; gVN.transpose = pVoiceTranspose;
+                gVN.glide = pVoicePitch == 2; gVN.transpose = pVoiceTranspose; gVN.bendRange = std::max (1.0f, pBendRange);
                 windcore::VoiceNotes::Event ev[3];
                 const int ne = gVN.process (gVT.pitchNote, gVT.periodicity, gVT.open, (float) gVT.hopSeconds(), ev, onsetSinceFrame);
                 onsetSinceFrame = false;

@@ -155,6 +155,7 @@ VaneProcessor::VaneProcessor()
     pVoicePitch       = apvts.getRawParameterValue("voicePitch");
     pVoiceTranspose   = apvts.getRawParameterValue("voiceTranspose");
     pVoicePitchBend   = apvts.getRawParameterValue("voicePitchBend");
+    pVoicePitchSlew   = apvts.getRawParameterValue("voicePitchSlew");
     pVoiceMidiOut     = apvts.getRawParameterValue("voiceMidiOut");
     pNonMPEPBRangeRaw = apvts.getRawParameterValue("nonMPEPBRange");
     pMacroBreathSrc = apvts.getRawParameterValue("macroBreathSrc");
@@ -658,6 +659,8 @@ void VaneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                     voiceNotes.glide = voicePitchMode == 2;
                     voiceNotes.transpose = pVoiceTranspose != nullptr ? pVoiceTranspose->load() : 0.0f;
                     voiceNotes.bendAmount = pVoicePitchBend != nullptr ? pVoicePitchBend->load() : 0.4f;
+                    voiceNotes.slew = 0.001f * (pVoicePitchSlew != nullptr ? pVoicePitchSlew->load() : 40.0f);
+                    voiceNotes.bendRange = pbRange;
                     windcore::VoiceNotes::Event evs[3];
                     const int ne = voiceNotes.process(voiceTracker.pitchNote, voiceTracker.periodicity, voiceTracker.open,
                                                       (float) (voiceTracker.hopSeconds()), evs, voiceOnsetSinceFrame);
@@ -1690,6 +1693,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VaneProcessor::createParamet
     // bend; Glide = one note per phrase, the whole melody as bend. Notes go out on channel 1 like incoming MIDI.
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"voicePitch", 1}, "Voice Pitch", juce::StringArray{"Off", "Notes", "Glide"}, 0));
+    // Glide: how smoothly the played pitch follows the sung one, in ms (smaller follows closer, larger is steadier).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"voicePitchSlew", 1}, "Voice Pitch Slew",
+        juce::NormalisableRange<float>(1.0f, 300.0f, 0.0f, 0.5f), 40.0f));
     layout.add(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"voiceTranspose", 1}, "Voice Transpose", -36, 36, 0));
     // How much of the sung pitch's wander around each note goes out as bend: 0 = locked to the note (a keyboard),
